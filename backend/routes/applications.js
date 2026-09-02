@@ -4,8 +4,10 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const pool = require('../config/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { sendEmail } = require('../utils/email');
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -170,9 +172,21 @@ router.post('/', upload.fields([
 // Admin: Get all pending applications
 router.get('/', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const [applications] = await pool.query(
-      'SELECT * FROM registration_applications WHERE status = "pending" ORDER BY submitted DESC'
-    );
+    const { status } = req.query;
+    let query = 'SELECT * FROM registration_applications';
+    const params = [];
+
+    if (status === 'approved') {
+      query += ' WHERE status = "approved"';
+    } else if (status === 'rejected') {
+      query += ' WHERE status = "rejected"';
+    } else {
+      query += ' WHERE status = "pending"';
+    }
+
+    query += ' ORDER BY submitted DESC';
+
+    const [applications] = await pool.query(query, params);
     res.json(applications);
   } catch (error) {
     console.error('Get applications error:', error);
@@ -256,65 +270,62 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
     const expiry = new Date(joined);
     expiry.setMonth(expiry.getMonth() + 3);
 
-    // Generate temporary password for worker
-    const tempPassword = Math.random().toString(36).slice(-8);
-    const passwordHash = await bcrypt.hash(tempPassword, 10);
+    // Generate setup token (24 hour expiry)
+    const setupToken = crypto.randomBytes(32).toString('hex');
+    const tokenExpiry = new Date();
+    tokenExpiry.setHours(tokenExpiry.getHours() + 24);
 
-    // Insert worker
+    // Store setup token
     await connection.query(
-      `INSERT INTO workers 
-      (id, name, phone, email, location, role, rate, joined, expiry, address, nid, status, password_hash) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
-      [workerId, application.name, application.phone, application.email, application.location,
-       application.applied_for, application.rate, joined, expiry, application.address, application.nid, passwordHash]
+      `INSERT INTO password_reset_tokens 
+      (email, worker_id, token, token_type, expires_at) 
+      VALUES (?, ?, ?, 'setup', ?)`,
+      [application.email, workerId, setupToken, tokenExpiry]
     );
 
-    // Move related data from application to worker
+    // Update application status and store worker info temporarily
     await connection.query(
-      'UPDATE worker_previous_addresses SET worker_id = ?, application_id = NULL WHERE application_id = ?',
-      [workerId, req.params.id]
+      `UPDATE registration_applications 
+      SET status = "approved", 
+          worker_id = ?, 
+          worker_joined = ?, 
+          worker_expiry = ?,
+          approval_token = ? 
+      WHERE id = ?`,
+      [workerId, joined, expiry, setupToken, req.params.id]
     );
 
-    await connection.query(
-      'UPDATE worker_employment_history SET worker_id = ?, application_id = NULL WHERE application_id = ?',
-      [workerId, req.params.id]
-    );
+    // Send email with setup link
+    const setupLink = `${process.env.FRONTEND_URL || 'http://localhost:8080'}/setup-password?token=${setupToken}`;
+    const emailHtml = `
+      <h2>Welcome to WorkHR!</h2>
+      <p>Your application has been approved and your worker account has been created.</p>
+      <p><strong>Worker Code:</strong> ${workerId}</p>
+      <p><strong>Join Date:</strong> ${joined.toISOString().split('T')[0]}</p>
+      <p><strong>Expiry Date:</strong> ${expiry.toISOString().split('T')[0]}</p>
+      <p>To set your password and complete your account setup, click the link below:</p>
+      <p><a href="${setupLink}" style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Set Up Your Password</a></p>
+      <p>This link will expire in 24 hours.</p>
+      <p>If you did not request this, please ignore this email.</p>
+    `;
 
-    await connection.query(
-      'UPDATE worker_referees SET worker_id = ?, application_id = NULL WHERE application_id = ?',
-      [workerId, req.params.id]
-    );
+    await sendEmail({
+      to: application.email,
+      subject: `Welcome to WorkHR - Your Worker Account: ${workerId}`,
+      html: emailHtml,
+      text: `Your WorkHR application has been approved. Worker Code: ${workerId}. Set your password at: ${setupLink}`
+    });
 
-    await connection.query(
-      'UPDATE worker_qualifications SET worker_id = ?, application_id = NULL WHERE application_id = ?',
-      [workerId, req.params.id]
-    );
-
-    // Update application status
-    await connection.query(
-      'UPDATE registration_applications SET status = "approved" WHERE id = ?',
-      [req.params.id]
-    );
-
-    // Create user account for worker
-    await connection.query(
-      'INSERT INTO users (name, email, password_hash, role, worker_id) VALUES (?, ?, ?, "worker", ?)',
-      [application.name, application.email, passwordHash, workerId]
-    );
-
-    // Log notification
-    await connection.query(
-      'INSERT INTO notifications (id, worker, worker_id, message, urgency, occurred_at) VALUES (?, ?, ?, ?, "info", "Just now")',
-      [`N-${Date.now()}`, application.name, workerId, `Approved — worker code ${workerId} issued`]
-    );
+    // Skip notification for now - worker doesn't exist yet
+    // Will be added after password setup
 
     await connection.commit();
     res.json({
       id: workerId,
       expiry: expiry.toISOString().split('T')[0],
       workerId,
-      message: 'Application approved successfully',
-      tempPassword // In production, send this via email
+      message: 'Application approved successfully. Setup link sent to worker email.',
+      setupLink: setupLink // Include for testing
     });
   } catch (error) {
     await connection.rollback();
@@ -349,16 +360,105 @@ router.post('/:id/reject', requireAuth, requireAdmin, async (req, res) => {
       [req.params.id]
     );
 
-    // Log notification
-    await pool.query(
-      'INSERT INTO notifications (id, worker, message, urgency, occurred_at) VALUES (?, ?, ?, "info", "Just now")',
-      [`N-${Date.now()}`, applications[0].name, 'Application rejected']
-    );
-
     res.json({ message: 'Application rejected successfully' });
   } catch (error) {
     console.error('Reject application error:', error);
     res.status(500).json({ error: 'Server error during rejection' });
+  }
+});
+
+// Admin: Resend verification link
+router.post('/:id/resend-setup', requireAuth, requireAdmin, async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    await connection.beginTransaction();
+
+    const [applications] = await pool.query(
+      'SELECT * FROM registration_applications WHERE id = ?',
+      [req.params.id]
+    );
+
+    if (applications.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Application not found' });
+    }
+
+    const application = applications[0];
+
+    if (application.status !== 'approved' || !application.worker_id) {
+      await connection.rollback();
+      return res.status(400).json({ error: 'Application must be approved before resending setup link' });
+    }
+
+    // Check if worker already exists
+    const [existingWorkers] = await connection.query(
+      'SELECT * FROM workers WHERE id = ?',
+      [application.worker_id]
+    );
+
+    if (existingWorkers.length > 0) {
+      await connection.rollback();
+      return res.status(400).json({ error: 'Worker account already exists and has completed setup' });
+    }
+
+    // Invalidate old tokens for this email
+    await connection.query(
+      'UPDATE password_reset_tokens SET used_at = NOW() WHERE email = ? AND token_type = "setup"',
+      [application.email]
+    );
+
+    // Generate new setup token (24 hour expiry)
+    const setupToken = crypto.randomBytes(32).toString('hex');
+    const tokenExpiry = new Date();
+    tokenExpiry.setHours(tokenExpiry.getHours() + 24);
+
+    // Store new setup token
+    await connection.query(
+      `INSERT INTO password_reset_tokens 
+      (email, worker_id, token, token_type, expires_at) 
+      VALUES (?, ?, ?, 'setup', ?)`,
+      [application.email, application.worker_id, setupToken, tokenExpiry]
+    );
+
+    // Update application with new token
+    await connection.query(
+      'UPDATE registration_applications SET approval_token = ? WHERE id = ?',
+      [setupToken, req.params.id]
+    );
+
+    // Send email with new setup link
+    const setupLink = `${process.env.FRONTEND_URL || 'http://localhost:8080'}/setup-password?token=${setupToken}`;
+    const emailHtml = `
+      <h2>WorkHR Account Setup</h2>
+      <p>Your worker account has been created.</p>
+      <p><strong>Worker Code:</strong> ${application.worker_id}</p>
+      <p><strong>Join Date:</strong> ${application.worker_joined}</p>
+      <p><strong>Expiry Date:</strong> ${application.worker_expiry}</p>
+      <p>To set your password and complete your account setup, click the link below:</p>
+      <p><a href="${setupLink}" style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Set Up Your Password</a></p>
+      <p>This link will expire in 24 hours and replaces any previous setup links.</p>
+      <p>If you did not request this, please ignore this email.</p>
+    `;
+
+    await sendEmail({
+      to: application.email,
+      subject: `WorkHR Account Setup - Worker Code: ${application.worker_id}`,
+      html: emailHtml,
+      text: `Your WorkHR worker account has been created. Worker Code: ${application.worker_id}. Set your password at: ${setupLink}`
+    });
+
+    await connection.commit();
+    res.json({
+      message: 'Setup link resent successfully',
+      setupLink: setupLink // Include for testing
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error('Resend setup link error:', error);
+    res.status(500).json({ error: 'Server error during resend' });
+  } finally {
+    connection.release();
   }
 });
 

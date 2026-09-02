@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as RegisterRouteImport } from './routes/register'
+import { Route as SetupPasswordRouteImport } from './routes/setup-password'
 import { Route as WorkerRouteImport } from './routes/worker'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminApprovalsRouteImport } from './routes/admin.approvals'
@@ -40,6 +41,11 @@ const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
 const RegisterRoute = RegisterRouteImport.update({
   id: '/register',
   path: '/register',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SetupPasswordRoute = SetupPasswordRouteImport.update({
+  id: '/setup-password',
+  path: '/setup-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const WorkerRoute = WorkerRouteImport.update({
@@ -117,6 +123,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
+  '/setup-password': typeof SetupPasswordRoute
   '/worker': typeof WorkerRouteWithChildren
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/attendance': typeof AdminAttendanceRoute
@@ -136,6 +143,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
+  '/setup-password': typeof SetupPasswordRoute
   '/worker': typeof WorkerRouteWithChildren
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/attendance': typeof AdminAttendanceRoute
@@ -156,6 +164,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
+  '/setup-password': typeof SetupPasswordRoute
   '/worker': typeof WorkerRouteWithChildren
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/attendance': typeof AdminAttendanceRoute
@@ -177,6 +186,7 @@ export interface FileRouteTypes {
     | '/'
     | '/forgot-password'
     | '/register'
+    | '/setup-password'
     | '/worker'
     | '/admin/approvals'
     | '/admin/attendance'
@@ -196,6 +206,7 @@ export interface FileRouteTypes {
     | '/'
     | '/forgot-password'
     | '/register'
+    | '/setup-password'
     | '/worker'
     | '/admin/approvals'
     | '/admin/attendance'
@@ -215,6 +226,7 @@ export interface FileRouteTypes {
     | '/'
     | '/forgot-password'
     | '/register'
+    | '/setup-password'
     | '/worker'
     | '/admin/approvals'
     | '/admin/attendance'
@@ -235,6 +247,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   RegisterRoute: typeof RegisterRoute
+  SetupPasswordRoute: typeof SetupPasswordRoute
   WorkerRoute: typeof WorkerRouteWithChildren
   AdminApprovalsRoute: typeof AdminApprovalsRoute
   AdminAttendanceRoute: typeof AdminAttendanceRoute
@@ -271,6 +284,13 @@ declare module '@tanstack/react-router' {
       path: '/register'
       fullPath: '/register'
       preLoaderRoute: typeof RegisterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/setup-password': {
+      id: '/setup-password'
+      path: '/setup-password'
+      fullPath: '/setup-password'
+      preLoaderRoute: typeof SetupPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/worker': {
@@ -389,6 +409,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
   RegisterRoute: RegisterRoute,
+  SetupPasswordRoute: SetupPasswordRoute,
   WorkerRoute: WorkerRouteWithChildren,
   AdminApprovalsRoute: AdminApprovalsRoute,
   AdminAttendanceRoute: AdminAttendanceRoute,

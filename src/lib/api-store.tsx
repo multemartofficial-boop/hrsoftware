@@ -191,6 +191,23 @@ function useApiState() {
     }
   };
 
+  const loadAllApplications = async () => {
+    setLoading({ ...loading, applications: true });
+    setError(null);
+    try {
+      const pending = await apiClient.get<Application[]>('/api/applications');
+      const approved = await apiClient.get<Application[]>('/api/applications?status=approved');
+      setApplications([...pending, ...approved]);
+    } catch (err) {
+      if (!(err instanceof Error && err.message.includes('401'))) {
+        console.error('Failed to load applications:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load applications');
+      }
+    } finally {
+      setLoading({ ...loading, applications: false });
+    }
+  };
+
   const loadRejected = async () => {
     try {
       const data = await apiClient.get<Application[]>('/api/applications/rejected');
@@ -349,7 +366,7 @@ function useApiState() {
   useEffect(() => {
     if (session && session.role === 'admin' && authReady) {
       loadWorkers();
-      loadApplications();
+      loadAllApplications();
       loadRejected();
       loadAttendance();
       loadPayrolls();
@@ -439,9 +456,9 @@ function useApiState() {
 
   const approveApplication = async (id: string) => {
     try {
-      const response = await apiClient.post<{ id: string; expiry: string; workerId: string; message: string }>(`/api/applications/${id}/approve`, {});
+      const response = await apiClient.post<{ id: string; expiry: string; workerId: string; message: string; setupLink: string }>(`/api/applications/${id}/approve`, {});
       await loadApplications();
-      await loadWorkers();
+      // Don't load workers yet - they're not created until password setup
       return response;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to approve application');
@@ -456,6 +473,16 @@ function useApiState() {
       await loadRejected();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to reject application');
+    }
+  };
+
+  const resendSetupLink = async (id: string) => {
+    try {
+      const response = await apiClient.post<{ message: string; setupLink: string }>(`/api/applications/${id}/resend-setup`, {});
+      return response;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to resend setup link');
+      return null;
     }
   };
 
@@ -822,6 +849,7 @@ function useApiState() {
     submitApplication,
     approveApplication,
     rejectApplication,
+    resendSetupLink,
     addAttendance,
     updateAttendance,
     deleteAttendance,
@@ -858,6 +886,7 @@ function useApiState() {
     deleteOtherCost,
     loadWorkers,
     loadApplications,
+    loadAllApplications,
     loadAttendance,
     loadPayrolls,
     loadLocations,
