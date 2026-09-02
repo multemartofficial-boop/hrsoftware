@@ -3,6 +3,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Mail, Lock, AlertCircle, CheckCircle } from "lucide-react";
 import { inputCls } from "@/components/hr/bits";
 import { useApi } from "@/lib/api-store";
+import apiClient from "@/lib/api-client";
 
 export const Route = createFileRoute("/forgot-password")({
   head: () => ({
@@ -45,7 +46,8 @@ function ForgotPasswordPage() {
       }
       setSuccess(true);
     } catch (err: any) {
-      setError(err.message || 'Failed to send reset link');
+      // Temporary: API endpoint not yet implemented (Phase 5)
+      setError('Password reset feature coming soon. Please contact admin to reset your password.');
     } finally {
       setLoading(false);
     }

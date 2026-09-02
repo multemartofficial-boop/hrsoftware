@@ -87,6 +87,11 @@ router.post('/login', async (req, res) => {
 
     const user = users[0];
 
+    // Verify this is an admin account
+    if (user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required. This endpoint is for admin accounts only.' });
+    }
+
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
     if (!isValidPassword) {
