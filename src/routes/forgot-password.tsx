@@ -2,7 +2,6 @@ import { useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, Mail, Lock, AlertCircle, CheckCircle } from "lucide-react";
 import { inputCls } from "@/components/hr/bits";
-import { useApi } from "@/lib/api-store";
 import apiClient from "@/lib/api-client";
 
 export const Route = createFileRoute("/forgot-password")({
@@ -23,7 +22,6 @@ export const Route = createFileRoute("/forgot-password")({
 });
 
 function ForgotPasswordPage() {
-  const navigate = useNavigate();
   const [resetType, setResetType] = useState<'admin' | 'worker'>('admin');
   const [email, setEmail] = useState("");
   const [workerCode, setWorkerCode] = useState("");
