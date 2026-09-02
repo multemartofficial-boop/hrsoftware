@@ -270,10 +270,10 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
     const expiry = new Date(joined);
     expiry.setMonth(expiry.getMonth() + 3);
 
-    // Generate setup token (24 hour expiry)
+    // Generate setup token (48 hour expiry)
     const setupToken = crypto.randomBytes(32).toString('hex');
     const tokenExpiry = new Date();
-    tokenExpiry.setHours(tokenExpiry.getHours() + 24);
+    tokenExpiry.setHours(tokenExpiry.getHours() + 48);
 
     // Store setup token
     await connection.query(
@@ -305,7 +305,7 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
       <p><strong>Expiry Date:</strong> ${expiry.toISOString().split('T')[0]}</p>
       <p>To set your password and complete your account setup, click the link below:</p>
       <p><a href="${setupLink}" style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Set Up Your Password</a></p>
-      <p>This link will expire in 24 hours.</p>
+      <p>This link will expire in 48 hours.</p>
       <p>If you did not request this, please ignore this email.</p>
     `;
 
@@ -408,10 +408,10 @@ router.post('/:id/resend-setup', requireAuth, requireAdmin, async (req, res) => 
       [application.email]
     );
 
-    // Generate new setup token (24 hour expiry)
+    // Generate new setup token (48 hour expiry)
     const setupToken = crypto.randomBytes(32).toString('hex');
     const tokenExpiry = new Date();
-    tokenExpiry.setHours(tokenExpiry.getHours() + 24);
+    tokenExpiry.setHours(tokenExpiry.getHours() + 48);
 
     // Store new setup token
     await connection.query(
@@ -437,7 +437,7 @@ router.post('/:id/resend-setup', requireAuth, requireAdmin, async (req, res) => 
       <p><strong>Expiry Date:</strong> ${application.worker_expiry}</p>
       <p>To set your password and complete your account setup, click the link below:</p>
       <p><a href="${setupLink}" style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Set Up Your Password</a></p>
-      <p>This link will expire in 24 hours and replaces any previous setup links.</p>
+      <p>This link will expire in 48 hours and replaces any previous setup links.</p>
       <p>If you did not request this, please ignore this email.</p>
     `;
 
