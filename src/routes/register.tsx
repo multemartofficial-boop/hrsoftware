@@ -2,7 +2,7 @@ import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Sparkles, CheckCircle2, ArrowLeft, ArrowRight, Plus, Trash2 } from "lucide-react";
 import { Card, Field, PrimaryButton, GhostButton, inputCls } from "@/components/hr/bits";
-import { useHR } from "@/lib/hr-store";
+import { useApi } from "@/lib/api-store";
 
 export const Route = createFileRoute("/register")({
   head: () => ({
@@ -116,10 +116,11 @@ function Summary({ title, items }: { title: string; items: [string, string][] })
 const Req = () => <span className="text-danger"> *</span>;
 
 function RegisterPage() {
-  const { submitApplication, locations, settings } = useHR();
+  const { submitApplication, locations, settings, loading } = useApi();
   const [step, setStep] = useState(0);
   const [done, setDone] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const [f, setF] = useState({
     title: titles[0]!,
@@ -169,7 +170,7 @@ function RegisterPage() {
     beforeTo: "",
     beforeReason: "",
     availability: availabilityOptions[0]!,
-    rate: String(settings.hourlyRate),
+    rate: String(settings?.hourlyRate || 0),
   });
   const [prevAddresses, setPrevAddresses] = useState<Row[]>([]);
   const [employers, setEmployers] = useState<Row[]>([{ ...blankEmployer }]);
@@ -177,6 +178,7 @@ function RegisterPage() {
   const [skills, setSkills] = useState<Row[]>([]);
   const [prefLocations, setPrefLocations] = useState<string[]>([]);
   const [docUrls, setDocUrls] = useState<Record<string, string>>({});
+  const [fileObjects, setFileObjects] = useState<Record<string, File>>({});
 
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((s) => ({ ...s, [k]: e.target.value }));
   const setFile = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -187,11 +189,17 @@ function RegisterPage() {
         const { [k as string]: _drop, ...rest } = s;
         return rest;
       });
+      setFileObjects((s) => {
+        const { [k as string]: _drop, ...rest } = s;
+        return rest;
+      });
       return;
     }
     const reader = new FileReader();
     reader.onload = () => setDocUrls((s) => ({ ...s, [k as string]: String(reader.result) }));
     reader.readAsDataURL(file);
+    // Store the actual file object for FormData upload
+    setFileObjects((s) => ({ ...s, [k as string]: file }));
   };
   const rowSet = (
     setter: React.Dispatch<React.SetStateAction<Row[]>>,
@@ -202,20 +210,78 @@ function RegisterPage() {
 
   const pct = step * 25;
 
-  const submit = () => {
-    const fullName = `${f.forename} ${f.surname}`.trim();
-    const app = submitApplication({
-      name: fullName,
-      phone: f.mobile,
-      email: f.email,
-      address: [f.addr1, f.addr2, f.addr3, f.town, f.county, f.postcode, f.country].filter(Boolean).join(", "),
-      nid: f.ni,
-      appliedFor: VACANCY,
-      location: prefLocations[0] ?? locations[0]?.name ?? "",
-      rate: Number(f.rate) || settings.hourlyRate,
-      details: { ...f, prevAddresses, employers, referees, skills, prefLocations, docUrls },
-    });
-    setDone(app.id);
+  const submit = async () => {
+    setSubmitting(true);
+    try {
+      const formData = new FormData();
+      
+      // Add basic fields
+      formData.append('title', f.title);
+      formData.append('surname', f.surname);
+      formData.append('forename', f.forename);
+      formData.append('dob', f.dob);
+      formData.append('birthSurname', f.birthSurname);
+      formData.append('nameChangeDate', f.nameChangeDate);
+      formData.append('mobile', f.mobile);
+      formData.append('email', f.email);
+      formData.append('addr1', f.addr1);
+      formData.append('addr2', f.addr2);
+      formData.append('addr3', f.addr3);
+      formData.append('town', f.town);
+      formData.append('county', f.county);
+      formData.append('postcode', f.postcode);
+      formData.append('country', f.country);
+      formData.append('addressFrom', f.addressFrom);
+      formData.append('birthPlace', f.birthPlace);
+      formData.append('nationality', f.nationality);
+      formData.append('ni', f.ni);
+      formData.append('rtw', f.rtw);
+      formData.append('kinForename', f.kinForename);
+      formData.append('kinSurname', f.kinSurname);
+      formData.append('kinPhone', f.kinPhone);
+      formData.append('kinAddr1', f.kinAddr1);
+      formData.append('kinAddr2', f.kinAddr2);
+      formData.append('kinAddr3', f.kinAddr3);
+      formData.append('kinTown', f.kinTown);
+      formData.append('kinCounty', f.kinCounty);
+      formData.append('kinPostcode', f.kinPostcode);
+      formData.append('kinCountry', f.kinCountry);
+      formData.append('hasVisa', f.hasVisa);
+      formData.append('visaType', f.visaType);
+      formData.append('visaExpiry', f.visaExpiry);
+      formData.append('bankName', f.bankName);
+      formData.append('accountHolder', f.accountHolder);
+      formData.append('sortAccount', f.sortAccount);
+      formData.append('medical', f.medical);
+      formData.append('dietary', f.dietary);
+      formData.append('workedBefore', f.workedBefore);
+      formData.append('beforeFrom', f.beforeFrom);
+      formData.append('beforeTo', f.beforeTo);
+      formData.append('beforeReason', f.beforeReason);
+      formData.append('availability', f.availability);
+      formData.append('rate', String(f.rate));
+      
+      // Add file uploads with actual file objects
+      if (fileObjects.photo) formData.append('photo', fileObjects.photo);
+      if (fileObjects.idFront) formData.append('idFront', fileObjects.idFront);
+      if (fileObjects.idBack) formData.append('idBack', fileObjects.idBack);
+      if (fileObjects.proofAddress) formData.append('proofAddress', fileObjects.proofAddress);
+      
+      // Add JSON arrays
+      formData.append('prevAddresses', JSON.stringify(prevAddresses));
+      formData.append('employers', JSON.stringify(employers));
+      formData.append('referees', JSON.stringify(referees));
+      formData.append('skills', JSON.stringify(skills));
+      formData.append('prefLocations', JSON.stringify(prefLocations));
+
+      const response = await submitApplication(formData);
+      setDone(response.id);
+    } catch (error) {
+      console.error('Submission error:', error);
+      alert('Failed to submit application. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (done) {
@@ -595,7 +661,7 @@ function RegisterPage() {
               <div className="sm:col-span-2">
                 <span className="text-sm font-medium">Preferred Work Location(s)</span>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {locations.map((l) => {
+                  {(locations || []).map((l) => {
                     const on = prefLocations.includes(l.name);
                     return (
                       <button
@@ -789,8 +855,8 @@ function RegisterPage() {
             Next <ArrowRight className="size-4" />
           </PrimaryButton>
         ) : (
-          <PrimaryButton disabled={!confirmed} onClick={submit} className="flex-1 md:ml-auto md:flex-none">
-            Submit application
+          <PrimaryButton disabled={!confirmed || submitting} onClick={submit} className="flex-1 md:ml-auto md:flex-none">
+            {submitting ? 'Submitting...' : 'Submit application'}
           </PrimaryButton>
         )}
       </div>

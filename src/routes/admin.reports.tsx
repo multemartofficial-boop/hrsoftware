@@ -4,7 +4,7 @@ import { Download } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, DataTable, SectionTitle, StatCard, Td, Th, EmptyRow } from "@/components/hr/bits";
 import { BillingLineChart } from "@/components/hr/charts";
-import { useHR } from "@/lib/hr-store";
+import { useApi } from "@/lib/api-store";
 import { money } from "@/lib/hr-utils";
 
 export const Route = createFileRoute("/admin/reports")({
@@ -20,21 +20,48 @@ export const Route = createFileRoute("/admin/reports")({
 });
 
 function ReportsPage() {
-  const { weeklyReport, totals, attendance, workers, locations, settings } = useHR();
+  const { weeklyReport, totals, attendance, workers, locations, settings, loading, error, loadWorkers, loadAttendance } = useApi();
   const [loc, setLoc] = useState("all");
 
   const byLocation = useMemo(() => {
-    const rateOf = (id: string) => workers.find((w) => w.id === id)?.rate ?? settings.hourlyRate;
-    const rows = locations.map((l) => {
-      const recs = attendance.filter((a) => a.location === l.name);
+    const rateOf = (id: string) => workers?.find((w) => w.id === id)?.rate ?? settings?.hourlyRate ?? 0;
+    const rows = (locations || []).map((l) => {
+      const recs = (attendance || []).filter((a) => a.location === l.name);
       const hours = Math.round(recs.reduce((t, a) => t + a.hours, 0) * 100) / 100;
       const cost = Math.round(recs.reduce((t, a) => t + a.hours * rateOf(a.workerId), 0) * 100) / 100;
-      return { name: l.name, hours, cost, billing: Math.round(cost * settings.billingMultiplier * 100) / 100 };
+      return { name: l.name, hours, cost, billing: Math.round(cost * (settings?.billingMultiplier ?? 1) * 100) / 100 };
     });
     return loc === "all" ? rows : rows.filter((r) => r.name === loc);
   }, [attendance, workers, locations, settings, loc]);
 
   const margin = totals.billing ? Math.round((totals.profit / totals.billing) * 100) : 0;
+
+  if (loading.workers || loading.attendance) {
+    return (
+      <AdminShell title="Reports">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-muted-foreground">Loading reports...</div>
+        </div>
+      </AdminShell>
+    );
+  }
+
+  if (error) {
+    return (
+      <AdminShell title="Reports">
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <div className="text-red-500 font-medium">Failed to load reports</div>
+          <div className="text-sm text-muted-foreground">{error}</div>
+          <button
+            onClick={() => { loadWorkers(); loadAttendance(); }}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm"
+          >
+            Retry
+          </button>
+        </div>
+      </AdminShell>
+    );
+  }
 
   return (
     <AdminShell
@@ -54,13 +81,15 @@ function ReportsPage() {
             className="h-9 rounded-lg border border-border bg-card px-3 text-sm outline-none focus:border-primary"
           >
             <option value="all">All Locations</option>
-            {locations.map((l) => (
+            {locations?.map((l) => (
               <option key={l.id}>{l.name}</option>
             ))}
           </select>
-          <span className="text-xs text-muted-foreground">
-            Billing modelled at {settings.billingMultiplier}× labour cost
-          </span>
+          {settings && (
+            <span className="text-xs text-muted-foreground">
+              Billing modelled at {settings.billingMultiplier}× labour cost
+            </span>
+          )}
         </Card>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -92,7 +121,7 @@ function ReportsPage() {
                 </>
               }
             >
-              {weeklyReport.map((r) => (
+              {(weeklyReport || []).map((r) => (
                 <tr key={r.week} className="hover:bg-secondary/40">
                   <Td className="font-medium">
                     {r.week}
@@ -123,8 +152,8 @@ function ReportsPage() {
                 </>
               }
             >
-              {byLocation.length === 0 && <EmptyRow colSpan={5} text="No data for this location." />}
-              {byLocation.map((r) => (
+              {(!byLocation || byLocation.length === 0) && <EmptyRow colSpan={5} text="No data for this location." />}
+              {(byLocation || []).map((r) => (
                 <tr key={r.name} className="hover:bg-secondary/40">
                   <Td className="font-medium">{r.name}</Td>
                   <Td>{r.hours.toFixed(1)} h</Td>

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Sparkles, Mail, Lock, AlertCircle, LogIn } from "lucide-react";
 import { inputCls } from "@/components/hr/bits";
-import { useHR } from "@/lib/hr-store";
+import { useApi } from "@/lib/api-store";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -24,27 +24,36 @@ export const Route = createFileRoute("/")({
 });
 
 function LoginPage() {
-  const { login, session, authReady } = useHR();
+  const { login, workerLogin, session, authReady, loading, error: apiError } = useApi();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [loginType, setLoginType] = useState<'email' | 'worker'>('email');
 
   useEffect(() => {
     if (authReady && session) {
-      void navigate({ to: session.role === "admin" ? "/admin" : "/worker", replace: true });
+      void navigate({ to: session.role === "admin" ? "/admin" : "/worker/dashboard", replace: true });
     }
   }, [authReady, session, navigate]);
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const s = login(email, password);
+    setError(null);
+    
+    let s;
+    if (loginType === 'email') {
+      s = await login(email, password);
+    } else {
+      s = await workerLogin(email, password); // email field contains worker code
+    }
+    
     if (!s) {
-      setError("Invalid email or password.");
+      setError(apiError || "Invalid credentials.");
       return;
     }
     setError(null);
-    void navigate({ to: s.role === "admin" ? "/admin" : "/worker", replace: true });
+    void navigate({ to: s.role === "admin" ? "/admin" : "/worker/dashboard", replace: true });
   };
 
   return (
@@ -61,19 +70,36 @@ function LoginPage() {
         </div>
 
         <form onSubmit={submit} className="card-surface space-y-4 p-6">
+          <div className="flex gap-2 mb-2">
+            <button
+              type="button"
+              onClick={() => { setLoginType('email'); setEmail(''); }}
+              className={`flex-1 py-2 text-sm rounded-lg ${loginType === 'email' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}
+            >
+              Admin (Email)
+            </button>
+            <button
+              type="button"
+              onClick={() => { setLoginType('worker'); setEmail(''); }}
+              className={`flex-1 py-2 text-sm rounded-lg ${loginType === 'worker' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}
+            >
+              Worker (Code)
+            </button>
+          </div>
+
           <div>
             <label htmlFor="email" className="text-sm font-medium">
-              Email
+              {loginType === 'email' ? 'Email' : 'Worker Code'}
             </label>
             <div className="relative mt-1.5">
               <Mail className="absolute top-3 left-3 size-4 text-muted-foreground" />
               <input
                 id="email"
-                type="email"
-                autoComplete="email"
+                type={loginType === 'email' ? 'email' : 'text'}
+                autoComplete={loginType === 'email' ? 'email' : 'off'}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@workhr.com"
+                placeholder={loginType === 'email' ? 'you@workhr.com' : 'WKR-2026-XXXX'}
                 className={`${inputCls} pl-9`}
               />
             </div>
@@ -105,15 +131,19 @@ function LoginPage() {
 
           <button
             type="submit"
-            className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+            disabled={loading.login}
+            className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
           >
-            <LogIn className="size-4" /> Log In
+            {loading.login ? 'Logging in...' : <><LogIn className="size-4" /> Log In</>}
           </button>
 
-          <div className="rounded-xl bg-secondary/60 p-3 text-xs text-muted-foreground">
-            <p className="font-medium text-foreground">Demo accounts</p>
-            <p className="mt-1">Admin — admin@workhr.com / admin123</p>
-            <p>Worker — worker@workhr.com / worker123</p>
+          <div className="mt-4 text-center">
+            <Link 
+              to="/forgot-password" 
+              className="text-sm text-primary hover:underline"
+            >
+              Forgot password?
+            </Link>
           </div>
         </form>
 

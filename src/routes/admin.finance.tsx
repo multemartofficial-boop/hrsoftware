@@ -19,7 +19,7 @@ import {
   inputCls,
 } from "@/components/hr/bits";
 import { IncomeVsCostChart } from "@/components/hr/charts";
-import { useHR } from "@/lib/hr-store";
+import { useApi } from "@/lib/api-store";
 import { addDays, fmtDate, money, todayISO, MONTHS } from "@/lib/hr-utils";
 import type { BuyerIncome, OtherCost } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
@@ -56,7 +56,11 @@ function FinancePage() {
     addOtherCost,
     updateOtherCost,
     deleteOtherCost,
-  } = useHR();
+    loading,
+    error,
+    loadBuyerIncome,
+    loadOtherCosts,
+  } = useApi();
 
   const [from, setFrom] = useState(addDays(todayISO(), -90));
   const [to, setTo] = useState(todayISO());
@@ -82,13 +86,13 @@ function FinancePage() {
     [otherCosts, from, to, buyer],
   );
   const pays = useMemo(
-    () => (buyer === "all" ? payrolls.filter((p) => inRange(p.created)) : []),
+    () => (buyer === "all" ? (payrolls || []).filter((p) => inRange(p.created)) : []),
     [payrolls, from, to, buyer],
   );
 
-  const totalIn = income.reduce((t, i) => t + i.amount, 0);
+  const totalIn = (income || []).reduce((t, i) => t + i.amount, 0);
   const totalWorkers = pays.reduce((t, p) => t + p.net, 0);
-  const totalCosts = costs.reduce((t, c) => t + c.amount, 0);
+  const totalCosts = (costs || []).reduce((t, c) => t + c.amount, 0);
   const profit = totalIn - totalWorkers - totalCosts;
   const margin = totalIn > 0 ? (profit / totalIn) * 100 : 0;
 
@@ -101,9 +105,9 @@ function FinancePage() {
       cur[k] += v;
       map.set(key, cur);
     };
-    income.forEach((i) => bump(i.date, "income", i.amount));
+    (income || []).forEach((i) => bump(i.date, "income", i.amount));
     pays.forEach((p) => bump(p.created, "spend", p.net));
-    costs.forEach((c) => bump(c.date, "spend", c.amount));
+    (costs || []).forEach((c) => bump(c.date, "spend", c.amount));
     return Array.from(map.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, v]) => ({
@@ -114,6 +118,33 @@ function FinancePage() {
         profit: Math.round(v.income - v.spend),
       }));
   }, [income, pays, costs]);
+
+  if (loading.buyerIncome || loading.otherCosts) {
+    return (
+      <AdminShell title="Buyer & Profit/Loss">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-muted-foreground">Loading financial data...</div>
+        </div>
+      </AdminShell>
+    );
+  }
+
+  if (error) {
+    return (
+      <AdminShell title="Buyer & Profit/Loss">
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <div className="text-red-500 font-medium">Failed to load financial data</div>
+          <div className="text-sm text-muted-foreground">{error}</div>
+          <button
+            onClick={() => { loadBuyerIncome(); loadOtherCosts(); }}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm"
+          >
+            Retry
+          </button>
+        </div>
+      </AdminShell>
+    );
+  }
 
   const thisMonth = chart[chart.length - 1];
   const lastMonth = chart[chart.length - 2];
@@ -163,7 +194,7 @@ function FinancePage() {
             label="Received from Buyers"
             value={money(totalIn)}
             icon={<PoundSterling className="size-4" />}
-            hint={`${income.length} entries`}
+            hint={`${income?.length ?? 0} entries`}
           />
           <StatCard
             label="Paid to Workers"
@@ -239,8 +270,8 @@ function FinancePage() {
               </>
             }
           >
-            {income.length === 0 && <EmptyRow colSpan={6} text="No buyer payments in this range." />}
-            {income.map((i) => (
+            {(!income || income.length === 0) && <EmptyRow colSpan={6} text="No buyer payments in this range." />}
+            {(income || []).map((i) => (
               <tr key={i.id} className="hover:bg-secondary/40">
                 <Td className="font-medium">{i.buyer}</Td>
                 <Td className="text-muted-foreground">{i.description}</Td>
@@ -298,8 +329,8 @@ function FinancePage() {
               </>
             }
           >
-            {costs.length === 0 && <EmptyRow colSpan={4} text="No other costs in this range." />}
-            {costs.map((c) => (
+            {(!costs || costs.length === 0) && <EmptyRow colSpan={4} text="No other costs in this range." />}
+            {(costs || []).map((c) => (
               <tr key={c.id} className="hover:bg-secondary/40">
                 <Td className="font-medium">{c.description}</Td>
                 <Td>{money(c.amount)}</Td>
@@ -346,8 +377,8 @@ function FinancePage() {
               </>
             }
           >
-            {pays.length === 0 && <EmptyRow colSpan={4} text="No payroll runs in this range." />}
-            {pays.map((p) => (
+            {(!pays || pays.length === 0) && <EmptyRow colSpan={4} text="No payroll runs in this range." />}
+            {(pays || []).map((p) => (
               <tr key={p.id}>
                 <Td className="font-medium">{p.worker}</Td>
                 <Td className="text-muted-foreground">

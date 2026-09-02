@@ -5,7 +5,7 @@ import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, DataTable, EmptyRow, Person, StatusBadge, Td, Th } from "@/components/hr/bits";
 import { type Application } from "@/lib/mock-data";
 import { ApplicationDetail } from "@/components/hr/application-detail";
-import { useHR } from "@/lib/hr-store";
+import { useApi } from "@/lib/api-store";
 import { fmtDate } from "@/lib/hr-utils";
 
 export const Route = createFileRoute("/admin/approvals")({
@@ -52,14 +52,14 @@ function Detail({
 }
 
 function Approvals() {
-  const { applications, rejected, approveApplication, rejectApplication } = useHR();
+  const { applications, rejected, approveApplication, rejectApplication, loading, error, loadApplications } = useApi();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [flashWorkerId, setFlashWorkerId] = useState<string | null>(null);
-  const selected = applications.find((a) => a.id === selectedId) ?? null;
+  const selected = (applications || []).find((a) => a.id === selectedId) ?? null;
 
-  const approve = (id: string) => {
-    const w = approveApplication(id);
+  const approve = async (id: string) => {
+    const w = await approveApplication(id);
     setSelectedId(null);
     if (w) {
       setFlashWorkerId(w.id);
@@ -67,12 +67,39 @@ function Approvals() {
     }
   };
 
-  const reject = (id: string, name: string) => {
-    rejectApplication(id);
+  const reject = async (id: string, name: string) => {
+    await rejectApplication(id);
     setSelectedId(null);
     setFlashWorkerId(null);
     setFlash(`${name}'s application was rejected.`);
   };
+
+  if (loading.applications) {
+    return (
+      <AdminShell title="Registration Approvals">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-muted-foreground">Loading applications...</div>
+        </div>
+      </AdminShell>
+    );
+  }
+
+  if (error) {
+    return (
+      <AdminShell title="Registration Approvals">
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <div className="text-red-500 font-medium">Failed to load applications</div>
+          <div className="text-sm text-muted-foreground">{error}</div>
+          <button
+            onClick={() => loadApplications()}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm"
+          >
+            Retry
+          </button>
+        </div>
+      </AdminShell>
+    );
+  }
 
   return (
     <AdminShell
@@ -116,7 +143,7 @@ function Approvals() {
         ) : (
           <Card className="p-0">
             <div className="flex items-center justify-between p-5">
-              <h2 className="text-base font-semibold">Pending Applications ({applications.length})</h2>
+              <h2 className="text-base font-semibold">Pending Applications ({applications?.length ?? 0})</h2>
               <p className="text-xs text-muted-foreground">Click a row to view full bio-data</p>
             </div>
             <DataTable
@@ -132,8 +159,8 @@ function Approvals() {
                 </>
               }
             >
-              {applications.length === 0 && <EmptyRow colSpan={6} text="No pending applications." />}
-              {applications.map((a) => (
+              {(!applications || applications.length === 0) && <EmptyRow colSpan={6} text="No pending applications." />}
+              {(applications || []).map((a) => (
                 <tr key={a.id} className="cursor-pointer hover:bg-secondary/40" onClick={() => setSelectedId(a.id)}>
                   <Td className="font-medium">{a.id}</Td>
                   <Td><Person name={a.name} sub={a.email} /></Td>
@@ -179,7 +206,7 @@ function Approvals() {
                 </>
               }
             >
-              {rejected.map((r) => (
+              {(rejected || []).map((r) => (
                 <tr key={r.id} className="hover:bg-secondary/40">
                   <Td className="font-medium">{r.id}</Td>
                   <Td><Person name={r.name} sub={r.email} /></Td>

@@ -109,11 +109,21 @@ export function ApplicationDetail({ app }: { app: Application }) {
   const skills = asRows(d["skills"]);
   const prefLocations = asStrings(d["prefLocations"]);
 
+  // Handle both old and new field names for compatibility
+  const getDetail = (key: string, fallback?: string) => str(key) || fallback || "";
+
+  // Get full URL for uploaded files
+  const getFileUrl = (path: string) => {
+    if (!path) return "";
+    if (path.startsWith("http")) return path;
+    return `http://localhost:3001${path}`;
+  };
+
   return (
     <div>
       <div className="flex flex-wrap items-center gap-4">
         <img
-          src={docUrls["photo"] || avatarUrl(app.name)}
+          src={getFileUrl(docUrls["photo"]) || avatarUrl(app.name)}
           alt={app.name}
           className="size-20 rounded-2xl bg-secondary object-cover"
         />
@@ -134,31 +144,31 @@ export function ApplicationDetail({ app }: { app: Application }) {
             ["Application ID", app.id],
             ["Position applied for", app.appliedFor],
             ["Submitted", fmtDate(app.submitted)],
-            ["Title", str("title")],
-            ["Surname", str("surname")],
-            ["Forename", str("forename")],
-            ["Date of Birth", str("dob")],
-            ["Surname at Birth", str("birthSurname")],
-            ["Date of Name Change", str("nameChangeDate")],
+            ["Title", getDetail("title", "Mr")],
+            ["Surname", getDetail("surname", app.name.split(" ").pop() || "")],
+            ["Forename", getDetail("forename", app.name.split(" ")[0] || "")],
+            ["Date of Birth", getDetail("dob", "")],
+            ["Surname at Birth", getDetail("birthSurname", "")],
+            ["Date of Name Change", getDetail("nameChangeDate", "")],
           ]}
         />
       </Group>
 
       <Group title="Contact Information">
-        <SummaryList items={[["Mobile", str("mobile") || app.phone], ["Email", str("email") || app.email]]} />
+        <SummaryList items={[["Mobile", getDetail("mobile", app.phone) || app.phone], ["Email", getDetail("email", app.email) || app.email]]} />
       </Group>
 
       <Group title="Current Address">
         <SummaryList
           items={[
-            ["Address Line 1", str("addr1") || app.address],
-            ["Address Line 2", str("addr2")],
-            ["Address Line 3", str("addr3")],
-            ["Town", str("town")],
-            ["County", str("county")],
-            ["Postcode", str("postcode")],
-            ["Country", str("country")],
-            ["At Current Address From", str("addressFrom")],
+            ["Address Line 1", getDetail("addr1", app.address) || app.address],
+            ["Address Line 2", getDetail("addr2", "")],
+            ["Address Line 3", getDetail("addr3", "")],
+            ["Town", getDetail("town", "")],
+            ["County", getDetail("county", "")],
+            ["Postcode", getDetail("postcode", "")],
+            ["Country", getDetail("country", "United Kingdom")],
+            ["At Current Address From", getDetail("addressFrom", "")],
           ]}
         />
       </Group>
@@ -185,10 +195,10 @@ export function ApplicationDetail({ app }: { app: Application }) {
       <Group title="Nationality">
         <SummaryList
           items={[
-            ["Place of Birth", str("birthPlace")],
-            ["Nationality", str("nationality")],
-            ["National Insurance No", str("ni") || app.nid],
-            ["Permitted to work in UK", str("rtw")],
+            ["Place of Birth", getDetail("birthPlace", "")],
+            ["Nationality", getDetail("nationality", "British")],
+            ["National Insurance No", getDetail("ni", app.nid) || app.nid],
+            ["Permitted to work in UK", getDetail("rtw", "Yes")],
           ]}
         />
       </Group>
@@ -196,38 +206,38 @@ export function ApplicationDetail({ app }: { app: Application }) {
       <Group title="Next of Kin/Emergency Contact">
         <SummaryList
           items={[
-            ["Forename", str("kinForename")],
-            ["Surname", str("kinSurname")],
-            ["Phone", str("kinPhone")],
-            ["Address Line 1", str("kinAddr1")],
-            ["Address Line 2", str("kinAddr2")],
-            ["Address Line 3", str("kinAddr3")],
-            ["Town", str("kinTown")],
-            ["County", str("kinCounty")],
-            ["Postcode", str("kinPostcode")],
-            ["Country", str("kinCountry")],
+            ["Forename", getDetail("kinForename", "")],
+            ["Surname", getDetail("kinSurname", "")],
+            ["Phone", getDetail("kinPhone", "")],
+            ["Address Line 1", getDetail("kinAddr1", "")],
+            ["Address Line 2", getDetail("kinAddr2", "")],
+            ["Address Line 3", getDetail("kinAddr3", "")],
+            ["Town", getDetail("kinTown", "")],
+            ["County", getDetail("kinCounty", "")],
+            ["Postcode", getDetail("kinPostcode", "")],
+            ["Country", getDetail("kinCountry", "United Kingdom")],
           ]}
         />
       </Group>
 
       <Group title="Documents & Eligibility">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Doc label="Profile Photo" name={str("photo")} url={docUrls["photo"]} />
-          <Doc label="NID / ID Front" name={str("idFront")} url={docUrls["idFront"]} />
-          <Doc label="NID / ID Back" name={str("idBack")} url={docUrls["idBack"]} />
-          <Doc label="Proof of Address" name={str("proofAddress")} url={docUrls["proofAddress"]} />
+          <Doc label="Profile Photo" name={getDetail("photo", "")} url={getFileUrl(docUrls["photo"])} />
+          <Doc label="NID / ID Front" name={getDetail("idFront", "")} url={getFileUrl(docUrls["idFront"])} />
+          <Doc label="NID / ID Back" name={getDetail("idBack", "")} url={getFileUrl(docUrls["idBack"])} />
+          <Doc label="Proof of Address" name={getDetail("proofAddress", "")} url={getFileUrl(docUrls["proofAddress"])} />
         </div>
         <div className="mt-3">
           <SummaryList
             items={[
-              ["Holds work permit / visa", str("hasVisa")],
-              ["Visa Type", str("visaType")],
-              ["Visa Expiry", str("visaExpiry")],
-              ["Bank Name", str("bankName")],
-              ["Account Holder", str("accountHolder")],
-              ["Sort Code / Account Number", str("sortAccount")],
-              ["Medical conditions", str("medical")],
-              ["Dietary / accessibility needs", str("dietary")],
+              ["Holds work permit / visa", getDetail("hasVisa", "No")],
+              ["Visa Type", getDetail("visaType", "")],
+              ["Visa Expiry", getDetail("visaExpiry", "")],
+              ["Bank Name", getDetail("bankName", "")],
+              ["Account Holder", getDetail("accountHolder", "")],
+              ["Sort Code / Account Number", getDetail("sortAccount", "")],
+              ["Medical conditions", getDetail("medical", "")],
+              ["Dietary / accessibility needs", getDetail("dietary", "")],
             ]}
           />
         </div>
@@ -236,10 +246,10 @@ export function ApplicationDetail({ app }: { app: Application }) {
       <Group title="Work History">
         <SummaryList
           items={[
-            ["Worked here before", str("workedBefore")],
-            ["From", str("beforeFrom")],
-            ["To", str("beforeTo")],
-            ["Reason for leaving", str("beforeReason")],
+            ["Worked here before", getDetail("workedBefore", "No")],
+            ["From", getDetail("beforeFrom", "")],
+            ["To", getDetail("beforeTo", "")],
+            ["Reason for leaving", getDetail("beforeReason", "")],
           ]}
         />
         <Repeat
@@ -290,8 +300,8 @@ export function ApplicationDetail({ app }: { app: Application }) {
           <SummaryList
             items={[
               ["Preferred Locations", prefLocations.length ? prefLocations : app.location],
-              ["Preferred Hours", str("availability")],
-              ["Expected Hourly Rate", `£${(Number(str("rate")) || app.rate).toFixed(2)} / hour`],
+              ["Preferred Hours", getDetail("availability", "Full-time")],
+              ["Expected Hourly Rate", `£${(Number(getDetail("rate", String(app.rate))) || app.rate).toFixed(2)} / hour`],
             ]}
           />
         </div>

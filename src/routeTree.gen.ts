@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as WorkerRouteImport } from './routes/worker'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
@@ -22,12 +23,18 @@ import { Route as AdminNotificationsRouteImport } from './routes/admin.notificat
 import { Route as AdminPayrollsRouteImport } from './routes/admin.payrolls'
 import { Route as AdminReportsRouteImport } from './routes/admin.reports'
 import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
+import { Route as WorkerDashboardRouteImport } from './routes/worker.dashboard'
 import { Route as AdminWorkersIndexRouteImport } from './routes/admin.workers.index'
 import { Route as AdminWorkersIdRouteImport } from './routes/admin.workers.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RegisterRoute = RegisterRouteImport.update({
@@ -90,6 +97,11 @@ const AdminSettingsRoute = AdminSettingsRouteImport.update({
   path: '/admin/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WorkerDashboardRoute = WorkerDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => WorkerRoute,
+} as any)
 const AdminWorkersIndexRoute = AdminWorkersIndexRouteImport.update({
   id: '/admin/workers/',
   path: '/admin/workers/',
@@ -103,8 +115,9 @@ const AdminWorkersIdRoute = AdminWorkersIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
-  '/worker': typeof WorkerRoute
+  '/worker': typeof WorkerRouteWithChildren
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/attendance': typeof AdminAttendanceRoute
   '/admin/finance': typeof AdminFinanceRoute
@@ -114,14 +127,16 @@ export interface FileRoutesByFullPath {
   '/admin/payrolls': typeof AdminPayrollsRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
+  '/worker/dashboard': typeof WorkerDashboardRoute
   '/admin/': typeof AdminIndexRoute
   '/admin/workers/$id': typeof AdminWorkersIdRoute
   '/admin/workers/': typeof AdminWorkersIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
-  '/worker': typeof WorkerRoute
+  '/worker': typeof WorkerRouteWithChildren
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/attendance': typeof AdminAttendanceRoute
   '/admin/finance': typeof AdminFinanceRoute
@@ -131,6 +146,7 @@ export interface FileRoutesByTo {
   '/admin/payrolls': typeof AdminPayrollsRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
+  '/worker/dashboard': typeof WorkerDashboardRoute
   '/admin': typeof AdminIndexRoute
   '/admin/workers/$id': typeof AdminWorkersIdRoute
   '/admin/workers': typeof AdminWorkersIndexRoute
@@ -138,8 +154,9 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
-  '/worker': typeof WorkerRoute
+  '/worker': typeof WorkerRouteWithChildren
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/attendance': typeof AdminAttendanceRoute
   '/admin/finance': typeof AdminFinanceRoute
@@ -149,6 +166,7 @@ export interface FileRoutesById {
   '/admin/payrolls': typeof AdminPayrollsRoute
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
+  '/worker/dashboard': typeof WorkerDashboardRoute
   '/admin/': typeof AdminIndexRoute
   '/admin/workers/$id': typeof AdminWorkersIdRoute
   '/admin/workers/': typeof AdminWorkersIndexRoute
@@ -157,6 +175,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/forgot-password'
     | '/register'
     | '/worker'
     | '/admin/approvals'
@@ -168,12 +187,14 @@ export interface FileRouteTypes {
     | '/admin/payrolls'
     | '/admin/reports'
     | '/admin/settings'
+    | '/worker/dashboard'
     | '/admin/'
     | '/admin/workers/$id'
     | '/admin/workers/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/forgot-password'
     | '/register'
     | '/worker'
     | '/admin/approvals'
@@ -185,12 +206,14 @@ export interface FileRouteTypes {
     | '/admin/payrolls'
     | '/admin/reports'
     | '/admin/settings'
+    | '/worker/dashboard'
     | '/admin'
     | '/admin/workers/$id'
     | '/admin/workers'
   id:
     | '__root__'
     | '/'
+    | '/forgot-password'
     | '/register'
     | '/worker'
     | '/admin/approvals'
@@ -202,6 +225,7 @@ export interface FileRouteTypes {
     | '/admin/payrolls'
     | '/admin/reports'
     | '/admin/settings'
+    | '/worker/dashboard'
     | '/admin/'
     | '/admin/workers/$id'
     | '/admin/workers/'
@@ -209,8 +233,9 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
   RegisterRoute: typeof RegisterRoute
-  WorkerRoute: typeof WorkerRoute
+  WorkerRoute: typeof WorkerRouteWithChildren
   AdminApprovalsRoute: typeof AdminApprovalsRoute
   AdminAttendanceRoute: typeof AdminAttendanceRoute
   AdminFinanceRoute: typeof AdminFinanceRoute
@@ -232,6 +257,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/register': {
@@ -318,6 +350,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/worker/dashboard': {
+      id: '/worker/dashboard'
+      path: '/dashboard'
+      fullPath: '/worker/dashboard'
+      preLoaderRoute: typeof WorkerDashboardRouteImport
+      parentRoute: typeof WorkerRoute
+    }
     '/admin/workers/': {
       id: '/admin/workers/'
       path: '/admin/workers'
@@ -335,10 +374,22 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface WorkerRouteChildren {
+  WorkerDashboardRoute: typeof WorkerDashboardRoute
+}
+
+const WorkerRouteChildren: WorkerRouteChildren = {
+  WorkerDashboardRoute: WorkerDashboardRoute,
+}
+
+const WorkerRouteWithChildren =
+  WorkerRoute._addFileChildren(WorkerRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ForgotPasswordRoute: ForgotPasswordRoute,
   RegisterRoute: RegisterRoute,
-  WorkerRoute: WorkerRoute,
+  WorkerRoute: WorkerRouteWithChildren,
   AdminApprovalsRoute: AdminApprovalsRoute,
   AdminAttendanceRoute: AdminAttendanceRoute,
   AdminFinanceRoute: AdminFinanceRoute,

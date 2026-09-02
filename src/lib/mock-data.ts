@@ -471,12 +471,12 @@ export type Notice = {
   workerId?: string;
   message: string;
   urgency: "critical" | "warning" | "info";
-  when: string;
+  occurred_at: string;
 };
 
 export const seedActivity: Notice[] = [
-  { id: "N-A1", worker: "Priya Anand", message: "Documents verified and archived", urgency: "info", when: "2 days ago" },
-  { id: "N-A2", worker: "Peg Legge", message: "Attendance edited by admin", urgency: "info", when: "3 days ago" },
+  { id: "N-A1", worker: "Priya Anand", message: "Documents verified and archived", urgency: "info", occurred_at: "2 days ago" },
+  { id: "N-A2", worker: "Peg Legge", message: "Attendance edited by admin", urgency: "info", occurred_at: "3 days ago" },
 ];
 
 export type Settings = {

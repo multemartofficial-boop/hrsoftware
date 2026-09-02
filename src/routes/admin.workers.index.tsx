@@ -4,7 +4,7 @@ import { Search, Download, RotateCcw, Trash2, Eye } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, DataTable, EmptyRow, Person, StatusBadge, Td, Th } from "@/components/hr/bits";
 import { avatarUrl } from "@/lib/mock-data";
-import { useHR } from "@/lib/hr-store";
+import { useApi } from "@/lib/api-store";
 import { fmtDate, daysUntil } from "@/lib/hr-utils";
 
 export const Route = createFileRoute("/admin/workers/")({
@@ -23,7 +23,7 @@ const selectCls =
   "h-9 rounded-lg border border-border bg-card px-3 text-sm outline-none focus:border-primary";
 
 function WorkerDirectory() {
-  const { workers, locations, workerStatus, reactivateWorker, deleteWorker } = useHR();
+  const { workers, locations, workerStatus, reactivateWorker, deleteWorker, loading, error, loadWorkers, loadLocations, attendance } = useApi();
   const navigate = useNavigate();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
@@ -31,7 +31,7 @@ function WorkerDirectory() {
 
   const rows = useMemo(() => {
     const term = q.trim().toLowerCase();
-    return workers.filter((w) => {
+    return (workers || []).filter((w) => {
       const s = workerStatus(w);
       if (status !== "all" && s !== status) return false;
       if (loc !== "all" && w.location !== loc) return false;
@@ -42,13 +42,70 @@ function WorkerDirectory() {
     });
   }, [workers, q, status, loc, workerStatus]);
 
+  // Determine which workers are currently checked in (active)
+  const activeWorkers = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const checkedIn = new Set<string>();
+    
+    (attendance || []).forEach(a => {
+      if (a.date === today && (a.out === "00:00:00" || a.out === "00:00" || !a.out)) {
+        checkedIn.add(a.workerId);
+      }
+    });
+    
+    return checkedIn;
+  }, [attendance]);
+
+  if (loading.workers) {
+    return (
+      <AdminShell title="Worker Directory">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-muted-foreground">Loading workers...</div>
+        </div>
+      </AdminShell>
+    );
+  }
+
+  if (error) {
+    return (
+      <AdminShell title="Worker Directory">
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <div className="text-red-500 font-medium">Failed to load workers</div>
+          <div className="text-sm text-muted-foreground">{error}</div>
+          <button
+            onClick={() => loadWorkers()}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm"
+          >
+            Retry
+          </button>
+        </div>
+      </AdminShell>
+    );
+  }
+
+  if (!workers || workers.length === 0) {
+    return (
+      <AdminShell title="Worker Directory">
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <div className="text-muted-foreground">No workers found</div>
+          <button
+            onClick={() => { loadWorkers(); loadLocations(); }}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm"
+          >
+            Refresh
+          </button>
+        </div>
+      </AdminShell>
+    );
+  }
+
   return (
     <AdminShell title="Worker Directory">
       <Card className="p-0">
         <div className="flex flex-wrap items-center gap-3 p-5">
           <h2 className="mr-auto text-base font-semibold">
             All Workers ({rows.length}
-            {rows.length !== workers.length ? ` of ${workers.length}` : ""})
+            {workers && rows.length !== workers.length ? ` of ${workers.length}` : ""})
           </h2>
           <div className="relative w-full sm:w-auto">
             <Search className="absolute top-2.5 left-3 size-4 text-muted-foreground" />
@@ -68,7 +125,7 @@ function WorkerDirectory() {
           </select>
           <select value={loc} onChange={(e) => setLoc(e.target.value)} className={selectCls}>
             <option value="all">All Locations</option>
-            {locations.map((l) => (
+            {locations?.map((l) => (
               <option key={l.id} value={l.name}>
                 {l.name}
               </option>
@@ -95,8 +152,8 @@ function WorkerDirectory() {
             </>
           }
         >
-          {rows.length === 0 && <EmptyRow colSpan={9} text="No workers match these filters." />}
-          {rows.map((w) => {
+          {(!rows || rows.length === 0) && <EmptyRow colSpan={9} text="No workers match these filters." />}
+          {(rows || []).map((w) => {
             const left = daysUntil(w.expiry);
             return (
               <tr
@@ -128,7 +185,12 @@ function WorkerDirectory() {
                   </div>
                 </Td>
                 <Td>
-                  <StatusBadge status={workerStatus(w)} />
+                  <div className="flex items-center gap-2">
+                    {activeWorkers.has(w.id) && (
+                      <div className="w-2 h-2 rounded-full bg-green-500" title="Currently checked in" />
+                    )}
+                    <StatusBadge status={workerStatus(w)} />
+                  </div>
                 </Td>
                 <Td>
                   <div className="flex justify-end gap-1 text-muted-foreground" onClick={(e) => e.stopPropagation()}>

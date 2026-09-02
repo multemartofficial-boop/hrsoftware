@@ -4,7 +4,7 @@ import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, SectionTitle, StatCard, Person } from "@/components/hr/bits";
 import { PayrollBarChart, DonutChart, donutColors } from "@/components/hr/charts";
 import { admin } from "@/lib/mock-data";
-import { useHR } from "@/lib/hr-store";
+import { useApi } from "@/lib/api-store";
 import { money } from "@/lib/hr-utils";
 import { cn } from "@/lib/utils";
 
@@ -27,8 +27,18 @@ const urgencyTone = {
 } as const;
 
 function Dashboard() {
-  const { totals, applications, payrollChart, deductionsData, notices } = useHR();
+  const { totals, applications, payrollChart, deductionsData, notices, loading } = useApi();
   const deductionTotal = deductionsData.reduce((t, d) => t + d.value, 0);
+
+  if (loading.workers || loading.applications) {
+    return (
+      <AdminShell title="Dashboard">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-muted-foreground">Loading dashboard...</div>
+        </div>
+      </AdminShell>
+    );
+  }
 
   return (
     <AdminShell title="Dashboard">
@@ -46,7 +56,7 @@ function Dashboard() {
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
           <StatCard label="Total Active Workers" value={String(totals.activeWorkers)} hint="in contract" icon={<Users className="size-4" />} />
           <StatCard label="Total Payroll Cost" value={money(totals.payrollCost)} hint="gross issued" icon={<Wallet className="size-4" />} />
-          <StatCard label="Pending Registrations" value={String(applications.length)} hint="awaiting review" icon={<UserPlus className="size-4" />} />
+          <StatCard label="Pending Registrations" value={String(applications?.length ?? 0)} hint="awaiting review" icon={<UserPlus className="size-4" />} />
           <StatCard label="Workers Expiring Soon" value={String(totals.expiringSoon)} tone="down" hint="contract" icon={<Clock className="size-4" />} />
         </div>
 
@@ -80,16 +90,16 @@ function Dashboard() {
             }
           />
           <div className="divide-y divide-border">
-            {notices.slice(0, 5).map((n) => (
+            {(notices || []).slice(0, 5).map((n) => (
               <div key={n.id} className="flex items-center gap-3 py-3">
-                <Person name={n.worker} sub={n.when} />
+                <Person name={n.worker} sub={n.occurred_at} />
                 <p className="ml-4 text-sm text-muted-foreground">{n.message}</p>
                 <span className={cn("ml-auto rounded-full px-2.5 py-1 text-xs font-medium capitalize", urgencyTone[n.urgency])}>
                   {n.urgency}
                 </span>
               </div>
             ))}
-            {notices.length === 0 && (
+            {(!notices || notices.length === 0) && (
               <p className="py-6 text-center text-sm text-muted-foreground">No notifications right now.</p>
             )}
           </div>

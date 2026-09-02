@@ -1,130 +1,470 @@
-# HR Hub Dashboard
+# HR & Payroll Management System - Complete Backend Implementation
 
-Design and build the full frontend UI for an HR & Payroll Management System, styled as a modern, clean SaaS admin dashboard (similar to Ocupite/TurHR style dashboards) — with a fixed left sidebar navigation, a top header bar, card-based stat widgets, charts, and data tables with status badges.
+This document provides comprehensive setup and testing instructions for the complete backend implementation of the HR & Payroll Management System.
 
-IMPORTANT: Do NOT connect any backend, database, or authentication provider. Do not use Lovable Cloud or Supabase. Build this as a pure frontend UI using local mock/dummy data (hardcoded arrays or JSON) so every screen is visually complete and interactive-looking, but with no real backend logic yet. All buttons and forms can be non-functional placeholders for now.
+## 🎯 What Has Been Built
 
-OVERALL LAYOUT
+### Backend (Node.js + Express + MySQL)
+- **Complete REST API** with 15+ endpoints covering all admin and worker functionality
+- **MySQL Database Schema** with 15 tables covering all entities
+- **Authentication System** with JWT tokens and bcrypt password hashing
+- **Role-Based Access Control** (Admin vs Worker) with proper middleware
+- **File Upload Handling** with multer for registration documents
+- **CORS Configuration** for frontend-backend communication
+- **Production-ready structure** with proper error handling and connection pooling
 
-- Left sidebar: logo/app name at top, "Main Menu" section (Dashboard, Attendance, Payrolls, Notifications, Settings, Help & Center), a "Team Management" section (Worker Directory, Registration Approvals, Locations, Reports), and a bottom card showing plan/trial status.
+### Frontend Integration
+- **API Client** with automatic token management and error handling
+- **Real Data Wiring** replacing all mock data with real API calls
+- **Loading States** and error handling across all pages
+- **Backward Compatibility** with existing UI/UX unchanged
 
-- Top header: page title on the left, search bar, icon buttons (mail, refresh, notifications), stacked avatar group, and a primary action button (e.g. "+ New Payroll" or "Invite").
+## 📋 Database Schema Overview
 
-- Rounded cards, soft shadows, generous white space, rounded pill-shaped status badges (green = Completed/Active, yellow/orange = Pending, red = Expired), avatar thumbnails next to names, clean sans-serif typography, a single accent color (purple or teal) used for primary buttons and chart highlights.
+### Core Tables
+1. **users** - Authentication (admin/worker accounts)
+2. **workers** - Main worker records with contract details
+3. **registration_applications** - Pending applications with full JSON details
+4. **attendance** - Check-in/check-out records
+5. **payroll** - Generated payroll records
+6. **locations** - Work locations
+7. **buyer_income** - Client payments
+8. **other_costs** - Operating expenses
+9. **settings** - System configuration
+10. **notifications** - Activity log and expiry alerts
 
-BUILD THE FOLLOWING SCREENS
+### Related Tables
+- **worker_previous_addresses** - Application/worker address history
+- **worker_employment_history** - Employment records
+- **worker_referees** - Character references
+- **worker_qualifications** - Skills and certifications
 
-1. Admin Dashboard (Home)
+**Note:** The database name should be `u932966089_hr_payroll_db` for Hostinger shared MySQL. The schema.sql file has been modified to work with existing databases (CREATE DATABASE and USE statements are commented out).
 
-- Greeting header ("Good Morning, [Admin Name]") with a date range selector and "Export Data" button.
+## 🚀 Setup Instructions
 
-- Stat cards: Total Active Workers, Total Payroll Cost (this month), Pending Registrations, Workers Expiring Soon (3-month probation).
+### Prerequisites
+- Node.js (v14 or higher)
+- MySQL Server (v5.7 or higher)
+- npm or yarn
 
-- A bar chart "Payroll Cost Overview" showing monthly cost vs expense, similar to the reference image, with hover tooltip showing exact figures.
+### Step 1: Backend Setup
 
-- A donut/ring chart summarizing "Advance & Deductions" or "Bonuses and Incentives" style breakdown.
+#### 1.1 Install Dependencies
+```bash
+cd backend
+npm install
+```
 
-- A "Recent Notifications" panel showing upcoming probation expiry alerts (1 month left / 7 days left).
+#### 1.2 Configure Environment Variables
+Create a `.env` file in the backend directory:
 
-2. Worker Directory
+```env
+# Database Configuration
+DB_HOST=localhost
+DB_NAME=u932966089_hr_payroll_db
+DB_USER=root
+DB_PASSWORD=your_mysql_password
+DB_PORT=3306
 
-- Table with columns: Worker ID, Photo, Name, Phone/Email, Location, Joining Date, Status (Active/Expired/On Leave — as colored pill badges), Action menu.
+# JWT Secret (CHANGE THIS IN PRODUCTION!)
+JWT_SECRET=your_jwt_secret_key_change_this_in_production_make_it_long_and_random
 
-- Search bar, filter dropdowns (Status, Location, Joining Month), export button.
+# Server Configuration
+PORT=3001
+NODE_ENV=development
 
-3. Registration Approvals
+# CORS Configuration (frontend URL)
+FRONTEND_URL=http://localhost:5173
+```
 
-- List/table of pending worker applications with photo, name, submitted date, and Approve/Reject action buttons.
+#### 1.3 Setup Database
+1. Import the schema into your existing database using phpMyAdmin:
+   - Open phpMyAdmin
+   - Select your database: `u932966089_hr_payroll_db`
+   - Go to the Import tab
+   - Choose the `backend/schema.sql` file
+   - Click "Go" to import
 
-- Clicking a row opens a detail view showing full bio-data: name, address, phone, email, NID upload preview, profile photo.
+2. Verify the tables were created:
+   ```sql
+   SHOW TABLES;
+   ```
 
-4. Attendance Page
+All 15 tables should be created successfully.
 
-- Table showing Worker, Date, Check-In Time, Check-Out Time, Location, Total Hours, Source (Self/Admin) as a small tag.
+#### 1.4 Update Admin Password
+The schema includes a default admin user (`admin@workhr.com` / `admin123`). **Update this for production:**
 
-- A "+ Add Entry" button for admin to manually add/edit attendance.
+1. Generate a new bcrypt hash:
+```javascript
+const bcrypt = require('bcryptjs');
+const hash = bcrypt.hash('your_new_password', 10);
+console.log(hash);
+```
 
-- Filter by date range and worker.
+2. Update the admin user in the database:
+```sql
+UPDATE users SET password_hash = 'your_new_hash' WHERE email = 'admin@workhr.com';
+```
 
-5. Payrolls Page (style this closely after the reference "Payrolls" screen)
-
-- Top stat cards: Payroll Cost, Total Expense, Pending Payments, Total Payrolls.
-
-- Bar chart "Payroll Cost Overview" (cost vs expense per month).
-
-- Side donut chart for "Deductions & Advances" breakdown.
-
-- "Payroll list" table: Payroll ID, Worker Name (with avatar), Hours Worked, Hourly Rate, Gross Pay, Advance Deducted, Net Pay, Status (Completed/Pending pill badge), Action icons (view/print payslip, more options).
-
-- "+ New Payroll" button top right and a date range selector.
-
-6. Locations Management Page
-
-- Simple card/list view of work locations admin has added (name, address), with Add/Edit/Delete actions.
-
-7. Notifications Center
-
-- List of system alerts: probation expiring in 1 month / 7 days, grouped by urgency (color-coded), each with worker name, photo, and a "View Worker" action.
-
-8. Reports Page
-
-- Filter bar (date range, worker, location).
-
-- Cards for Total Hours Worked, Total Labor Cost, Profit/Loss summary.
-
-- A chart comparing cost vs client billing over weeks/months.
-
-- Exportable table view below.
-
-9. Worker Dashboard (separate simplified layout for the Worker role)
-
-- Minimal single-screen view (no sidebar full menu — just Dashboard and maybe Attendance History).
-
-- Large "Check In" button, which on click reveals a location dropdown (populated from admin's location list) then confirms check-in with a timestamp.
-
-- After checking in, button changes to "Check Out".
-
-- Below, a simple table/list of the worker's own past attendance history (Date, Location, Time In, Time Out, Total Hours).
-
-- No access to any other worker's data, payroll, or admin menus.
-
-10. Settings Page
-
-- Simple form-style page with sections: Hourly Rate defaults, Overtime Multiplier, Tax/NI rate fields, Notification timing (1 month / 7 days), all as editable input fields (non-functional for now).
-
-DESIGN NOTES
-
-- Keep consistent spacing, card corner radius (~16px), and a light gray page background (#F7F7FB or similar) with white cards.
-
-- Use placeholder avatars/photos for worker mock data.
-
-- Make the sidebar highlight the active page.
-
-- Fully responsive layout is not required — desktop-first admin dashboard is fine.
-
-- Use realistic-looking mock data (worker names, dates, amounts) across all tables and charts so the app looks populated and real, not empty.
-
-Do not add authentication/login logic yet — just build a role switcher (a simple toggle or two entry links: "Admin View" and "Worker View") so both dashboards can be previewed without real login.
-
-This project was built with [Lovable](https://lovable.dev).
-
-**Live app**: https://hrsoftwarebyad.lovable.app
-
-## Build with Lovable
-
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/03435997-ed4e-43e6-995f-630d5db50aa2).
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
-
-## Development
-
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
-
-```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
+#### 1.5 Start the Backend Server
+```bash
 npm run dev
 ```
+
+The server will start on `http://localhost:3001`
+
+### Step 2: Frontend Setup
+
+#### 2.1 Configure Frontend Environment
+Create a `.env` file in the root directory:
+
+```env
+# Backend API URL
+VITE_API_URL=http://localhost:3001
+```
+
+#### 2.2 Start the Frontend
+```bash
+npm run dev
+```
+
+The frontend will start on `http://localhost:5173`
+
+## 🧪 Testing Guide
+
+### 1. Test Authentication Flow
+
+#### Test Admin Login
+1. Navigate to `http://localhost:5173`
+2. Login with:
+   - Email: `admin@workhr.com`
+   - Password: `admin123`
+3. Should redirect to admin dashboard
+4. Verify admin can access all admin pages
+
+#### Test Worker Login
+After approving an application (see below):
+1. Logout from admin
+2. Login with worker credentials (provided during approval)
+3. Should redirect to worker dashboard
+4. Verify worker can only access their own data
+
+### 2. Test Registration Flow
+
+#### Submit New Application
+1. Navigate to registration form (`/register`)
+2. Fill out all 5 steps of the form
+3. Upload required documents (photo, ID front, proof of address)
+4. Submit the form
+5. Should see success message with application ID
+
+#### Verify Application in Database
+```sql
+SELECT * FROM registration_applications WHERE status = 'pending' ORDER BY submitted DESC LIMIT 1;
+```
+
+### 3. Test Approval Flow
+
+#### Approve Application
+1. Login as admin
+2. Navigate to Registration Approvals (`/admin/approvals`)
+3. Click on an application to view details
+4. Click "Approve"
+5. Should see success message with new worker code
+
+#### Verify Worker Creation
+```sql
+SELECT * FROM workers ORDER BY joined DESC LIMIT 1;
+SELECT * FROM users WHERE role = 'worker' ORDER BY created_at DESC LIMIT 1;
+```
+
+- Worker should have generated code (e.g., WKR-2026-0147)
+- Worker should have expiry date 3 months from now
+- User account should be created for the worker
+
+### 4. Test Attendance Flow
+
+#### Worker Check-In
+1. Login as worker
+2. Click "Check In"
+3. Select work location
+4. Confirm check-in
+5. Should see checked-in status with elapsed time
+
+#### Verify Attendance Record
+```sql
+SELECT * FROM attendance WHERE worker_id = 'WORKER_CODE' ORDER BY date DESC LIMIT 1;
+```
+
+#### Worker Check-Out
+1. Click "Check Out" while checked in
+2. Should see total hours worked
+3. Verify attendance record updated with check-out time
+
+#### Admin Manual Attendance
+1. Login as admin
+2. Navigate to Attendance (`/admin/attendance`)
+3. Click "Add Entry"
+4. Fill in worker, date, times, location
+5. Should add admin-tagged attendance record
+
+### 5. Test Payroll Flow
+
+#### Generate Payroll
+1. Login as admin
+2. Navigate to Payrolls (`/admin/payroll`)
+3. Click "New Payroll"
+4. Select worker and date range
+5. Set advance amount if needed
+6. View calculation preview
+7. Click "Generate payroll"
+8. Should see payroll record with calculated amounts
+
+#### Verify Payroll Calculation
+```sql
+SELECT * FROM payroll WHERE worker_id = 'WORKER_CODE' ORDER BY generated_at DESC LIMIT 1;
+```
+
+- Verify hours match attendance in period
+- Verify gross = hours × rate (with overtime)
+- Verify tax calculated using settings rates
+- Verify net = gross - tax - advance
+
+### 6. Test Buyer & Profit/Loss Flow
+
+#### Add Buyer Income
+1. Navigate to Buyer & Profit/Loss (`/admin/finance`)
+2. Click "Add Buyer Payment"
+3. Fill in buyer name, description, amount, date
+4. Should see income in table and stats updated
+
+#### Add Other Costs
+1. Click "Add Cost"
+2. Fill in description, amount, date
+3. Should see cost in table and stats updated
+
+#### Verify Profit/Loss Calculation
+- Total Received = Sum of buyer income
+- Total Paid to Workers = Sum of payroll net pay
+- Other Costs = Sum of other costs
+- Profit/Loss = Total Received - Total Paid - Other Costs
+
+### 7. Test Reports & Analytics
+
+#### Dashboard Statistics
+1. Navigate to Admin Dashboard
+2. Verify stat cards show correct totals:
+   - Active Workers count
+   - Total Payroll Cost
+   - Pending Registrations count
+   - Workers Expiring Soon count
+
+#### Reports Page
+1. Navigate to Reports (`/admin/reports`)
+2. Verify weekly breakdown shows correct hours and costs
+3. Verify location breakdown shows correct data
+4. Verify profit/loss calculations match
+
+### 8. Test Settings & Notifications
+
+#### Update Settings
+1. Navigate to Settings (`/admin/settings`)
+2. Modify tax rates, overtime settings, etc.
+3. Click "Save changes"
+4. Verify settings persist and affect calculations
+
+#### Test Expiry Notifications
+1. Navigate to Notifications (`/admin/notifications`)
+2. Should see workers expiring soon (based on settings)
+3. Should see activity log from system actions
+
+## 🔒 Security Considerations
+
+### Production Setup
+1. **Change JWT_SECRET** to a long, random string
+2. **Update admin password** from default
+3. **Use strong database passwords**
+4. **Enable HTTPS** in production
+5. **Restrict CORS** to production domain only
+6. **Implement rate limiting** for API endpoints
+7. **Use environment variables** for all sensitive data
+8. **Regular database backups**
+
+### API Security
+- All protected routes require valid JWT token
+- Admin-only routes verify admin role
+- Worker routes restrict access to own data only
+- Passwords are bcrypt-hashed
+- File uploads have size and type restrictions
+
+## 📊 API Endpoints Reference
+
+### Authentication
+- `POST /api/auth/login` - User login
+- `GET /api/auth/me` - Get current user
+
+### Applications
+- `POST /api/applications` - Submit application (public)
+- `GET /api/applications` - Get pending applications (admin)
+- `GET /api/applications/rejected` - Get rejected applications (admin)
+- `GET /api/applications/:id` - Get single application (admin)
+- `POST /api/applications/:id/approve` - Approve application (admin)
+- `POST /api/applications/:id/reject` - Reject application (admin)
+
+### Workers
+- `GET /api/workers` - Get all workers (admin)
+- `GET /api/workers/:id` - Get single worker (admin)
+- `POST /api/workers` - Create worker (admin)
+- `PUT /api/workers/:id` - Update worker (admin)
+- `POST /api/workers/:id/reactivate` - Reactivate worker (admin)
+- `DELETE /api/workers/:id` - Delete worker (admin)
+
+### Attendance
+- `GET /api/attendance` - Get all attendance (admin)
+- `GET /api/attendance/my` - Get own attendance (worker)
+- `POST /api/attendance` - Add attendance entry (admin)
+- `POST /api/attendance/checkin` - Check in (worker)
+- `POST /api/attendance/checkout` - Check out (worker)
+- `PUT /api/attendance/:id` - Update attendance (admin)
+- `DELETE /api/attendance/:id` - Delete attendance (admin)
+- `GET /api/attendance/active/shifts` - Get active shifts (admin)
+
+### Payroll
+- `GET /api/payroll` - Get all payroll records (admin)
+- `POST /api/payroll/preview` - Preview payroll calculation (admin)
+- `POST /api/payroll` - Generate payroll (admin)
+- `PATCH /api/payroll/:id/status` - Update payroll status (admin)
+- `DELETE /api/payroll/:id` - Delete payroll (admin)
+- `GET /api/payroll/stats/summary` - Get payroll statistics (admin)
+
+### Locations
+- `GET /api/locations` - Get all locations (public)
+- `POST /api/locations` - Create location (admin)
+- `PUT /api/locations/:id` - Update location (admin)
+- `DELETE /api/locations/:id` - Delete location (admin)
+- `GET /api/locations/:name/workers-count` - Get workers count by location (admin)
+
+### Buyer Income
+- `GET /api/buyer-income` - Get all buyer income (admin)
+- `POST /api/buyer-income` - Create buyer income (admin)
+- `PUT /api/buyer-income/:id` - Update buyer income (admin)
+- `DELETE /api/buyer-income/:id` - Delete buyer income (admin)
+- `GET /api/buyer-income/buyers/list` - Get unique buyer names (admin)
+
+### Other Costs
+- `GET /api/other-costs` - Get all other costs (admin)
+- `POST /api/other-costs` - Create other cost (admin)
+- `PUT /api/other-costs/:id` - Update other cost (admin)
+- `DELETE /api/other-costs/:id` - Delete other cost (admin)
+
+### Settings
+- `GET /api/settings` - Get settings (admin)
+- `PUT /api/settings` - Update settings (admin)
+
+### Reports
+- `GET /api/reports/dashboard` - Get dashboard statistics (admin)
+- `GET /api/reports/weekly` - Get weekly report (admin)
+- `GET /api/reports/by-location` - Get location-based report (admin)
+- `GET /api/reports/payroll-chart` - Get payroll chart data (admin)
+- `GET /api/reports/deductions` - Get deductions data (admin)
+
+### Notifications
+- `GET /api/notifications` - Get all notifications (admin)
+- `GET /api/notifications/expiry` - Get expiry notices (admin)
+- `GET /api/notifications/activity` - Get activity log (admin)
+- `POST /api/notifications` - Create notification (admin)
+- `DELETE /api/notifications/:id` - Delete notification (admin)
+
+## 🐛 Troubleshooting
+
+### Database Connection Issues
+- Verify MySQL is running: `mysql -u root -p -e "SELECT 1;"`
+- Check database credentials in `.env`
+- Ensure database exists: `SHOW DATABASES;`
+
+### API Connection Issues
+- Verify backend is running on port 3001
+- Check frontend `VITE_API_URL` in `.env`
+- Test API health: `curl http://localhost:3001/api/health`
+
+### File Upload Issues
+- Ensure `uploads/documents/` directory exists
+- Check file size limits in multer configuration
+- Verify file types are allowed
+
+### Authentication Issues
+- Verify JWT_SECRET is set in backend `.env`
+- Check token expiration (24 hours)
+- Ensure user exists in database
+- Verify password hash is correct
+
+### Frontend Issues
+- Clear browser cache and localStorage
+- Check browser console for errors
+- Verify API calls in Network tab
+- Ensure CORS is configured correctly
+
+## 📝 Data Migration Notes
+
+If you have existing mock data that needs to be preserved:
+
+1. **Export mock data** from the frontend before migration
+2. **Map mock fields** to database schema
+3. **Create migration scripts** to insert existing data
+4. **Test migration** on development database first
+5. **Backup production database** before migration
+
+## 🚀 Deployment Checklist
+
+### Backend
+- [ ] Set production environment variables
+- [ ] Change JWT_SECRET
+- [ ] Update admin password
+- [ ] Configure production database
+- [ ] Enable HTTPS
+- [ ] Set up database backups
+- [ ] Configure CORS for production domain
+- [ ] Implement rate limiting
+- [ ] Set up monitoring/logging
+
+### Frontend
+- [ ] Set production API URL
+- [ ] Build production bundle
+- [ ] Configure production hosting
+- [ ] Set up CDN for static assets
+- [ ] Enable HTTPS
+- [ ] Configure analytics
+
+### Database
+- [ ] Create production database
+- [ ] Run schema migration
+- [ ] Import seed data if needed
+- [ ] Set up automated backups
+- [ ] Configure replication if needed
+- [ ] Set up monitoring
+
+## 📞 Support
+
+For issues or questions:
+1. Check this documentation first
+2. Review API endpoint reference
+3. Check database schema in `backend/schema.sql`
+4. Review error messages in browser console
+5. Test with provided test cases
+
+## ✅ Success Criteria
+
+The implementation is complete when:
+- ✅ All admin functions work with real database
+- ✅ All worker functions work with real database
+- ✅ Registration creates proper database records
+- ✅ Approval creates worker with unique code
+- ✅ Attendance tracking works end-to-end
+- ✅ Payroll calculations are accurate
+- ✅ Reports show real data
+- ✅ Settings persist and affect calculations
+- ✅ File uploads work correctly
+- ✅ Authentication and authorization work properly
+- ✅ Frontend displays real data without errors

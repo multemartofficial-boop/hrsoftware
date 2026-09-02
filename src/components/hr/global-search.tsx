@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Search, Users, MapPin, LayoutDashboard } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useHR } from "@/lib/hr-store";
+import { useApi } from "@/lib/api-store";
 import { avatarUrl } from "@/lib/mock-data";
 
 type Result = {
@@ -37,7 +37,7 @@ export function GlobalSearch({
   autoFocus?: boolean;
   onDone?: () => void;
 }) {
-  const { workers, locations } = useHR();
+  const { workers, locations } = useApi();
   const navigate = useNavigate();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);

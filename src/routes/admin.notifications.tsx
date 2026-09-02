@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { AlertTriangle, Clock, Info, RotateCcw } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, Person } from "@/components/hr/bits";
-import { useHR } from "@/lib/hr-store";
+import { useApi } from "@/lib/api-store";
 import type { Notice } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
@@ -19,18 +19,28 @@ export const Route = createFileRoute("/admin/notifications")({
 });
 
 function NotificationsPage() {
-  const { notices, settings, reactivateWorker } = useHR();
+  const { notices, settings, reactivateWorker, loading } = useApi();
+
+  if (loading.notifications) {
+    return (
+      <AdminShell title="Notifications Center">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-muted-foreground">Loading notifications...</div>
+        </div>
+      </AdminShell>
+    );
+  }
 
   const groups = [
     {
       key: "critical" as const,
-      title: `Urgent — ${settings.finalReminderDays} days or less`,
+      title: settings ? `Urgent — ${settings.finalReminderDays} days or less` : "Urgent",
       icon: AlertTriangle,
       tone: "bg-danger-soft text-danger",
     },
     {
       key: "warning" as const,
-      title: `Upcoming — within ${settings.firstReminderDays} days`,
+      title: settings ? `Upcoming — within ${settings.firstReminderDays} days` : "Upcoming",
       icon: Clock,
       tone: "bg-warning-soft text-warning",
     },
@@ -39,7 +49,7 @@ function NotificationsPage() {
 
   const Row = ({ n, tone }: { n: Notice; tone: string }) => (
     <div className="flex flex-wrap items-center gap-4 py-3.5">
-      <Person name={n.worker} sub={n.when} />
+      <Person name={n.worker} sub={n.occurred_at} />
       <p className="text-sm text-muted-foreground">{n.message}</p>
       <span className={cn("ml-auto rounded-full px-2.5 py-1 text-xs font-medium capitalize", tone)}>
         {n.urgency}
@@ -89,7 +99,7 @@ function NotificationsPage() {
             </Card>
           );
         })}
-        {notices.length === 0 && (
+        {(!notices || notices.length === 0) && (
           <Card>
             <p className="py-6 text-center text-sm text-muted-foreground">Nothing needs your attention.</p>
           </Card>

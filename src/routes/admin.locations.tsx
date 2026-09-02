@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Plus, MapPin, Pencil, Trash2, Users } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, Field, GhostButton, Modal, PrimaryButton, inputCls } from "@/components/hr/bits";
-import { useHR } from "@/lib/hr-store";
+import { useApi } from "@/lib/api-store";
 import type { LocationItem } from "@/lib/mock-data";
 
 export const Route = createFileRoute("/admin/locations")({
@@ -19,7 +19,7 @@ export const Route = createFileRoute("/admin/locations")({
 });
 
 function LocationForm({ editing, onClose }: { editing: LocationItem | null; onClose: () => void }) {
-  const { addLocation, updateLocation } = useHR();
+  const { addLocation, updateLocation } = useApi();
   const [name, setName] = useState(editing?.name ?? "");
   const [address, setAddress] = useState(editing?.address ?? "");
 
@@ -55,7 +55,7 @@ function LocationForm({ editing, onClose }: { editing: LocationItem | null; onCl
 }
 
 function LocationsPage() {
-  const { locations, deleteLocation, workersAt } = useHR();
+  const { locations, workers, deleteLocation, loading, error, loadLocations } = useApi();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<LocationItem | null>(null);
 
@@ -63,6 +63,33 @@ function LocationsPage() {
     setEditing(l);
     setOpen(true);
   };
+
+  if (loading.locations) {
+    return (
+      <AdminShell title="Locations">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-muted-foreground">Loading locations...</div>
+        </div>
+      </AdminShell>
+    );
+  }
+
+  if (error) {
+    return (
+      <AdminShell title="Locations">
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <div className="text-red-500 font-medium">Failed to load locations</div>
+          <div className="text-sm text-muted-foreground">{error}</div>
+          <button
+            onClick={() => loadLocations()}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm"
+          >
+            Retry
+          </button>
+        </div>
+      </AdminShell>
+    );
+  }
 
   return (
     <AdminShell
@@ -77,7 +104,7 @@ function LocationsPage() {
       }
     >
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {locations.map((l) => (
+        {(locations || []).map((l) => (
           <Card key={l.id}>
             <div className="flex items-start gap-3">
               <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary-soft text-primary">
@@ -90,7 +117,7 @@ function LocationsPage() {
             </div>
             <div className="mt-5 flex items-center justify-between border-t border-border pt-4">
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Users className="size-3.5" /> {workersAt(l.name)} workers assigned
+                <Users className="size-3.5" /> {workers ? workers.filter(w => w.location === l.name).length : 0} workers assigned
               </span>
               <div className="flex gap-1 text-muted-foreground">
                 <button onClick={() => start(l)} className="rounded-md p-1.5 hover:bg-secondary hover:text-primary">

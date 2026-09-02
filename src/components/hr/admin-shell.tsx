@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { avatarUrl } from "@/lib/mock-data";
-import { useHR } from "@/lib/hr-store";
+import { useApi } from "@/lib/api-store";
 import { RequireRole } from "@/components/hr/auth-guard";
 
 const mainMenu = [
@@ -200,7 +200,7 @@ function AdminShellInner({
   action?: ReactNode;
   children: ReactNode;
 }) {
-  const { notices, workers, settings, totals, logout, session } = useHR();
+  const { notices, workers, settings, totals, logout, session } = useApi();
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -315,18 +315,20 @@ function AdminShellInner({
 
           <GlobalSearch className="hidden w-64 md:block" />
 
-          <a
-            href={`mailto:${settings.payrollEmail}?subject=${encodeURIComponent(
-              `${settings.companyName} — HR update`,
-            )}&body=${encodeURIComponent(
-              `Active workers: ${totals.activeWorkers}\nExpiring soon: ${totals.expiringSoon}\nPending payrolls: ${totals.pendingCount}`,
-            )}`}
-            aria-label={`Email payroll contact ${settings.payrollEmail}`}
+          {settings && totals && (
+            <a
+              href={`mailto:${settings.payrollEmail}?subject=${encodeURIComponent(
+                `${settings.companyName} — HR update`,
+              )}&body=${encodeURIComponent(
+                `Active workers: ${totals.activeWorkers}\nExpiring soon: ${totals.expiringSoon}\nPending payrolls: ${totals.pendingCount}`,
+              )}`}
+              aria-label={`Email payroll contact ${settings.payrollEmail}`}
             title={`Email ${settings.payrollEmail}`}
             className="grid size-9 place-items-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary"
           >
             <Mail className="size-4" />
           </a>
+          )}
           <button
             onClick={refresh}
             aria-label="Refresh data"

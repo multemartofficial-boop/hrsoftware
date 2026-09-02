@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Check } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, inputCls } from "@/components/hr/bits";
-import { useHR } from "@/lib/hr-store";
+import { useApi } from "@/lib/api-store";
 import type { Settings as SettingsType } from "@/lib/mock-data";
 
 export const Route = createFileRoute("/admin/settings")({
@@ -66,20 +66,40 @@ function Section({ title, desc, children }: { title: string; desc: string; child
 }
 
 function SettingsPage() {
-  const { settings, updateSettings } = useHR();
-  const [draft, setDraft] = useState<SettingsType>(settings);
+  const { settings, updateSettings, loading } = useApi();
+  const [draft, setDraft] = useState<SettingsType | null>(null);
   const [saved, setSaved] = useState(false);
 
+  useEffect(() => {
+    if (settings) {
+      setDraft(settings);
+    }
+  }, [settings]);
+
   const set = <K extends keyof SettingsType>(key: K, value: SettingsType[K]) => {
-    setDraft((d) => ({ ...d, [key]: value }));
+    if (draft) {
+      setDraft((d) => ({ ...d, [key]: value }));
+    }
     setSaved(false);
   };
 
   const save = () => {
-    updateSettings(draft);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    if (draft) {
+      updateSettings(draft);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    }
   };
+
+  if (loading.settings || !draft) {
+    return (
+      <AdminShell title="Settings">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-muted-foreground">Loading settings...</div>
+        </div>
+      </AdminShell>
+    );
+  }
 
   return (
     <AdminShell

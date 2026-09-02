@@ -17,7 +17,7 @@ import {
   Th,
   inputCls,
 } from "@/components/hr/bits";
-import { useHR } from "@/lib/hr-store";
+import { useApi } from "@/lib/api-store";
 import { fmtDate, todayISO, hoursBetween } from "@/lib/hr-utils";
 import type { Attendance } from "@/lib/mock-data";
 
@@ -44,19 +44,35 @@ function EntryForm({
   editing: Attendance | null;
   onClose: () => void;
 }) {
-  const { workers, locations, addAttendance, updateAttendance } = useHR();
+  const { workers, locations, addAttendance, updateAttendance } = useApi();
   const [form, setForm] = useState<FormState>(initial);
   const set = (k: keyof FormState) => (e: { target: { value: string } }) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!workers || workers.length === 0) {
+      alert('No workers available. Please create workers first.');
+      return;
+    }
     const w = workers.find((x) => x.id === form.workerId);
     if (!w) return;
     if (editing) {
-      updateAttendance(editing.id, { ...form, worker: w.name });
+      await updateAttendance(editing.id, { ...form, worker: w.name });
     } else {
-      addAttendance({ ...form, worker: w.name, source: "Admin" });
+      const result = await addAttendance({
+        workerId: form.workerId,
+        date: form.date,
+        in: form.in,
+        out: form.out,
+        location: form.location,
+        worker: w.name,
+        source: "Admin"
+      });
+      if (!result) {
+        alert('Failed to add attendance. Please try again.');
+        return;
+      }
     }
     onClose();
   };
@@ -70,7 +86,7 @@ function EntryForm({
       <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
         <Field label="Worker" className="sm:col-span-2">
           <select required value={form.workerId} onChange={set("workerId")} className={inputCls}>
-            {workers.map((w) => (
+            {workers?.map((w) => (
               <option key={w.id} value={w.id}>
                 {w.name} — {w.id}
               </option>
@@ -82,7 +98,7 @@ function EntryForm({
         </Field>
         <Field label="Location">
           <select required value={form.location} onChange={set("location")} className={inputCls}>
-            {locations.map((l) => (
+            {locations?.map((l) => (
               <option key={l.id}>{l.name}</option>
             ))}
           </select>
@@ -108,7 +124,7 @@ function EntryForm({
 }
 
 function AttendancePage() {
-  const { attendance, workers, locations, deleteAttendance, openShifts } = useHR();
+  const { attendance, workers, locations, deleteAttendance, loading, error, loadAttendance } = useApi();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Attendance | null>(null);
   const [workerFilter, setWorkerFilter] = useState("all");
@@ -117,7 +133,7 @@ function AttendancePage() {
 
   const rows = useMemo(
     () =>
-      [...attendance]
+      [...(attendance || [])]
         .filter((a) => (workerFilter === "all" ? true : a.workerId === workerFilter))
         .filter((a) => (from ? a.date >= from : true))
         .filter((a) => (to ? a.date <= to : true))
@@ -126,15 +142,43 @@ function AttendancePage() {
   );
 
   const today = todayISO();
-  const todayRows = attendance.filter((a) => a.date === today);
+  const todayRows = (attendance || []).filter((a) => a.date === today);
   const avg = rows.length ? rows.reduce((t, a) => t + a.hours, 0) / rows.length : 0;
+  const openShifts = todayRows.filter((a) => a.out === "00:00:00" || a.out === "00:00");
+
+  if (loading.attendance) {
+    return (
+      <AdminShell title="Attendance">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-muted-foreground">Loading attendance...</div>
+        </div>
+      </AdminShell>
+    );
+  }
+
+  if (error) {
+    return (
+      <AdminShell title="Attendance">
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <div className="text-red-500 font-medium">Failed to load attendance</div>
+          <div className="text-sm text-muted-foreground">{error}</div>
+          <button
+            onClick={() => loadAttendance()}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm"
+          >
+            Retry
+          </button>
+        </div>
+      </AdminShell>
+    );
+  }
 
   const blank: FormState = {
-    workerId: workers[0]?.id ?? "",
+    workerId: (workers && workers.length > 0) ? workers[0].id : "",
     date: today,
     in: "08:00",
     out: "17:00",
-    location: locations[0]?.name ?? "",
+    location: (locations && locations.length > 0) ? locations[0].name : "",
   };
 
   return (
@@ -143,6 +187,10 @@ function AttendancePage() {
       action={
         <button
           onClick={() => {
+            if (!workers || workers.length === 0) {
+              alert('No workers available. Please create workers first by approving registration applications.');
+              return;
+            }
             setEditing(null);
             setOpen(true);
           }}
@@ -185,7 +233,7 @@ function AttendancePage() {
               className="h-9 rounded-lg border border-border bg-card px-3 text-sm outline-none focus:border-primary"
             >
               <option value="all">All Workers</option>
-              {workers.map((w) => (
+              {workers && workers.map((w) => (
                 <option key={w.id} value={w.id}>
                   {w.name}
                 </option>
@@ -211,7 +259,14 @@ function AttendancePage() {
             {rows.length === 0 && <EmptyRow colSpan={8} text="No attendance records for this filter." />}
             {rows.map((a) => (
               <tr key={a.id} className="hover:bg-secondary/40">
-                <Td><Person name={a.worker} /></Td>
+                <Td>
+                  <div className="flex items-center gap-2">
+                    {(!a.out || a.out === "00:00:00" || a.out === "00:00") && (
+                      <div className="w-2 h-2 rounded-full bg-green-500" title="Currently checked in" />
+                    )}
+                    <Person name={a.worker} />
+                  </div>
+                </Td>
                 <Td>{fmtDate(a.date)}</Td>
                 <Td>{a.in}</Td>
                 <Td>{a.out}</Td>
@@ -251,8 +306,8 @@ function AttendancePage() {
               ? {
                   workerId: editing.workerId,
                   date: editing.date,
-                  in: editing.in,
-                  out: editing.out,
+                  in: editing.check_in_time,
+                  out: editing.check_out_time,
                   location: editing.location,
                 }
               : blank

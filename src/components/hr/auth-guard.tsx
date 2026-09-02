@@ -1,14 +1,14 @@
 import { useEffect, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { ShieldAlert } from "lucide-react";
-import { useHR, type Role } from "@/lib/hr-store";
+import { useApi, type Role } from "@/lib/api-store";
 
 /**
  * Frontend-only role gate. Redirects unauthenticated users to the login screen
  * and shows an "Access Denied" card when the signed-in role doesn't match.
  */
 export function RequireRole({ role, children }: { role: Role; children: ReactNode }) {
-  const { session, authReady } = useHR();
+  const { session, authReady } = useApi();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -24,7 +24,7 @@ export function RequireRole({ role, children }: { role: Role; children: ReactNod
   }
 
   if (session.role !== role) {
-    const home = session.role === "admin" ? "/admin" : "/worker";
+    const home = session.role === "admin" ? "/admin" : "/worker/dashboard";
     return (
       <div className="grid min-h-screen place-items-center bg-background px-6">
         <div className="card-surface max-w-md p-8 text-center">

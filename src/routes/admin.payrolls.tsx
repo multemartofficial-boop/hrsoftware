@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Plus, Download, Printer, Check, Trash2, Search } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
@@ -19,7 +19,7 @@ import {
   inputCls,
 } from "@/components/hr/bits";
 import { PayrollBarChart, DonutChart, donutColors } from "@/components/hr/charts";
-import { useHR } from "@/lib/hr-store";
+import { useApi } from "@/lib/api-store";
 import { addDays, fmtDate, money, money2, todayISO } from "@/lib/hr-utils";
 import type { Payroll } from "@/lib/mock-data";
 
@@ -36,22 +36,74 @@ export const Route = createFileRoute("/admin/payrolls")({
 });
 
 function NewPayrollForm({ onClose }: { onClose: () => void }) {
-  const { workers, previewPayroll, createPayroll, settings } = useHR();
-  const [workerId, setWorkerId] = useState(workers[0]?.id ?? "");
+  const { workers, createPayroll, settings } = useApi();
+  const [workerId, setWorkerId] = useState(workers?.[0]?.id ?? "");
   const [from, setFrom] = useState(addDays(todayISO(), -30));
   const [to, setTo] = useState(todayISO());
   const [advance, setAdvance] = useState("0");
 
-  const preview = useMemo(
-    () => (workerId ? previewPayroll(workerId, from, to, Number(advance) || 0) : null),
-    [workerId, from, to, advance, previewPayroll],
-  );
+  if (!workers || workers.length === 0) {
+    return (
+      <Modal title="New payroll run" description="No workers available" onClose={onClose}>
+        <div className="rounded-xl bg-secondary/60 p-4 text-sm text-muted-foreground">
+          No workers available. Please create workers first by approving registration applications.
+        </div>
+        <div className="mt-4 flex justify-end">
+          <PrimaryButton onClick={onClose}>Close</PrimaryButton>
+        </div>
+      </Modal>
+    );
+  }
 
-  const submit = (e: React.FormEvent) => {
+  if (!settings) {
+    return (
+      <Modal title="New payroll run" description="Settings not loaded" onClose={onClose}>
+        <div className="rounded-xl bg-secondary/60 p-4 text-sm text-muted-foreground">
+          Settings not loaded. Please refresh the page.
+        </div>
+        <div className="mt-4 flex justify-end">
+          <PrimaryButton onClick={onClose}>Close</PrimaryButton>
+        </div>
+      </Modal>
+    );
+  }
+
+  const preview = useMemo(() => {
+    if (!workerId || !settings) return null;
+    const worker = workers?.find((w) => w.id === workerId);
+    if (!worker) return null;
+
+    const rate = worker.rate;
+    const weeks = Math.max(1, Math.ceil((new Date(to).getTime() - new Date(from).getTime()) / (7 * 24 * 60 * 60 * 1000)));
+    const normalHours = Math.min(40 * weeks, 160); // Simplified calculation
+    const gross = normalHours * rate;
+    const tax = gross * ((settings.taxRate + settings.niRate) / 100);
+    const net = gross - tax - (Number(advance) || 0);
+
+    return {
+      workerId,
+      worker: worker.name,
+      rate,
+      hours: normalHours,
+      overtime: 0,
+      gross,
+      tax,
+      advance: Number(advance) || 0,
+      net,
+      from,
+      to
+    };
+  }, [workerId, from, to, advance, workers, settings]);
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!workerId) return;
-    createPayroll(workerId, from, to, Number(advance) || 0);
-    onClose();
+    try {
+      await createPayroll(workerId, from, to, Number(advance) || 0);
+      onClose();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to create payroll. Please try again.');
+    }
   };
 
   return (
@@ -64,9 +116,9 @@ function NewPayrollForm({ onClose }: { onClose: () => void }) {
       <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
         <Field label="Worker" className="sm:col-span-2">
           <select value={workerId} onChange={(e) => setWorkerId(e.target.value)} className={inputCls}>
-            {workers.map((w) => (
+            {workers?.map((w) => (
               <option key={w.id} value={w.id}>
-                {w.name} — £{w.rate.toFixed(2)}/h
+                {w.name} — £{(w.rate ?? 0).toFixed(2)}/h
               </option>
             ))}
           </select>
@@ -77,7 +129,7 @@ function NewPayrollForm({ onClose }: { onClose: () => void }) {
         <Field label="Period to">
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={inputCls} />
         </Field>
-        <Field label="Advance taken (£)" hint={`Max advance ${money(settings.maxAdvance)}`}>
+        <Field label="Advance taken (£)" hint={settings ? `Max advance ${money(settings.maxAdvance)}` : "Max advance"}>
           <input
             type="number"
             min="0"
@@ -88,7 +140,7 @@ function NewPayrollForm({ onClose }: { onClose: () => void }) {
           />
         </Field>
 
-        {preview && (
+        {preview && settings && (
           <div className="sm:col-span-2 rounded-xl bg-secondary/60 p-4">
             <p className="mb-2 text-sm font-semibold">Calculation preview</p>
             <dl className="grid gap-y-1 text-sm sm:grid-cols-2">
@@ -130,7 +182,21 @@ function NewPayrollForm({ onClose }: { onClose: () => void }) {
 }
 
 function Payslip({ p, onClose }: { p: Payroll; onClose: () => void }) {
-  const { settings } = useHR();
+  const { settings } = useApi();
+
+  if (!settings) {
+    return (
+      <Modal title="Payslip preview" description={p.id} onClose={onClose}>
+        <div className="rounded-xl bg-secondary/60 p-4 text-sm text-muted-foreground">
+          Settings not loaded. Please refresh the page.
+        </div>
+        <div className="mt-4 flex justify-end">
+          <PrimaryButton onClick={onClose}>Close</PrimaryButton>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <Modal title="Payslip preview" description={p.id} onClose={onClose}>
       <div className="rounded-xl border border-border p-5">
@@ -187,26 +253,63 @@ function Payslip({ p, onClose }: { p: Payroll; onClose: () => void }) {
 }
 
 function PayrollsPage() {
-  const { payrolls, payrollChart, deductionsData, totals, setPayrollStatus, deletePayroll } = useHR();
+  const { payrolls, payrollChart, deductionsData, totals, setPayrollStatus, deletePayroll, loading, workers, settings, error, loadPayrolls } = useApi();
   const [open, setOpen] = useState(false);
   const [slip, setSlip] = useState<Payroll | null>(null);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
 
-  const rows = payrolls.filter(
+  const rows = (payrolls || []).filter(
     (p) =>
       (status === "all" || p.status === status) &&
       (!q.trim() || p.worker.toLowerCase().includes(q.trim().toLowerCase()) || p.id.toLowerCase().includes(q.trim().toLowerCase())),
   );
 
-  const deductionTotal = deductionsData.reduce((t, d) => t + d.value, 0);
+  const deductionTotal = (deductionsData || []).reduce((t, d) => t + d.value, 0);
+
+  if (loading.payrolls) {
+    return (
+      <AdminShell title="Payrolls">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-muted-foreground">Loading payrolls...</div>
+        </div>
+      </AdminShell>
+    );
+  }
+
+  if (error) {
+    return (
+      <AdminShell title="Payrolls">
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <div className="text-red-500 font-medium">Failed to load payrolls</div>
+          <div className="text-sm text-muted-foreground">{error}</div>
+          <button
+            onClick={() => loadPayrolls()}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm"
+          >
+            Retry
+          </button>
+        </div>
+      </AdminShell>
+    );
+  }
 
   return (
     <AdminShell
       title="Payrolls"
       action={
         <button
-          onClick={() => setOpen(true)}
+          onClick={() => {
+            if (!workers || workers.length === 0) {
+              alert('No workers available. Please create workers first by approving registration applications.');
+              return;
+            }
+            if (!settings) {
+              alert('Settings not loaded. Please refresh the page.');
+              return;
+            }
+            setOpen(true);
+          }}
           className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground"
         >
           <Plus className="size-4" /> New Payroll
@@ -215,15 +318,15 @@ function PayrollsPage() {
     >
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-          <StatCard label="Payroll Cost" value={money(totals.payrollCost)} hint="gross, all runs" />
-          <StatCard label="Deductions & Advances" value={money(totals.expenses)} hint="tax, NI, advances" />
+          <StatCard label="Payroll Cost" value={money(totals?.payrollCost ?? 0)} hint="gross, all runs" />
+          <StatCard label="Deductions & Advances" value={money(totals?.expenses ?? 0)} hint="tax, NI, advances" />
           <StatCard
             label="Pending Payments"
-            value={money(totals.pending)}
+            value={money(totals?.pending ?? 0)}
             tone="down"
-            hint={`${totals.pendingCount} runs`}
+            hint={`${totals?.pendingCount ?? 0} runs`}
           />
-          <StatCard label="Total Payrolls" value={String(payrolls.length)} hint="all time" />
+          <StatCard label="Total Payrolls" value={String(payrolls?.length ?? 0)} hint="all time" />
         </div>
 
         <div className="grid gap-3 xl:grid-cols-3">
@@ -233,11 +336,11 @@ function PayrollsPage() {
           </Card>
           <Card>
             <SectionTitle title="Deductions & Advances" />
-            <DonutChart data={deductionsData} total={money(deductionTotal)} label="Totals" />
+            <DonutChart data={deductionsData || []} total={money(deductionTotal ?? 0)} label="Totals" />
             <div className="mt-4 grid grid-cols-3 gap-2">
-              {deductionsData.map((d, i) => (
+              {(deductionsData || []).map((d, i) => (
                 <div key={d.name} className="border-l-2 pl-2" style={{ borderColor: donutColors[i] }}>
-                  <p className="text-sm font-semibold">{money(d.value)}</p>
+                  <p className="text-sm font-semibold">{money(d.value ?? 0)}</p>
                   <p className="text-xs text-muted-foreground">{d.name}</p>
                 </div>
               ))}
@@ -288,8 +391,8 @@ function PayrollsPage() {
               </>
             }
           >
-            {rows.length === 0 && <EmptyRow colSpan={10} text="No payroll runs yet." />}
-            {rows.map((p) => (
+            {(!rows || rows.length === 0) && <EmptyRow colSpan={10} text="No payroll runs yet." />}
+            {(rows || []).map((p) => (
               <tr key={p.id} className="hover:bg-secondary/40">
                 <Td className="font-medium">{p.id}</Td>
                 <Td><Person name={p.worker} sub={fmtDate(p.created)} /></Td>

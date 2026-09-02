@@ -4,7 +4,7 @@ import { ArrowLeft, Copy, Check, RotateCcw, FileImage, Trash2 } from "lucide-rea
 import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, DataTable, EmptyRow, StatusBadge, Td, Th } from "@/components/hr/bits";
 import { avatarUrl, money2 } from "@/lib/mock-data";
-import { useHR } from "@/lib/hr-store";
+import { useApi } from "@/lib/api-store";
 import { fmtDate, daysUntil } from "@/lib/hr-utils";
 
 export const Route = createFileRoute("/admin/workers/$id")({
@@ -21,9 +21,19 @@ export const Route = createFileRoute("/admin/workers/$id")({
 
 function WorkerDetails() {
   const { id } = useParams({ from: "/admin/workers/$id" });
-  const { workers, attendance, payrolls, workerStatus, reactivateWorker, deleteWorker } = useHR();
+  const { workers, attendance, payrolls, workerStatus, reactivateWorker, deleteWorker, loading } = useApi();
   const [copied, setCopied] = useState(false);
-  const worker = workers.find((w) => w.id === id);
+  const worker = workers?.find((w) => w.id === id);
+
+  if (loading.workers) {
+    return (
+      <AdminShell title="Worker Details">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-muted-foreground">Loading worker details...</div>
+        </div>
+      </AdminShell>
+    );
+  }
 
   if (!worker) {
     return (
@@ -40,8 +50,8 @@ function WorkerDetails() {
 
   const status = workerStatus(worker);
   const left = daysUntil(worker.expiry);
-  const rows = attendance.filter((a) => a.workerId === worker.id);
-  const pays = payrolls.filter((p) => p.workerId === worker.id);
+  const rows = (attendance || []).filter((a) => a.workerId === worker.id);
+  const pays = (payrolls || []).filter((p) => p.workerId === worker.id);
 
   const copy = async () => {
     try {
@@ -162,13 +172,13 @@ function WorkerDetails() {
               </>
             }
           >
-            {rows.length === 0 && <EmptyRow colSpan={6} text="No attendance recorded yet." />}
-            {rows.map((r) => (
+            {(!rows || rows.length === 0) && <EmptyRow colSpan={6} text="No attendance recorded yet." />}
+            {(rows || []).map((r) => (
               <tr key={r.id} className="hover:bg-secondary/40">
                 <Td>{fmtDate(r.date)}</Td>
-                <Td>{r.in}</Td>
-                <Td>{r.out}</Td>
-                <Td className="font-medium">{r.hours}h</Td>
+                <Td>{r.check_in_time}</Td>
+                <Td>{r.check_out_time}</Td>
+                <Td className="font-medium">{r.hours_worked}h</Td>
                 <Td>{r.location}</Td>
                 <Td><StatusBadge status={r.source} /></Td>
               </tr>
@@ -194,8 +204,8 @@ function WorkerDetails() {
               </>
             }
           >
-            {pays.length === 0 && <EmptyRow colSpan={7} text="No payrolls generated yet." />}
-            {pays.map((p) => (
+            {(!pays || pays.length === 0) && <EmptyRow colSpan={7} text="No payrolls generated yet." />}
+            {(pays || []).map((p) => (
               <tr key={p.id} className="hover:bg-secondary/40">
                 <Td className="font-medium">{p.id}</Td>
                 <Td>{fmtDate(p.from)} — {fmtDate(p.to)}</Td>
