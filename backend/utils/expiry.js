@@ -31,7 +31,7 @@ const checkExpiringWorkers = async () => {
       [sevenDaysFromNow.toISOString().split('T')[0]]
     );
     
-    // Send 1-month warning emails
+    // Send 1-month warning emails and create in-app notifications
     for (const worker of oneMonthExpiring) {
       await sendEmail({
         to: 'admin@workhr.com', // In production, get admin email from settings
@@ -45,10 +45,28 @@ const checkExpiringWorkers = async () => {
         text: `Worker ${worker.name} (${worker.id}) expires in 1 month on ${worker.expiry}.`
       });
       
+      // Create in-app notification (handle foreign key constraint gracefully)
+      try {
+        await pool.query(
+          'INSERT INTO notifications (id, worker, worker_id, message, urgency, occurred_at) VALUES (?, ?, ?, ?, "warning", "Just now")',
+          [`N-${Date.now()}-${worker.id}`, worker.name, worker.id, `Worker expires in 1 month: ${worker.id}`]
+        );
+      } catch (notificationError) {
+        // If foreign key constraint fails, try without worker_id
+        if (notificationError.code === 'ER_NO_REFERENCED_ROW_2') {
+          await pool.query(
+            'INSERT INTO notifications (id, worker, message, urgency, occurred_at) VALUES (?, ?, ?, "warning", "Just now")',
+            [`N-${Date.now()}-${worker.id}`, worker.name, `Worker expires in 1 month: ${worker.id}`]
+          );
+        } else {
+          console.error('Failed to create notification for worker:', worker.id, notificationError.message);
+        }
+      }
+      
       console.log(`1-month expiry warning sent for worker ${worker.id}`);
     }
     
-    // Send 7-day warning emails
+    // Send 7-day warning emails and create in-app notifications
     for (const worker of sevenDaysExpiring) {
       await sendEmail({
         to: 'admin@workhr.com', // In production, get admin email from settings
@@ -61,6 +79,24 @@ const checkExpiringWorkers = async () => {
         `,
         text: `URGENT: Worker ${worker.name} (${worker.id}) expires in 7 days on ${worker.expiry}.`
       });
+      
+      // Create in-app notification (handle foreign key constraint gracefully)
+      try {
+        await pool.query(
+          'INSERT INTO notifications (id, worker, worker_id, message, urgency, occurred_at) VALUES (?, ?, ?, ?, "critical", "Just now")',
+          [`N-${Date.now()}-${worker.id}`, worker.name, worker.id, `URGENT: Worker expires in 7 days: ${worker.id}`]
+        );
+      } catch (notificationError) {
+        // If foreign key constraint fails, try without worker_id
+        if (notificationError.code === 'ER_NO_REFERENCED_ROW_2') {
+          await pool.query(
+            'INSERT INTO notifications (id, worker, message, urgency, occurred_at) VALUES (?, ?, ?, "critical", "Just now")',
+            [`N-${Date.now()}-${worker.id}`, worker.name, `URGENT: Worker expires in 7 days: ${worker.id}`]
+          );
+        } else {
+          console.error('Failed to create notification for worker:', worker.id, notificationError.message);
+        }
+      }
       
       console.log(`7-day expiry warning sent for worker ${worker.id}`);
     }
