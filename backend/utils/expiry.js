@@ -5,13 +5,11 @@ const { sendEmail } = require('./email');
 const checkExpiringWorkers = async () => {
   try {
     const today = new Date();
+    const todayUTC = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
     
-    // Calculate dates for warnings
-    const oneMonthFromNow = new Date(today);
-    oneMonthFromNow.setMonth(oneMonthFromNow.getMonth() + 1);
-    
-    const sevenDaysFromNow = new Date(today);
-    sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
+    // Calculate dates for warnings using UTC
+    const oneMonthFromNow = new Date(Date.UTC(todayUTC.getUTCFullYear(), todayUTC.getUTCMonth() + 1, todayUTC.getUTCDate()));
+    const sevenDaysFromNow = new Date(Date.UTC(todayUTC.getUTCFullYear(), todayUTC.getUTCMonth(), todayUTC.getUTCDate() + 7));
     
     // Check for workers expiring in exactly one month
     const [oneMonthExpiring] = await pool.query(
