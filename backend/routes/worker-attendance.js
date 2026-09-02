@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const { requireAuth, requireWorker } = require('../middleware/auth');
+const { sendEmail } = require('../utils/email');
 
 // Helper: Calculate hours between time strings
 const calculateHours = (timeIn, timeOut) => {
@@ -61,20 +62,30 @@ router.post('/checkin', requireAuth, requireWorker, async (req, res) => {
       return res.status(400).json({ error: 'Location is required' });
     }
     
-    // Get worker details
-    const [workers] = await pool.query('SELECT name FROM workers WHERE id = ?', [req.user.workerId]);
+    // Get worker details including expiry status
+    const [workers] = await pool.query('SELECT name, expiry, status FROM workers WHERE id = ?', [req.user.workerId]);
     if (workers.length === 0) {
       return res.status(404).json({ error: 'Worker not found' });
     }
     
-    const today = new Date().toISOString().split('T')[0];
+    const worker = workers[0];
+    
+    // Check if worker is expired
+    const today = new Date();
+    const expiryDate = new Date(worker.expiry);
+    
+    if (today > expiryDate || worker.status === 'expired') {
+      return res.status(403).json({ error: 'Your account has expired, please contact admin' });
+    }
+    
+    const todayStr = today.toISOString().split('T')[0];
     const now = new Date();
     const timeIn = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     
     // Check if already checked in today
     const [existing] = await pool.query(
       'SELECT * FROM attendance WHERE worker_id = ? AND date = ? AND check_out_time IS NULL',
-      [req.user.workerId, today]
+      [req.user.workerId, todayStr]
     );
     
     if (existing.length > 0) {
@@ -87,7 +98,7 @@ router.post('/checkin', requireAuth, requireWorker, async (req, res) => {
       `INSERT INTO attendance 
       (id, worker_id, worker, date, check_in_time, check_out_time, location, hours_worked, source) 
       VALUES (?, ?, ?, ?, ?, NULL, ?, 0, 'Self')`,
-      [attendanceId, req.user.workerId, workers[0].name, today, timeIn, location]
+      [attendanceId, req.user.workerId, worker.name, todayStr, timeIn, location]
     );
 
     res.status(201).json({ id: attendanceId, timeIn, location, message: 'Checked in successfully' });

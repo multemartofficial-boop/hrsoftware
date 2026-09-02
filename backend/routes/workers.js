@@ -33,13 +33,13 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
     
     if (status && status !== 'all') {
       if (status === 'Expiring Soon') {
-        query += ' WHERE expiry <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND expiry >= CURDATE()';
+        query += ' WHERE expiry <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) AND expiry >= CURDATE() AND status = "active"';
       } else if (status === 'Expired') {
-        query += ' WHERE expiry < CURDATE()';
+        query += ' WHERE status = "expired"';
       } else if (status === 'On Leave') {
-        query += ' WHERE on_leave = 1';
+        query += ' WHERE on_leave = 1 AND status = "active"';
       } else if (status === 'Active') {
-        query += ' WHERE expiry >= CURDATE() AND on_leave = 0';
+        query += ' WHERE status = "active" AND on_leave = 0';
       }
     }
     
@@ -165,12 +165,13 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
 // Admin: Reactivate worker
 router.post('/:id/reactivate', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const expiry = new Date();
+    const joined = new Date();
+    const expiry = new Date(joined);
     expiry.setMonth(expiry.getMonth() + 3);
 
     await pool.query(
-      'UPDATE workers SET expiry = ?, on_leave = false, status = "active" WHERE id = ?',
-      [expiry, req.params.id]
+      'UPDATE workers SET joined = ?, expiry = ?, on_leave = false, status = "active" WHERE id = ?',
+      [joined, expiry, req.params.id]
     );
 
     // Log notification

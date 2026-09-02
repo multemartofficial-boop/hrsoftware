@@ -4,6 +4,7 @@ const cors = require('cors');
 const path = require('path');
 const pool = require('./config/database');
 const bcrypt = require('bcryptjs');
+const { checkExpiringWorkers } = require('./utils/expiry');
 
 // Validate required environment variables
 const requiredEnvVars = ['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'JWT_SECRET'];
@@ -86,6 +87,7 @@ app.use('/api/other-costs', require('./routes/other-costs'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/expiry', require('./routes/expiry'));
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -109,6 +111,22 @@ ensureSchema().then(() => {
     console.log(`  User: ${process.env.DB_USER}`);
     console.log(`  Port: ${process.env.DB_PORT || 3306}`);
   });
+  
+  // Run expiry check immediately on startup
+  checkExpiringWorkers().then(result => {
+    console.log('Initial expiry check completed:', result);
+  }).catch(err => {
+    console.error('Initial expiry check failed:', err);
+  });
+  
+  // Schedule expiry check to run every 24 hours
+  setInterval(() => {
+    checkExpiringWorkers().then(result => {
+      console.log('Scheduled expiry check completed:', result);
+    }).catch(err => {
+      console.error('Scheduled expiry check failed:', err);
+    });
+  }, 24 * 60 * 60 * 1000); // 24 hours in milliseconds
 }).catch(err => {
   console.error('Failed to start server:', err);
   process.exit(1);
