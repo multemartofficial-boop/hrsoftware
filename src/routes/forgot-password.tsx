@@ -22,9 +22,7 @@ export const Route = createFileRoute("/forgot-password")({
 });
 
 function ForgotPasswordPage() {
-  const [resetType, setResetType] = useState<'admin' | 'worker'>('admin');
   const [email, setEmail] = useState("");
-  const [workerCode, setWorkerCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -35,17 +33,10 @@ function ForgotPasswordPage() {
     setLoading(true);
 
     try {
-      if (resetType === 'admin') {
-        // Admin reset - just send to email
-        await apiClient.post('/api/auth/forgot-password', { email, type: 'admin' });
-      } else {
-        // Worker reset - requires both worker code and email
-        await apiClient.post('/api/auth/forgot-password', { email, workerCode, type: 'worker' });
-      }
+      await apiClient.post('/api/auth/forgot-password', { email });
       setSuccess(true);
     } catch (err: any) {
-      // Temporary: API endpoint not yet implemented (Phase 5)
-      setError('Password reset feature coming soon. Please contact admin to reset your password.');
+      setError(err.response?.data?.error || 'Failed to send reset link. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -89,23 +80,6 @@ function ForgotPasswordPage() {
         </div>
 
         <form onSubmit={submit} className="card-surface space-y-4 p-6">
-          <div className="flex gap-2 mb-2">
-            <button
-              type="button"
-              onClick={() => { setResetType('admin'); setEmail(''); setWorkerCode(''); }}
-              className={`flex-1 py-2 text-sm rounded-lg ${resetType === 'admin' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}
-            >
-              Admin
-            </button>
-            <button
-              type="button"
-              onClick={() => { setResetType('worker'); setEmail(''); setWorkerCode(''); }}
-              className={`flex-1 py-2 text-sm rounded-lg ${resetType === 'worker' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}
-            >
-              Worker
-            </button>
-          </div>
-
           <div>
             <label htmlFor="email" className="text-sm font-medium">
               Email Address
@@ -123,26 +97,6 @@ function ForgotPasswordPage() {
               />
             </div>
           </div>
-
-          {resetType === 'worker' && (
-            <div>
-              <label htmlFor="workerCode" className="text-sm font-medium">
-                Worker Code
-              </label>
-              <div className="relative mt-1.5">
-                <Mail className="absolute top-3 left-3 size-4 text-muted-foreground" />
-                <input
-                  id="workerCode"
-                  type="text"
-                  autoComplete="off"
-                  value={workerCode}
-                  onChange={(e) => setWorkerCode(e.target.value)}
-                  placeholder="WKR-2026-XXXX"
-                  className={`${inputCls} pl-9`}
-                />
-              </div>
-            </div>
-          )}
 
           {error && (
             <p className="flex items-center gap-2 rounded-xl bg-danger-soft px-3 py-2.5 text-sm text-danger">
