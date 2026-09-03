@@ -7,7 +7,7 @@ const checkExpiringWorkers = async () => {
     const today = new Date();
     const todayUTC = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
     
-    // Calculate dates for warnings using UTC
+    // Calculate dates for warnings using UTC to match database DATE comparison
     const oneMonthFromNow = new Date(Date.UTC(todayUTC.getUTCFullYear(), todayUTC.getUTCMonth() + 1, todayUTC.getUTCDate()));
     const sevenDaysFromNow = new Date(Date.UTC(todayUTC.getUTCFullYear(), todayUTC.getUTCMonth(), todayUTC.getUTCDate() + 7));
     
@@ -49,14 +49,14 @@ const checkExpiringWorkers = async () => {
       try {
         await pool.query(
           'INSERT INTO notifications (id, worker, worker_id, message, urgency, occurred_at) VALUES (?, ?, ?, ?, "warning", "Just now")',
-          [`N-${Date.now()}-${worker.id}`, worker.name, worker.id, `Worker expires in 1 month: ${worker.id}`]
+          [`N-${Date.now()}-${worker.id}`, worker.name, worker.id, `Worker ${worker.name} (${worker.id}) expires in 1 month`]
         );
       } catch (notificationError) {
         // If foreign key constraint fails, try without worker_id
         if (notificationError.code === 'ER_NO_REFERENCED_ROW_2') {
           await pool.query(
             'INSERT INTO notifications (id, worker, message, urgency, occurred_at) VALUES (?, ?, ?, "warning", "Just now")',
-            [`N-${Date.now()}-${worker.id}`, worker.name, `Worker expires in 1 month: ${worker.id}`]
+            [`N-${Date.now()}-${worker.id}`, worker.name, `Worker ${worker.name} (${worker.id}) expires in 1 month`]
           );
         } else {
           console.error('Failed to create notification for worker:', worker.id, notificationError.message);
@@ -84,14 +84,14 @@ const checkExpiringWorkers = async () => {
       try {
         await pool.query(
           'INSERT INTO notifications (id, worker, worker_id, message, urgency, occurred_at) VALUES (?, ?, ?, ?, "critical", "Just now")',
-          [`N-${Date.now()}-${worker.id}`, worker.name, worker.id, `URGENT: Worker expires in 7 days: ${worker.id}`]
+          [`N-${Date.now()}-${worker.id}`, worker.name, worker.id, `URGENT: Worker ${worker.name} (${worker.id}) expires in 7 days`]
         );
       } catch (notificationError) {
         // If foreign key constraint fails, try without worker_id
         if (notificationError.code === 'ER_NO_REFERENCED_ROW_2') {
           await pool.query(
             'INSERT INTO notifications (id, worker, message, urgency, occurred_at) VALUES (?, ?, ?, "critical", "Just now")',
-            [`N-${Date.now()}-${worker.id}`, worker.name, `URGENT: Worker expires in 7 days: ${worker.id}`]
+            [`N-${Date.now()}-${worker.id}`, worker.name, `URGENT: Worker ${worker.name} (${worker.id}) expires in 7 days`]
           );
         } else {
           console.error('Failed to create notification for worker:', worker.id, notificationError.message);
