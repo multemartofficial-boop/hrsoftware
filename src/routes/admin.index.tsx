@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { MoreHorizontal, Users, Wallet, UserPlus, Clock } from "lucide-react";
+import { MoreHorizontal, Users, Wallet, UserPlus, Clock, X, AlertTriangle } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, SectionTitle, StatCard, Person } from "@/components/hr/bits";
 import { PayrollBarChart, DonutChart, donutColors } from "@/components/hr/charts";
@@ -7,6 +7,7 @@ import { admin } from "@/lib/mock-data";
 import { useApi } from "@/lib/api-store";
 import { money } from "@/lib/hr-utils";
 import { cn } from "@/lib/utils";
+import { useState } from "react";
 
 export const Route = createFileRoute("/admin/")({
   head: () => ({
@@ -27,8 +28,16 @@ const urgencyTone = {
 } as const;
 
 function Dashboard() {
-  const { totals, applications, payrollChart, deductionsData, notices, loading } = useApi();
+  const { totals, applications, payrollChart, deductionsData, notices, loading, session } = useApi();
   const deductionTotal = deductionsData.reduce((t, d) => t + d.value, 0);
+  const [dismissedUrgent, setDismissedUrgent] = useState<string[]>([]);
+
+  // Check for urgent notifications (critical expiry warnings)
+  const urgentNotifications = (notices || []).filter(n => 
+    (n.urgency === 'critical' || n.urgency === 'warning') && 
+    n.message.includes('expires') && 
+    !dismissedUrgent.includes(n.id)
+  );
 
   if (loading.workers || loading.applications) {
     return (
@@ -52,6 +61,32 @@ function Dashboard() {
             <UserPlus className="size-4" /> Registration form
           </Link>
         </div>
+
+        {/* Urgent notification popup */}
+        {urgentNotifications.length > 0 && (
+          <div className="card-surface flex items-start gap-3 p-4 border-l-4 border-l-danger">
+            <AlertTriangle className="size-5 text-danger shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-semibold text-sm">Urgent Worker Expiry Warnings</p>
+              <div className="mt-2 space-y-2">
+                {urgentNotifications.map((n) => (
+                  <div key={n.id} className="flex items-start gap-2 text-sm">
+                    <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium capitalize", urgencyTone[n.urgency])}>
+                      {n.urgency}
+                    </span>
+                    <p className="text-muted-foreground">{n.message}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <button
+              onClick={() => setDismissedUrgent([...dismissedUrgent, ...urgentNotifications.map(n => n.id)])}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
           <StatCard label="Total Active Workers" value={String(totals.activeWorkers)} hint="in contract" icon={<Users className="size-4" />} />
