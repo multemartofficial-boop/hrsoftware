@@ -171,7 +171,7 @@ router.get('/validate-setup-token/:token', async (req, res) => {
     const { token } = req.params;
 
     const [tokens] = await pool.query(
-      'SELECT * FROM password_reset_tokens WHERE token = ? AND token_type = "setup" AND used_at IS NULL AND DATE(expires_at) > DATE(NOW())',
+      'SELECT * FROM password_reset_tokens WHERE token = ? AND token_type = "setup" AND used_at IS NULL AND expires_at > NOW()',
       [token]
     );
 
@@ -236,7 +236,7 @@ router.post('/setup-password', async (req, res) => {
 
     // Find valid setup token
     const [tokens] = await connection.query(
-      'SELECT * FROM password_reset_tokens WHERE token = ? AND token_type = "setup" AND used_at IS NULL AND DATE(expires_at) > DATE(NOW())',
+      'SELECT * FROM password_reset_tokens WHERE token = ? AND token_type = "setup" AND used_at IS NULL AND expires_at > NOW()',
       [token]
     );
 
@@ -388,7 +388,7 @@ router.get('/validate-reset-token/:token', async (req, res) => {
     const { token } = req.params;
 
     const [tokens] = await pool.query(
-      'SELECT * FROM password_reset_tokens WHERE token = ? AND token_type = "reset" AND used_at IS NULL AND DATE(expires_at) > DATE(NOW())',
+      'SELECT * FROM password_reset_tokens WHERE token = ? AND token_type = "reset" AND used_at IS NULL AND expires_at > NOW()',
       [token]
     );
 
@@ -430,7 +430,7 @@ router.post('/reset-password', async (req, res) => {
 
     // Find valid reset token
     const [tokens] = await connection.query(
-      'SELECT * FROM password_reset_tokens WHERE token = ? AND token_type = "reset" AND used_at IS NULL AND DATE(expires_at) > DATE(NOW())',
+      'SELECT * FROM password_reset_tokens WHERE token = ? AND token_type = "reset" AND used_at IS NULL AND expires_at > NOW()',
       [token]
     );
 
@@ -485,7 +485,8 @@ router.post('/reset-password', async (req, res) => {
 // Helper function to send password reset email
 async function sendPasswordResetEmail(email, name, userId, userType) {
   const token = crypto.randomBytes(32).toString('hex');
-  const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
+  // Use UTC timestamp to match database timezone
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
 
   // Invalidate any existing reset tokens for this email
   await pool.query(

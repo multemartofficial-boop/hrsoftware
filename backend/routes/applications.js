@@ -274,13 +274,14 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
     const setupToken = crypto.randomBytes(32).toString('hex');
     const tokenExpiry = new Date();
     tokenExpiry.setHours(tokenExpiry.getHours() + 48);
+    const tokenExpiryFormatted = tokenExpiry.toISOString().slice(0, 19).replace('T', ' ');
 
     // Store setup token
     await connection.query(
       `INSERT INTO password_reset_tokens 
       (email, worker_id, token, token_type, expires_at) 
       VALUES (?, ?, ?, 'setup', ?)`,
-      [application.email, workerId, setupToken, tokenExpiry]
+      [application.email, workerId, setupToken, tokenExpiryFormatted]
     );
 
     // Update application status and store worker info temporarily
@@ -412,13 +413,14 @@ router.post('/:id/resend-setup', requireAuth, requireAdmin, async (req, res) => 
     const setupToken = crypto.randomBytes(32).toString('hex');
     const tokenExpiry = new Date();
     tokenExpiry.setHours(tokenExpiry.getHours() + 48);
+    const tokenExpiryFormatted = tokenExpiry.toISOString().slice(0, 19).replace('T', ' ');
 
     // Store new setup token
     await connection.query(
       `INSERT INTO password_reset_tokens 
       (email, worker_id, token, token_type, expires_at) 
       VALUES (?, ?, ?, 'setup', ?)`,
-      [application.email, application.worker_id, setupToken, tokenExpiry]
+      [application.email, application.worker_id, setupToken, tokenExpiryFormatted]
     );
 
     // Update application with new token
