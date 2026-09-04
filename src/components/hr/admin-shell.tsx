@@ -351,11 +351,11 @@ function AdminShellInner({
           </Link>
 
           <div className="hidden items-center xl:flex">
-            {workers.slice(0, 3).map((w) => w.name).map((n, i) => (
+            {workers.slice(0, 3).map((w, i) => (
               <img
-                key={n}
-                src={avatarUrl(n)}
-                alt={n}
+                key={w.id}
+                src={avatarUrl(w.name)}
+                alt={w.name}
                 className={cn("size-8 rounded-full border-2 border-card bg-secondary", i && "-ml-2.5")}
               />
             ))}
