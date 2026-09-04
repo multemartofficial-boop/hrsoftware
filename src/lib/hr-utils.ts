@@ -29,9 +29,11 @@ export const fmtDate = (iso: string) => {
   return `${String(d.getDate()).padStart(2, "0")} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
 };
 
-export const daysUntil = (iso: string) => {
+export const daysUntil = (iso: string | Date) => {
+  if (!iso) return 0;
+  // Handle both Date objects and ISO strings
+  const b = iso instanceof Date ? iso.getTime() : new Date(iso.includes('T') ? iso : iso + "T00:00:00").getTime();
   const a = new Date(todayISO() + "T00:00:00").getTime();
-  const b = new Date(iso + "T00:00:00").getTime();
   return Math.round((b - a) / 86400000);
 };
 

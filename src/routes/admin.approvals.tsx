@@ -52,11 +52,15 @@ function Detail({
 }
 
 function Approvals() {
-  const { applications, rejected, approveApplication, rejectApplication, resendSetupLink, loading, error, loadAllApplications } = useApi();
+  const { applications, rejected, workers, approveApplication, rejectApplication, resendSetupLink, loading, error, loadAllApplications } = useApi();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [flashWorkerId, setFlashWorkerId] = useState<string | null>(null);
   const selected = (applications || []).find((a) => a.id === selectedId) ?? null;
+
+  // Separate approved applications into awaiting setup vs completed
+  const awaitingSetup = (applications || []).filter(a => a.status === 'approved' && !workers?.some(w => w.id === a.workerId));
+  const completedSetup = (applications || []).filter(a => a.status === 'approved' && workers?.some(w => w.id === a.workerId));
 
   // Load all applications on mount
   useEffect(() => {
@@ -235,10 +239,10 @@ function Approvals() {
         )}
 
         {/* Approved but not yet completed setup */}
-        {applications && applications.some(a => a.status === 'approved') && (
+        {awaitingSetup.length > 0 && (
           <Card className="p-0">
             <div className="p-5">
-              <h2 className="text-base font-semibold">Awaiting Password Setup ({applications.filter(a => a.status === 'approved').length})</h2>
+              <h2 className="text-base font-semibold">Awaiting Password Setup ({awaitingSetup.length})</h2>
             </div>
             <DataTable
               labels={["Application ID", "Applicant", "Worker Code", "Approved On", "Action"]}
@@ -252,7 +256,7 @@ function Approvals() {
                 </>
               }
             >
-              {applications.filter(a => a.status === 'approved').map((a) => (
+              {awaitingSetup.map((a) => (
                 <tr key={a.id} className="hover:bg-secondary/40">
                   <Td className="font-medium">{a.id}</Td>
                   <Td><Person name={a.name} sub={a.email} /></Td>
@@ -266,6 +270,47 @@ function Approvals() {
                       >
                         <RefreshCw className="size-3.5" /> Resend Link
                       </button>
+                    </div>
+                  </Td>
+                </tr>
+              ))}
+            </DataTable>
+          </Card>
+        )}
+
+        {/* Completed setup */}
+        {completedSetup.length > 0 && (
+          <Card className="p-0">
+            <div className="p-5">
+              <h2 className="text-base font-semibold">Completed Setup ({completedSetup.length})</h2>
+            </div>
+            <DataTable
+              labels={["Application ID", "Applicant", "Worker Code", "Completed On", "Action"]}
+              head={
+                <>
+                  <Th>Application ID</Th>
+                  <Th>Applicant</Th>
+                  <Th>Worker Code</Th>
+                  <Th>Completed On</Th>
+                  <Th className="text-right">Action</Th>
+                </>
+              }
+            >
+              {completedSetup.map((a) => (
+                <tr key={a.id} className="hover:bg-secondary/40">
+                  <Td className="font-medium">{a.id}</Td>
+                  <Td><Person name={a.name} sub={a.email} /></Td>
+                  <Td className="font-medium">{a.workerId}</Td>
+                  <Td>{fmtDate(a.worker_joined || a.submitted)}</Td>
+                  <Td>
+                    <div className="flex justify-end gap-2">
+                      <Link
+                        to="/admin/workers/$id"
+                        params={{ id: a.workerId || '' }}
+                        className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium hover:bg-secondary"
+                      >
+                        View Worker
+                      </Link>
                     </div>
                   </Td>
                 </tr>

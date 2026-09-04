@@ -15,8 +15,8 @@ export type Worker = {
   phone: string;
   email: string;
   location: string;
-  joined: string; // ISO
-  expiry: string; // ISO
+  joined: string | Date; // ISO string or Date object
+  expiry: string | Date; // ISO string or Date object
   onLeave?: boolean;
   role: string;
   rate: number;
@@ -62,6 +62,11 @@ export type Application = {
   appliedFor: string;
   location: string;
   rate: number;
+  status: "pending" | "approved" | "rejected";
+  workerId?: string;
+  worker_joined?: string;
+  worker_expiry?: string;
+  rejectedOn?: string;
   /** Full multi-step application payload (optional, demo only). */
   details?: Record<string, unknown>;
 };
