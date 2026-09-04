@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { createFileRoute, Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { ArrowLeft, Lock, AlertCircle, CheckCircle, Eye, EyeOff } from "lucide-react";
 import { inputCls } from "@/components/hr/bits";
-import apiClient from "@/lib/api-client";
+import { apiClient } from "@/lib/api-client";
 
 export const Route = createFileRoute("/reset-password")({
   head: () => ({
