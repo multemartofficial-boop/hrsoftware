@@ -13,6 +13,7 @@ import {
   UserCheck,
   MapPin,
   MapPinned,
+  FileText,
   BarChart3,
   Scale,
   Search,
@@ -44,6 +45,7 @@ const teamMenu = [
   { to: "/admin/locations", label: "Locations", icon: MapPin },
   { to: "/admin/live-map", label: "Live Map", icon: MapPinned },
   { to: "/admin/assignments", label: "Daily Assignments", icon: CalendarCheck },
+  { to: "/admin/documents", label: "Documents", icon: FileText },
   { to: "/admin/finance", label: "Buyer & Profit/Loss", icon: Scale },
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
 ] as const;
@@ -63,6 +65,7 @@ const moreMenu = [
   { to: "/admin/locations", label: "Locations", icon: MapPin },
   { to: "/admin/live-map", label: "Live Map", icon: MapPinned },
   { to: "/admin/assignments", label: "Daily Assignments", icon: CalendarCheck },
+  { to: "/admin/documents", label: "Documents", icon: FileText },
   { to: "/admin/finance", label: "Buyer & Profit/Loss", icon: Scale },
   { to: "/admin/settings", label: "Settings", icon: Settings },
   { to: "/admin/help", label: "Help & Center", icon: LifeBuoy },

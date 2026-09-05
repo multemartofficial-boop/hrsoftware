@@ -17,7 +17,9 @@ import { Route as SetupPasswordRouteImport } from './routes/setup-password'
 import { Route as WorkerRouteImport } from './routes/worker'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminApprovalsRouteImport } from './routes/admin.approvals'
+import { Route as AdminAssignmentsRouteImport } from './routes/admin.assignments'
 import { Route as AdminAttendanceRouteImport } from './routes/admin.attendance'
+import { Route as AdminDocumentsRouteImport } from './routes/admin.documents'
 import { Route as AdminFinanceRouteImport } from './routes/admin.finance'
 import { Route as AdminHelpRouteImport } from './routes/admin.help'
 import { Route as AdminLiveMapRouteImport } from './routes/admin.live-map'
@@ -70,9 +72,19 @@ const AdminApprovalsRoute = AdminApprovalsRouteImport.update({
   path: '/admin/approvals',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminAssignmentsRoute = AdminAssignmentsRouteImport.update({
+  id: '/admin/assignments',
+  path: '/admin/assignments',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminAttendanceRoute = AdminAttendanceRouteImport.update({
   id: '/admin/attendance',
   path: '/admin/attendance',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminDocumentsRoute = AdminDocumentsRouteImport.update({
+  id: '/admin/documents',
+  path: '/admin/documents',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminFinanceRoute = AdminFinanceRouteImport.update({
@@ -139,7 +151,9 @@ export interface FileRoutesByFullPath {
   '/setup-password': typeof SetupPasswordRoute
   '/worker': typeof WorkerRouteWithChildren
   '/admin/approvals': typeof AdminApprovalsRoute
+  '/admin/assignments': typeof AdminAssignmentsRoute
   '/admin/attendance': typeof AdminAttendanceRoute
+  '/admin/documents': typeof AdminDocumentsRoute
   '/admin/finance': typeof AdminFinanceRoute
   '/admin/help': typeof AdminHelpRoute
   '/admin/live-map': typeof AdminLiveMapRoute
@@ -161,7 +175,9 @@ export interface FileRoutesByTo {
   '/setup-password': typeof SetupPasswordRoute
   '/worker': typeof WorkerRouteWithChildren
   '/admin/approvals': typeof AdminApprovalsRoute
+  '/admin/assignments': typeof AdminAssignmentsRoute
   '/admin/attendance': typeof AdminAttendanceRoute
+  '/admin/documents': typeof AdminDocumentsRoute
   '/admin/finance': typeof AdminFinanceRoute
   '/admin/help': typeof AdminHelpRoute
   '/admin/live-map': typeof AdminLiveMapRoute
@@ -184,7 +200,9 @@ export interface FileRoutesById {
   '/setup-password': typeof SetupPasswordRoute
   '/worker': typeof WorkerRouteWithChildren
   '/admin/approvals': typeof AdminApprovalsRoute
+  '/admin/assignments': typeof AdminAssignmentsRoute
   '/admin/attendance': typeof AdminAttendanceRoute
+  '/admin/documents': typeof AdminDocumentsRoute
   '/admin/finance': typeof AdminFinanceRoute
   '/admin/help': typeof AdminHelpRoute
   '/admin/live-map': typeof AdminLiveMapRoute
@@ -208,7 +226,9 @@ export interface FileRouteTypes {
     | '/setup-password'
     | '/worker'
     | '/admin/approvals'
+    | '/admin/assignments'
     | '/admin/attendance'
+    | '/admin/documents'
     | '/admin/finance'
     | '/admin/help'
     | '/admin/live-map'
@@ -230,7 +250,9 @@ export interface FileRouteTypes {
     | '/setup-password'
     | '/worker'
     | '/admin/approvals'
+    | '/admin/assignments'
     | '/admin/attendance'
+    | '/admin/documents'
     | '/admin/finance'
     | '/admin/help'
     | '/admin/live-map'
@@ -252,7 +274,9 @@ export interface FileRouteTypes {
     | '/setup-password'
     | '/worker'
     | '/admin/approvals'
+    | '/admin/assignments'
     | '/admin/attendance'
+    | '/admin/documents'
     | '/admin/finance'
     | '/admin/help'
     | '/admin/live-map'
@@ -275,7 +299,9 @@ export interface RootRouteChildren {
   SetupPasswordRoute: typeof SetupPasswordRoute
   WorkerRoute: typeof WorkerRouteWithChildren
   AdminApprovalsRoute: typeof AdminApprovalsRoute
+  AdminAssignmentsRoute: typeof AdminAssignmentsRoute
   AdminAttendanceRoute: typeof AdminAttendanceRoute
+  AdminDocumentsRoute: typeof AdminDocumentsRoute
   AdminFinanceRoute: typeof AdminFinanceRoute
   AdminHelpRoute: typeof AdminHelpRoute
   AdminLiveMapRoute: typeof AdminLiveMapRoute
@@ -347,11 +373,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminApprovalsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/assignments': {
+      id: '/admin/assignments'
+      path: '/admin/assignments'
+      fullPath: '/admin/assignments'
+      preLoaderRoute: typeof AdminAssignmentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/attendance': {
       id: '/admin/attendance'
       path: '/admin/attendance'
       fullPath: '/admin/attendance'
       preLoaderRoute: typeof AdminAttendanceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/documents': {
+      id: '/admin/documents'
+      path: '/admin/documents'
+      fullPath: '/admin/documents'
+      preLoaderRoute: typeof AdminDocumentsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/finance': {
@@ -453,7 +493,9 @@ const rootRouteChildren: RootRouteChildren = {
   SetupPasswordRoute: SetupPasswordRoute,
   WorkerRoute: WorkerRouteWithChildren,
   AdminApprovalsRoute: AdminApprovalsRoute,
+  AdminAssignmentsRoute: AdminAssignmentsRoute,
   AdminAttendanceRoute: AdminAttendanceRoute,
+  AdminDocumentsRoute: AdminDocumentsRoute,
   AdminFinanceRoute: AdminFinanceRoute,
   AdminHelpRoute: AdminHelpRoute,
   AdminLiveMapRoute: AdminLiveMapRoute,
