@@ -97,6 +97,7 @@ function LoginPage() {
                 id="email"
                 type={loginType === 'email' ? 'email' : 'text'}
                 autoComplete={loginType === 'email' ? 'email' : 'off'}
+                required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder={loginType === 'email' ? 'you@workhr.com' : 'WKR-2026-XXXX'}
@@ -115,6 +116,7 @@ function LoginPage() {
                 id="password"
                 type="password"
                 autoComplete="current-password"
+                required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
