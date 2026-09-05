@@ -481,6 +481,9 @@ export type Attendance = {
   locationMismatch?: boolean;
   /** Phase F: 'none' | 'match' | 'mismatch' vs today's assigned location */
   assignmentStatus?: string;
+  /** Auto-detect: nearest geofenced location + distance (for unmatched check-ins) */
+  nearestLocation?: string | null;
+  distanceMeters?: number | null;
 };
 
 const att = (

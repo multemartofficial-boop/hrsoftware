@@ -238,7 +238,9 @@ function useApiState() {
         checkInLat: a.check_in_lat != null ? Number(a.check_in_lat) : null,
         checkInLng: a.check_in_lng != null ? Number(a.check_in_lng) : null,
         locationMismatch: a.location_mismatch === 1 || a.location_mismatch === true,
-        assignmentStatus: a.assignment_status || 'none'
+        assignmentStatus: a.assignment_status || 'none',
+        nearestLocation: a.nearest_location ?? null,
+        distanceMeters: a.distance_meters != null ? Number(a.distance_meters) : null
       }));
       setAttendance(normalizedData);
     } catch (err) {
@@ -412,7 +414,9 @@ function useApiState() {
         checkInLat: a.check_in_lat != null ? Number(a.check_in_lat) : null,
         checkInLng: a.check_in_lng != null ? Number(a.check_in_lng) : null,
         locationMismatch: a.location_mismatch === 1 || a.location_mismatch === true,
-        assignmentStatus: a.assignment_status || 'none'
+        assignmentStatus: a.assignment_status || 'none',
+        nearestLocation: a.nearest_location ?? null,
+        distanceMeters: a.distance_meters != null ? Number(a.distance_meters) : null
       }));
       setAttendance(normalizedData);
     } catch (err) {
@@ -581,11 +585,11 @@ function useApiState() {
     }
   };
 
-  const workerCheckIn = async (location: string, coords?: { latitude: number; longitude: number }) => {
+  const workerCheckIn = async (coords: { latitude: number; longitude: number }) => {
     try {
-      const response = await apiClient.post<{ id: string; timeIn: string; location: string; locationMismatch?: boolean; distanceMeters?: number | null; message: string }>(
+      const response = await apiClient.post<{ id: string; timeIn: string; location: string; locationMismatch?: boolean; distanceMeters?: number | null; nearestLocation?: string | null; assignmentStatus?: string; message: string }>(
         '/api/worker/attendance/checkin',
-        { location, latitude: coords?.latitude, longitude: coords?.longitude }
+        { latitude: coords.latitude, longitude: coords.longitude }
       );
       await loadMyAttendance();
       return response;

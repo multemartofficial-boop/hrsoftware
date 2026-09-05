@@ -287,10 +287,15 @@ function AttendancePage() {
                     {a.checkInLat != null && (() => {
                       const loc = locations?.find((l) => l.name === a.location);
                       const dist =
-                        loc?.latitude != null && loc?.longitude != null && a.checkInLng != null
-                          ? distMeters(a.checkInLat, a.checkInLng, Number(loc.latitude), Number(loc.longitude))
-                          : null;
-                      const tip = `${a.locationMismatch ? "Location Mismatch" : "Within radius"} — GPS: ${a.checkInLat.toFixed(5)}, ${a.checkInLng?.toFixed(5)}${dist != null ? ` — ${dist}m from site` : ""}`;
+                        a.distanceMeters != null
+                          ? a.distanceMeters
+                          : loc?.latitude != null && loc?.longitude != null && a.checkInLng != null
+                            ? distMeters(a.checkInLat, a.checkInLng, Number(loc.latitude), Number(loc.longitude))
+                            : null;
+                      const near = a.location === "Unknown/Unmatched" && a.nearestLocation
+                        ? ` — nearest: ${a.nearestLocation}`
+                        : "";
+                      const tip = `${a.locationMismatch ? "Location Mismatch" : "Within radius"}${near} — GPS: ${a.checkInLat.toFixed(5)}, ${a.checkInLng?.toFixed(5)}${dist != null ? ` — ${dist}m from site` : ""}`;
                       return (
                         <span
                           className={`inline-block size-2.5 shrink-0 rounded-full ${a.locationMismatch ? "bg-danger" : "bg-success"}`}

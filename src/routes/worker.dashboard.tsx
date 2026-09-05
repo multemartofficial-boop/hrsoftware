@@ -3,7 +3,6 @@ import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useApi } from "@/lib/api-store";
 import { apiClient } from "@/lib/api-client";
 import { LogOut, Clock, LogIn, Calendar, MapPin, Navigation } from "lucide-react";
-import { inputCls } from "@/components/hr/bits";
 
 export const Route = createFileRoute("/worker/dashboard")({
   head: () => ({
@@ -21,9 +20,7 @@ function WorkerDashboard() {
   const [checkedIn, setCheckedIn] = useState(false);
   const [visaExpired, setVisaExpired] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [selectedLocation, setSelectedLocation] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
-  const [locations, setLocations] = useState<any[]>([]);
   // Phase E: GPS must be captured before check-in is allowed
   const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [geoStatus, setGeoStatus] = useState<"idle" | "requesting" | "granted" | "denied">("idle");
@@ -42,11 +39,8 @@ function WorkerDashboard() {
       router.navigate({ to: '/' });
       return;
     }
-    // Load worker-specific data only
-    Promise.all([
-      loadTodayAttendance(),
-      apiClient.get<any[]>('/api/locations').then(data => setLocations(data || []))
-    ]).then(([todayData]) => {
+    // Load worker-specific data only (check-in location is auto-detected by GPS)
+    loadTodayAttendance().then((todayData) => {
       setCheckedIn(todayData.checkedIn);
       setVisaExpired(Boolean(todayData.visaExpired));
       setLoading(false);
@@ -73,17 +67,13 @@ function WorkerDashboard() {
   };
 
   const handleCheckIn = async () => {
-    if (!selectedLocation) {
-      alert('Please select a location');
-      return;
-    }
     if (!coords) {
       alert('Location access is required to check in. Please enable location services.');
       return;
     }
     setActionLoading(true);
     try {
-      await workerCheckIn(selectedLocation, coords);
+      await workerCheckIn(coords);
       setCheckedIn(true);
     } catch (err: any) {
       alert(err.message || 'Failed to check in');
@@ -209,22 +199,10 @@ function WorkerDashboard() {
                 </div>
               )}
 
-              <div className="flex items-center justify-between">
-                <select
-                  value={selectedLocation}
-                  onChange={(e) => setSelectedLocation(e.target.value)}
-                  className={inputCls}
-                >
-                  <option value="">Select location</option>
-                  {locations?.map((loc) => (
-                    <option key={loc.id} value={loc.name}>
-                      {loc.name}
-                    </option>
-                  ))}
-                </select>
+              <div className="flex items-center justify-end">
                 <button
                   onClick={handleCheckIn}
-                  disabled={actionLoading || !selectedLocation || !coords}
+                  disabled={actionLoading || !coords}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                 >
                   <LogIn className="size-4" />

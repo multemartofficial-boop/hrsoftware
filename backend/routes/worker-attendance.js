@@ -71,14 +71,11 @@ router.get('/today', requireAuth, requireWorker, async (req, res) => {
   }
 });
 
-// Worker: Check in
+// Worker: Check in — location is AUTO-DETECTED from GPS against configured
+// locations; the frontend no longer sends a location selection.
 router.post('/checkin', requireAuth, requireWorker, async (req, res) => {
   try {
-    const { location, latitude, longitude } = req.body;
-
-    if (!location) {
-      return res.status(400).json({ error: 'Location is required' });
-    }
+    const { latitude, longitude } = req.body;
 
     // Phase E: GPS position is required — the worker must enable location before
     // check-in (the frontend enforces this too; this blocks direct API calls).
@@ -126,22 +123,42 @@ router.post('/checkin', requireAuth, requireWorker, async (req, res) => {
       return res.status(400).json({ error: 'Already checked in' });
     }
 
-    // Geofence check: compare the captured GPS against the selected location's
-    // stored coordinates. Outside the radius → still allow check-in but flag it.
+    // Auto-detect the location: rank all geofenced locations by distance.
+    // - Within exactly one radius → that location, matched
+    // - Within multiple (overlapping geofences) → the NEAREST one, matched
+    // - Within none → allow check-in anyway, location 'Unknown/Unmatched',
+    //   flag Location Mismatch, and keep nearest location + distance for admin
+    let location = 'Unknown/Unmatched';
     let locationMismatch = 0;
+    let nearestLocation = null;
     let dist = null;
-    const [locRows] = await pool.query(
-      'SELECT latitude, longitude, radius_meters FROM locations WHERE name = ?',
-      [location]
+    const [geoLocs] = await pool.query(
+      'SELECT id, name, latitude, longitude, radius_meters FROM locations WHERE latitude IS NOT NULL AND longitude IS NOT NULL'
     );
-    const loc = locRows[0];
-    if (loc && loc.latitude !== null && loc.longitude !== null) {
-      const radius = loc.radius_meters ?? 200;
-      dist = Math.round(distanceMeters(lat, lng, Number(loc.latitude), Number(loc.longitude)));
-      if (dist > radius) locationMismatch = 1;
+    if (geoLocs.length > 0) {
+      const ranked = geoLocs
+        .map(l => ({
+          name: l.name,
+          d: distanceMeters(lat, lng, Number(l.latitude), Number(l.longitude)),
+          radius: l.radius_meters ?? 200
+        }))
+        .sort((a, b) => a.d - b.d);
+      const nearest = ranked[0];
+      const within = ranked.filter(l => l.d <= l.radius);
+      if (within.length > 0) {
+        location = within[0].name;
+        dist = Math.round(within[0].d);
+      } else {
+        locationMismatch = 1;
+        nearestLocation = nearest.name;
+        dist = Math.round(nearest.d);
+      }
+    } else {
+      // No geofenced locations configured — cannot verify, flag for admin
+      locationMismatch = 1;
     }
 
-    // Phase F: daily assignment check — compare the selected location against
+    // Phase F: daily assignment check — compare the detected location against
     // today's assigned location (if any). Workers with no assignment → 'none'.
     let assignmentStatus = 'none';
     let assignedLocation = null;
@@ -161,10 +178,10 @@ router.post('/checkin', requireAuth, requireWorker, async (req, res) => {
     await pool.query(
       `INSERT INTO attendance
       (id, worker_id, worker, date, check_in_time, check_out_time, location, hours_worked, source,
-       check_in_lat, check_in_lng, location_mismatch, assignment_status)
-      VALUES (?, ?, ?, ?, ?, NULL, ?, 0, 'Self', ?, ?, ?, ?)`,
+       check_in_lat, check_in_lng, location_mismatch, assignment_status, nearest_location, distance_meters)
+      VALUES (?, ?, ?, ?, ?, NULL, ?, 0, 'Self', ?, ?, ?, ?, ?, ?)`,
       [attendanceId, req.user.workerId, worker.name, todayStr, timeIn, location,
-       lat, lng, locationMismatch, assignmentStatus]
+       lat, lng, locationMismatch, assignmentStatus, nearestLocation, dist]
     );
 
     // Notify admin when the worker checks in at a different location than assigned
@@ -186,6 +203,7 @@ router.post('/checkin', requireAuth, requireWorker, async (req, res) => {
       id: attendanceId, timeIn, location,
       locationMismatch: locationMismatch === 1,
       distanceMeters: dist,
+      nearestLocation,
       assignmentStatus,
       assignedLocation,
       message: 'Checked in successfully'

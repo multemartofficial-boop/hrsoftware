@@ -28,6 +28,8 @@ type ActiveShift = {
   check_in_lat: number | string | null;
   check_in_lng: number | string | null;
   location_mismatch: number | boolean;
+  nearest_location: string | null;
+  distance_meters: number | string | null;
 };
 
 const haversineMeters = (lat1: number, lng1: number, lat2: number, lng2: number) => {
@@ -132,12 +134,14 @@ function LiveMapPage() {
       const lng = Number(s.check_in_lng);
       const mismatch = s.location_mismatch === 1 || s.location_mismatch === true;
       const loc = (locations || []).find((l) => l.name === s.location);
-      const dist = loc?.latitude != null && loc?.longitude != null
-        ? haversineMeters(lat, lng, Number(loc.latitude), Number(loc.longitude))
-        : null;
+      const dist = s.distance_meters != null
+        ? Number(s.distance_meters)
+        : loc?.latitude != null && loc?.longitude != null
+          ? haversineMeters(lat, lng, Number(loc.latitude), Number(loc.longitude))
+          : null;
       const icon = dotIcon(mismatch ? "#dc2626" : "#16a34a");
       const distLine = dist != null
-        ? `<br/>${mismatch ? `<span style="color:#dc2626;font-weight:600">Location Mismatch — ${dist}m off</span>` : `<span style="color:#16a34a">Within radius — ${dist}m</span>`}`
+        ? `<br/>${mismatch ? `<span style="color:#dc2626;font-weight:600">Location Mismatch — ${dist}m off${s.nearest_location ? ` (nearest: ${s.nearest_location})` : ""}</span>` : `<span style="color:#16a34a">Within radius — ${dist}m</span>`}`
         : "";
       L.marker([lat, lng], { icon })
         .bindPopup(
