@@ -1,8 +1,16 @@
-import type { ReactNode } from "react";
-import { FileImage, ExternalLink } from "lucide-react";
-import { avatarUrl, type Application } from "@/lib/mock-data";
-import { StatusBadge } from "@/components/hr/bits";
+import { useState, type ReactNode } from "react";
+import { FileImage, ExternalLink, Check } from "lucide-react";
+import {
+  avatarUrl,
+  blankCompliance,
+  COMPLIANCE_ITEMS,
+  CRIMINAL_CHECK_LEVELS,
+  type Application,
+  type Compliance,
+} from "@/lib/mock-data";
+import { StatusBadge, inputCls } from "@/components/hr/bits";
 import { fmtDate } from "@/lib/hr-utils";
+import { apiClient } from "@/lib/api-client";
 
 type Row = Record<string, string>;
 const g = (r: Row | undefined, k: string) => (r?.[k] ?? "").toString();
@@ -98,6 +106,90 @@ function Doc({ label, name, url }: { label: string; name: string; url?: string |
   );
 }
 
+/** Admin-only compliance checklist — editable, saved to the application record. */
+function ComplianceChecklist({ app }: { app: Application }) {
+  const [state, setState] = useState<Compliance>({ ...blankCompliance(), ...(app.compliance ?? {}) });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const toggle = (key: keyof Compliance) => (checked: boolean) => {
+    setState((s) => ({ ...s, [key]: checked }));
+    setSaved(false);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await apiClient.put(`/api/applications/${app.id}/compliance`, state);
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save compliance checklist");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const doneCount = COMPLIANCE_ITEMS.filter((i) => state[i.key]).length;
+
+  return (
+    <div className="rounded-xl border border-border p-4">
+      <p className="mb-3 text-xs text-muted-foreground">
+        For admin use during review — {doneCount} of {COMPLIANCE_ITEMS.length} checks completed.
+      </p>
+      <div className="grid gap-2">
+        {COMPLIANCE_ITEMS.map((item) => (
+          <div key={item.key}>
+            <label className="flex items-start gap-3 text-sm">
+              <input
+                type="checkbox"
+                checked={Boolean(state[item.key])}
+                onChange={(e) => toggle(item.key)(e.target.checked)}
+                className="mt-0.5 size-4 shrink-0 accent-primary"
+              />
+              <span>{item.label}</span>
+            </label>
+            {item.key === "criminalRecords" && (
+              <div className="mt-2 ml-7 max-w-xs">
+                <select
+                  value={state.criminalRecordsLevel}
+                  onChange={(e) => {
+                    setState((s) => ({ ...s, criminalRecordsLevel: e.target.value }));
+                    setSaved(false);
+                  }}
+                  className={inputCls}
+                >
+                  <option value="">Check level — not set</option>
+                  {CRIMINAL_CHECK_LEVELS.map((l) => (
+                    <option key={l}>{l}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save checklist"}
+        </button>
+        {saved && (
+          <span className="flex items-center gap-1.5 text-sm text-success">
+            <Check className="size-4" /> Saved
+          </span>
+        )}
+        {error && <span className="text-sm text-danger">{error}</span>}
+      </div>
+    </div>
+  );
+}
+
 /** Read-only, grouped summary of a full 5-step application (Step 5 review layout). */
 export function ApplicationDetail({ app }: { app: Application }) {
   const d = (app.details ?? {}) as Record<string, unknown>;
@@ -113,7 +205,7 @@ export function ApplicationDetail({ app }: { app: Application }) {
   const getDetail = (key: string, fallback?: string) => str(key) || fallback || "";
 
   // Get full URL for uploaded files
-  const getFileUrl = (path: string) => {
+  const getFileUrl = (path: string | undefined) => {
     if (!path) return "";
     if (path.startsWith("http")) return path;
     return `http://localhost:3001${path}`;
@@ -230,9 +322,15 @@ export function ApplicationDetail({ app }: { app: Application }) {
         <div className="mt-3">
           <SummaryList
             items={[
+              ["Passport Country", app.passportCountry || getDetail("passportCountry", "")],
+              ["Passport Number", app.passportNumber || getDetail("passportNumber", "")],
+              ["Passport Expiry", app.passportExpiry ? fmtDate(app.passportExpiry) : getDetail("passportExpiry", "")],
               ["Holds work permit / visa", getDetail("hasVisa", "No")],
               ["Visa Type", getDetail("visaType", "")],
-              ["Visa Expiry", getDetail("visaExpiry", "")],
+              ["Visa Number", app.visaNumber || getDetail("visaNumber", "")],
+              ["Visa Expiry", app.visaExpiry ? fmtDate(app.visaExpiry) : getDetail("visaExpiry", "")],
+              ["SIA Badge Number", app.siaBadgeNumber || getDetail("siaBadgeNumber", "")],
+              ["SIA Badge Expiry", app.siaBadgeExpiry ? fmtDate(app.siaBadgeExpiry) : getDetail("siaBadgeExpiry", "")],
               ["Bank Name", getDetail("bankName", "")],
               ["Account Holder", getDetail("accountHolder", "")],
               ["Sort Code / Account Number", getDetail("sortAccount", "")],
@@ -302,9 +400,14 @@ export function ApplicationDetail({ app }: { app: Application }) {
               ["Preferred Locations", prefLocations.length ? prefLocations : app.location],
               ["Preferred Hours", getDetail("availability", "Full-time")],
               ["Expected Hourly Rate", `£${(Number(getDetail("rate", String(app.rate))) || app.rate).toFixed(2)} / hour`],
+              ["How did you hear about us", app.howHeard || getDetail("howHeard", "")],
             ]}
           />
         </div>
+      </Group>
+
+      <Group title="Compliance Checklist">
+        <ComplianceChecklist app={app} />
       </Group>
     </div>
   );

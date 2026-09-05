@@ -121,6 +121,24 @@ function WorkerDetails() {
                 ))}
               </div>
 
+              <p className="mt-6 mb-2 text-sm font-semibold">Passport, visa &amp; SIA badge</p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {[
+                  ["Passport country", worker.passportCountry || "—"],
+                  ["Passport number", worker.passportNumber || "—"],
+                  ["Passport expiry", worker.passportExpiry ? fmtDate(worker.passportExpiry) : "—"],
+                  ["Visa number", worker.visaNumber || "—"],
+                  ["Visa expiry", worker.visaExpiry ? fmtDate(worker.visaExpiry) : "—"],
+                  ["SIA badge number", worker.siaBadgeNumber || "—"],
+                  ["SIA badge expiry", worker.siaBadgeExpiry ? fmtDate(worker.siaBadgeExpiry) : "—"],
+                ].map(([k, v]) => (
+                  <div key={k} className="rounded-xl bg-secondary/60 p-3">
+                    <p className="text-xs text-muted-foreground">{k}</p>
+                    <p className="mt-0.5 text-sm font-medium">{v}</p>
+                  </div>
+                ))}
+              </div>
+
               <p className="mt-6 mb-2 text-sm font-semibold">NID documents</p>
               <div className="grid gap-3 sm:grid-cols-2">
                 {["NID Front", "NID Back"].map((d) => (
@@ -176,9 +194,9 @@ function WorkerDetails() {
             {(rows || []).map((r) => (
               <tr key={r.id} className="hover:bg-secondary/40">
                 <Td>{fmtDate(r.date)}</Td>
-                <Td>{r.check_in_time}</Td>
-                <Td>{r.check_out_time}</Td>
-                <Td className="font-medium">{r.hours_worked}h</Td>
+                <Td>{r.in}</Td>
+                <Td>{r.out || "—"}</Td>
+                <Td className="font-medium">{Number(r.hours ?? 0).toFixed(2)}h</Td>
                 <Td>{r.location}</Td>
                 <Td><StatusBadge status={r.source} /></Td>
               </tr>

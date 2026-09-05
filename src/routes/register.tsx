@@ -3,6 +3,8 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { Sparkles, CheckCircle2, ArrowLeft, ArrowRight, Plus, Trash2 } from "lucide-react";
 import { Card, Field, PrimaryButton, GhostButton, inputCls } from "@/components/hr/bits";
 import { useApi } from "@/lib/api-store";
+import { HOW_HEARD_OPTIONS } from "@/lib/mock-data";
+import { COUNTRIES, requiresVisa } from "@/lib/countries";
 
 export const Route = createFileRoute("/register")({
   head: () => ({
@@ -160,6 +162,13 @@ function RegisterPage() {
     hasVisa: "No",
     visaType: "",
     visaExpiry: "",
+    howHeard: "",
+    passportCountry: "United Kingdom",
+    passportNumber: "",
+    passportExpiry: "",
+    visaNumber: "",
+    siaBadgeNumber: "",
+    siaBadgeExpiry: "",
     bankName: "",
     accountHolder: "",
     sortAccount: "",
@@ -210,6 +219,10 @@ function RegisterPage() {
 
   const pct = step * 25;
 
+  // Visa details are expected for non-UK/Irish passport holders (shown either way, never hard-blocking).
+  const visaNeeded = requiresVisa(f.passportCountry);
+  const visaMissing = visaNeeded && !(f.visaNumber.trim() && f.visaExpiry);
+
   const submit = async () => {
     setSubmitting(true);
     try {
@@ -249,6 +262,13 @@ function RegisterPage() {
       formData.append('hasVisa', f.hasVisa);
       formData.append('visaType', f.visaType);
       formData.append('visaExpiry', f.visaExpiry);
+      formData.append('howHeard', f.howHeard);
+      formData.append('passportCountry', f.passportCountry);
+      formData.append('passportNumber', f.passportNumber);
+      formData.append('passportExpiry', f.passportExpiry);
+      formData.append('visaNumber', f.visaNumber);
+      formData.append('siaBadgeNumber', f.siaBadgeNumber);
+      formData.append('siaBadgeExpiry', f.siaBadgeExpiry);
       formData.append('bankName', f.bankName);
       formData.append('accountHolder', f.accountHolder);
       formData.append('sortAccount', f.sortAccount);
@@ -262,10 +282,10 @@ function RegisterPage() {
       formData.append('rate', String(f.rate));
       
       // Add file uploads with actual file objects
-      if (fileObjects.photo) formData.append('photo', fileObjects.photo);
-      if (fileObjects.idFront) formData.append('idFront', fileObjects.idFront);
-      if (fileObjects.idBack) formData.append('idBack', fileObjects.idBack);
-      if (fileObjects.proofAddress) formData.append('proofAddress', fileObjects.proofAddress);
+      if (fileObjects["photo"]) formData.append('photo', fileObjects["photo"]);
+      if (fileObjects["idFront"]) formData.append('idFront', fileObjects["idFront"]);
+      if (fileObjects["idBack"]) formData.append('idBack', fileObjects["idBack"]);
+      if (fileObjects["proofAddress"]) formData.append('proofAddress', fileObjects["proofAddress"]);
       
       // Add JSON arrays
       formData.append('prevAddresses', JSON.stringify(prevAddresses));
@@ -498,6 +518,23 @@ function RegisterPage() {
               </Field>
             </Section>
 
+            <Section title="Passport">
+              <Field label="Passport Country" hint="Which country's passport do you hold?">
+                <select value={f.passportCountry} onChange={set("passportCountry")} className={inputCls}>
+                  <option value="">Select a country…</option>
+                  {COUNTRIES.map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Passport Number">
+                <input value={f.passportNumber} onChange={set("passportNumber")} className={inputCls} />
+              </Field>
+              <Field label="Passport Expiry Date">
+                <input type="date" value={f.passportExpiry} onChange={set("passportExpiry")} className={inputCls} />
+              </Field>
+            </Section>
+
             <Section title="Right to Work">
               <Field label="Do you hold any work permit / visa?">
                 <select value={f.hasVisa} onChange={set("hasVisa")} className={inputCls}>
@@ -508,8 +545,29 @@ function RegisterPage() {
               <Field label="Visa Type">
                 <input value={f.visaType} onChange={set("visaType")} className={inputCls} />
               </Field>
-              <Field label="Visa Expiry Date">
+              <Field
+                label={visaNeeded ? "Visa Number *" : "Visa Number"}
+                hint={visaNeeded ? "Required for non-UK/Irish passport holders" : "Not required for UK/Irish passport holders"}
+              >
+                <input value={f.visaNumber} onChange={set("visaNumber")} className={inputCls} />
+              </Field>
+              <Field label={visaNeeded ? "Visa Expiry Date *" : "Visa Expiry Date"}>
                 <input type="date" value={f.visaExpiry} onChange={set("visaExpiry")} className={inputCls} />
+              </Field>
+              {visaMissing && (
+                <p className="sm:col-span-2 rounded-lg bg-secondary/60 px-3 py-2 text-xs text-danger">
+                  You selected a {f.passportCountry} passport, so visa details are expected. Please add your visa
+                  number and expiry date.
+                </p>
+              )}
+            </Section>
+
+            <Section title="SIA Badge">
+              <Field label="SIA Badge Number">
+                <input value={f.siaBadgeNumber} onChange={set("siaBadgeNumber")} className={inputCls} />
+              </Field>
+              <Field label="SIA Badge Expiry Date">
+                <input type="date" value={f.siaBadgeExpiry} onChange={set("siaBadgeExpiry")} className={inputCls} />
               </Field>
             </Section>
 
@@ -690,6 +748,14 @@ function RegisterPage() {
               <Field label="Expected Hourly Rate (£)">
                 <input type="number" step="0.25" min="0" value={f.rate} onChange={set("rate")} className={inputCls} />
               </Field>
+              <Field label="How did you hear about us?">
+                <select value={f.howHeard} onChange={set("howHeard")} className={inputCls}>
+                  <option value="">Select an option…</option>
+                  {HOW_HEARD_OPTIONS.map((o) => (
+                    <option key={o}>{o}</option>
+                  ))}
+                </select>
+              </Field>
             </Section>
           </>
         )}
@@ -759,9 +825,15 @@ function RegisterPage() {
                 ["ID Front", f.idFront],
                 ["ID Back", f.idBack],
                 ["Proof of Address", f.proofAddress],
+                ["Passport Country", f.passportCountry],
+                ["Passport Number", f.passportNumber],
+                ["Passport Expiry", f.passportExpiry],
                 ["Work permit / visa", f.hasVisa],
                 ["Visa Type", f.visaType],
+                ["Visa Number", f.visaNumber],
                 ["Visa Expiry", f.visaExpiry],
+                ["SIA Badge Number", f.siaBadgeNumber],
+                ["SIA Badge Expiry", f.siaBadgeExpiry],
                 ["Bank Name", f.bankName],
                 ["Account Holder", f.accountHolder],
                 ["Sort Code / Account", f.sortAccount],
@@ -826,6 +898,7 @@ function RegisterPage() {
                 ["Preferred locations", prefLocations.join(", ")],
                 ["Availability", f.availability],
                 ["Expected hourly rate", f.rate ? `£${f.rate}` : ""],
+                ["How did you hear about us", f.howHeard],
               ]}
             />
 

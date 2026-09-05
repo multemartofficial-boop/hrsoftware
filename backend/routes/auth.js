@@ -274,14 +274,20 @@ router.post('/setup-password', async (req, res) => {
     // Hash password
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // Create worker account
+    // Create worker account. Passport / visa / SIA details are carried over from the
+    // application so later phases (visa & SIA expiry warnings) can use them.
     await connection.query(
       `INSERT INTO workers 
-      (id, name, phone, email, location, role, rate, joined, expiry, address, nid, status, password_hash) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+      (id, name, phone, email, location, role, rate, joined, expiry, address, nid, status, password_hash,
+       passport_country, passport_number, passport_expiry,
+       visa_number, visa_expiry, sia_badge_number, sia_badge_expiry) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)`,
       [application.worker_id, application.name, application.phone, application.email, application.location,
        application.applied_for, application.rate, application.worker_joined, application.worker_expiry, 
-       application.address, application.nid, passwordHash]
+       application.address, application.nid, passwordHash,
+       application.passport_country || null, application.passport_number || null, application.passport_expiry || null,
+       application.visa_number || null, application.visa_expiry || null,
+       application.sia_badge_number || null, application.sia_badge_expiry || null]
     );
 
     // Move related data from application to worker

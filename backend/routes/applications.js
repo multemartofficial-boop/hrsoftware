@@ -39,6 +39,49 @@ const upload = multer({
   }
 });
 
+// Default admin compliance checklist (Phase A). Stored as JSON in `compliance`.
+const blankCompliance = () => ({
+  electronicId: false,
+  addressHistory: false,
+  financialChecks: false,
+  rightToWork: false,
+  employmentHistory5y: false,
+  gapPeriods: false,
+  academicQualifications: false,
+  criminalRecords: false,
+  criminalRecordsLevel: '',
+});
+
+// Map a DB application row to the shape the frontend expects (camelCase + parsed compliance)
+const transformApplication = (app) => {
+  let compliance = blankCompliance();
+  if (app.compliance) {
+    try {
+      const parsed = typeof app.compliance === 'string' ? JSON.parse(app.compliance) : app.compliance;
+      compliance = { ...compliance, ...(parsed || {}) };
+    } catch {
+      /* keep defaults if the stored JSON is unreadable */
+    }
+  }
+  return {
+    ...app,
+    workerId: app.worker_id,
+    worker_joined: app.worker_joined,
+    worker_expiry: app.worker_expiry,
+    rejectedOn: app.rejected_on,
+    appliedFor: app.applied_for,
+    howHeard: app.how_heard,
+    passportCountry: app.passport_country,
+    passportNumber: app.passport_number,
+    passportExpiry: app.passport_expiry,
+    visaNumber: app.visa_number,
+    visaExpiry: app.visa_expiry,
+    siaBadgeNumber: app.sia_badge_number,
+    siaBadgeExpiry: app.sia_badge_expiry,
+    compliance,
+  };
+};
+
 // Generate unique application ID
 const generateApplicationId = () => {
   const year = new Date().getFullYear();
@@ -68,8 +111,13 @@ router.post('/', upload.fields([
       medical, dietary,
       workedBefore, beforeFrom, beforeTo, beforeReason,
       availability, rate, prefLocations,
-      prevAddresses, employers, referees, skills
+      prevAddresses, employers, referees, skills,
+      howHeard, passportCountry, passportNumber, passportExpiry,
+      visaNumber, siaBadgeNumber, siaBadgeExpiry
     } = req.body;
+
+    // Optional date fields must be NULL (not '') for MySQL DATE columns
+    const nullableDate = (v) => (v && String(v).trim() ? v : null);
 
     const applicationId = generateApplicationId();
     const address = [addr1, addr2, addr3, town, county, postcode, country].filter(Boolean).join(', ');
@@ -104,16 +152,22 @@ router.post('/', upload.fields([
       employers: parsedEmployers,
       referees: parsedReferees,
       skills: parsedSkills,
-      docUrls
+      docUrls,
+      howHeard, passportCountry, passportNumber, passportExpiry,
+      visaNumber, siaBadgeNumber, siaBadgeExpiry
     };
 
     // Insert main application
     await connection.query(
       `INSERT INTO registration_applications 
-      (id, name, submitted, phone, email, address, nid, applied_for, location, rate, status, details) 
-      VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+      (id, name, submitted, phone, email, address, nid, applied_for, location, rate, status, details,
+       how_heard, passport_country, passport_number, passport_expiry,
+       visa_number, visa_expiry, sia_badge_number, sia_badge_expiry) 
+      VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [applicationId, `${forename} ${surname}`, mobile, email, address, ni, 'Site Operative', 
-       parsedPrefLocations[0] || 'Unassigned', rate || 14.50, JSON.stringify(details)]
+       parsedPrefLocations[0] || 'Unassigned', rate || 14.50, JSON.stringify(details),
+       howHeard || null, passportCountry || null, passportNumber || null, nullableDate(passportExpiry),
+       visaNumber || null, nullableDate(visaExpiry), siaBadgeNumber || null, nullableDate(siaBadgeExpiry)]
     );
 
     // Insert previous addresses
@@ -187,18 +241,7 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
     query += ' ORDER BY submitted DESC';
 
     const [applications] = await pool.query(query, params);
-
-    // Transform snake_case to camelCase to match frontend types
-    const transformed = applications.map(app => ({
-      ...app,
-      workerId: app.worker_id,
-      worker_joined: app.worker_joined,
-      worker_expiry: app.worker_expiry,
-      rejectedOn: app.rejected_on,
-      appliedFor: app.applied_for
-    }));
-
-    res.json(transformed);
+    res.json(applications.map(transformApplication));
   } catch (error) {
     console.error('Get applications error:', error);
     res.status(500).json({ error: true, message: 'Failed to load applications' });
@@ -211,18 +254,7 @@ router.get('/rejected', requireAuth, requireAdmin, async (req, res) => {
     const [applications] = await pool.query(
       'SELECT * FROM registration_applications WHERE status = "rejected" ORDER BY rejected_on DESC'
     );
-
-    // Transform snake_case to camelCase to match frontend types
-    const transformed = applications.map(app => ({
-      ...app,
-      workerId: app.worker_id,
-      worker_joined: app.worker_joined,
-      worker_expiry: app.worker_expiry,
-      rejectedOn: app.rejected_on,
-      appliedFor: app.applied_for
-    }));
-
-    res.json(transformed);
+    res.json(applications.map(transformApplication));
   } catch (error) {
     console.error('Get rejected applications error:', error);
     res.status(500).json({ error: true, message: 'Failed to load rejected applications' });
@@ -241,22 +273,44 @@ router.get('/:id', requireAuth, requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Application not found' });
     }
 
-    const app = applications[0];
-
-    // Transform snake_case to camelCase to match frontend types
-    const transformed = {
-      ...app,
-      workerId: app.worker_id,
-      worker_joined: app.worker_joined,
-      worker_expiry: app.worker_expiry,
-      rejectedOn: app.rejected_on,
-      appliedFor: app.applied_for
-    };
-
-    res.json(transformed);
+    res.json(transformApplication(applications[0]));
   } catch (error) {
     console.error('Get application error:', error);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Admin: Save the compliance checklist for an application
+router.put('/:id/compliance', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [applications] = await pool.query(
+      'SELECT id FROM registration_applications WHERE id = ?',
+      [req.params.id]
+    );
+    if (applications.length === 0) {
+      return res.status(404).json({ error: 'Application not found' });
+    }
+
+    const incoming = req.body || {};
+    const allowed = blankCompliance();
+    const compliance = {};
+    for (const key of Object.keys(allowed)) {
+      if (key === 'criminalRecordsLevel') {
+        compliance[key] = incoming[key] ? String(incoming[key]) : '';
+      } else {
+        compliance[key] = Boolean(incoming[key]);
+      }
+    }
+
+    await pool.query(
+      'UPDATE registration_applications SET compliance = ? WHERE id = ?',
+      [JSON.stringify(compliance), req.params.id]
+    );
+
+    res.json({ compliance, message: 'Compliance checklist saved' });
+  } catch (error) {
+    console.error('Save compliance error:', error);
+    res.status(500).json({ error: 'Server error while saving compliance checklist' });
   }
 });
 

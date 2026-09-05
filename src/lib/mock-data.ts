@@ -22,6 +22,13 @@ export type Worker = {
   rate: number;
   address?: string;
   nid?: string;
+  passportCountry?: string;
+  passportNumber?: string;
+  passportExpiry?: string | Date;
+  visaNumber?: string;
+  visaExpiry?: string | Date;
+  siaBadgeNumber?: string;
+  siaBadgeExpiry?: string | Date;
 };
 
 /** expiry = today + daysLeft, joined = expiry - 90 days */
@@ -67,9 +74,66 @@ export type Application = {
   worker_joined?: string;
   worker_expiry?: string;
   rejectedOn?: string;
+  howHeard?: string;
+  passportCountry?: string;
+  passportNumber?: string;
+  passportExpiry?: string | Date;
+  visaNumber?: string;
+  visaExpiry?: string | Date;
+  siaBadgeNumber?: string;
+  siaBadgeExpiry?: string | Date;
+  compliance?: Compliance;
   /** Full multi-step application payload (optional, demo only). */
   details?: Record<string, unknown>;
 };
+
+/** Admin-only compliance checklist completed during application review. */
+export type Compliance = {
+  electronicId: boolean;
+  addressHistory: boolean;
+  financialChecks: boolean;
+  rightToWork: boolean;
+  employmentHistory5y: boolean;
+  gapPeriods: boolean;
+  academicQualifications: boolean;
+  criminalRecords: boolean;
+  criminalRecordsLevel: string;
+};
+
+export const COMPLIANCE_ITEMS: { key: keyof Omit<Compliance, "criminalRecordsLevel">; label: string }[] = [
+  { key: "electronicId", label: "Electronic ID verification" },
+  { key: "addressHistory", label: "Address history verification" },
+  { key: "financialChecks", label: "Financial checks (UK and overseas where applicable)" },
+  { key: "rightToWork", label: "Right to work" },
+  { key: "employmentHistory5y", label: "5-year employment history verification" },
+  { key: "gapPeriods", label: "Investigation and verification of gap periods" },
+  { key: "academicQualifications", label: "Academic qualifications (if within the 5-year period)" },
+  { key: "criminalRecords", label: "Criminal records check" },
+];
+
+export const CRIMINAL_CHECK_LEVELS = ["Basic", "Standard", "Enhanced"];
+
+export const blankCompliance = (): Compliance => ({
+  electronicId: false,
+  addressHistory: false,
+  financialChecks: false,
+  rightToWork: false,
+  employmentHistory5y: false,
+  gapPeriods: false,
+  academicQualifications: false,
+  criminalRecords: false,
+  criminalRecordsLevel: "",
+});
+
+export const HOW_HEARD_OPTIONS = [
+  "Family",
+  "Friends",
+  "YouTube",
+  "Social Media",
+  "Facebook",
+  "Search Engine",
+  "Sub-contract",
+];
 
 const docUrl = (label: string) => `data:text/plain;charset=utf-8,${encodeURIComponent(`${label} preview document`)}`;
 
@@ -230,6 +294,7 @@ export const seedApplications: Application[] = [
     appliedFor: "Site Operative",
     location: "Camden Site",
     rate: 14.5,
+    status: "pending" as const,
     details: applicationDetails({
       title: "Mr",
       surname: "Sample",
@@ -266,6 +331,7 @@ export const seedApplications: Application[] = [
     appliedFor: "Packer",
     location: "Hackney Depot",
     rate: 12.75,
+    status: "pending" as const,
     details: applicationDetails({
       title: "Ms",
       surname: "Book",
@@ -302,6 +368,7 @@ export const seedApplications: Application[] = [
     appliedFor: "Forklift Driver",
     location: "Croydon Hub",
     rate: 16,
+    status: "pending" as const,
     details: applicationDetails({
       title: "Mr",
       surname: "Burr",
@@ -338,6 +405,7 @@ export const seedApplications: Application[] = [
     appliedFor: "Quality Checker",
     location: "Stratford Yard",
     rate: 15.25,
+    status: "pending" as const,
     details: applicationDetails({
       title: "Ms",
       surname: "Chowdhury",
