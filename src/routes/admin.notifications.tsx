@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { AlertTriangle, CalendarCheck, Clock, Info, RotateCcw, ShieldAlert } from "lucide-react";
+import { AlertTriangle, CalendarCheck, Clock, FileSignature, Info, RotateCcw, ShieldAlert } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, Person } from "@/components/hr/bits";
 import { useApi } from "@/lib/api-store";
@@ -58,6 +58,11 @@ function NotificationsPage() {
       {n.id?.startsWith("ASGN-") && (
         <span className="inline-flex items-center gap-1 rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">
           <CalendarCheck className="size-3" /> Assignment
+        </span>
+      )}
+      {n.id?.startsWith("SGN-") && (
+        <span className="inline-flex items-center gap-1 rounded-full bg-success-soft px-2 py-0.5 text-xs font-medium text-success">
+          <FileSignature className="size-3" /> Signature
         </span>
       )}
       <p className="text-sm text-muted-foreground">{n.message}</p>

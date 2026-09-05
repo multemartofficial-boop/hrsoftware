@@ -149,6 +149,146 @@ router.post('/:id/send', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
+/* ================= WORKER: sign / decline ================= */
+
+const clientIp = (req) =>
+  (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress || null;
+
+const logAudit = async (reqId, event, ip) => {
+  try {
+    await pool.query(
+      `UPDATE signature_requests
+       SET audit_log = JSON_ARRAY_APPEND(COALESCE(audit_log, JSON_ARRAY()), '$',
+            JSON_OBJECT('event', ?, 'at', NOW(), 'ip', ?))
+       WHERE id = ?`,
+      [event, ip, reqId]
+    );
+  } catch (e) {
+    console.error('Audit log error:', e);
+  }
+};
+
+const loadRequestForWorker = async (reqId, workerId) => {
+  const [rows] = await pool.query(
+    `SELECT r.*, d.name AS document_name, d.type AS document_type
+     FROM signature_requests r JOIN documents d ON d.id = r.document_id
+     WHERE r.id = ? AND r.worker_id = ?`,
+    [reqId, workerId]
+  );
+  return rows[0] || null;
+};
+
+// Worker's own requests (identity from token only)
+router.get('/requests/mine', requireAuth, async (req, res) => {
+  try {
+    if (req.user.role !== 'worker') return res.status(403).json({ error: 'Workers only' });
+    const [rows] = await pool.query(
+      `SELECT r.id, r.document_id, d.name AS document_name, d.type AS document_type,
+              r.status, r.sent_at, r.viewed_at, r.signed_at, r.declined_at
+       FROM signature_requests r
+       JOIN documents d ON d.id = r.document_id
+       WHERE r.worker_id = ?
+       ORDER BY r.sent_at DESC`,
+      [req.user.workerId]
+    );
+    res.json(rows);
+  } catch (e) {
+    console.error('My requests error:', e);
+    res.status(500).json({ error: 'Failed to load requests' });
+  }
+});
+
+// Mark a request as viewed (called when the worker opens the review page)
+router.post('/requests/:id/view', requireAuth, async (req, res) => {
+  try {
+    const r = await loadRequestForWorker(req.params.id, req.user.workerId);
+    if (!r) return res.status(404).json({ error: 'Request not found' });
+    if (r.status === 'pending' && !r.viewed_at) {
+      await pool.query('UPDATE signature_requests SET viewed_at = NOW() WHERE id = ?', [req.params.id]);
+    }
+    await logAudit(req.params.id, 'viewed', clientIp(req));
+    res.json({ viewed: true });
+  } catch (e) {
+    console.error('View mark error:', e);
+    res.status(500).json({ error: 'Failed to record view' });
+  }
+});
+
+// Sign a request
+router.post('/requests/:id/sign', requireAuth, async (req, res) => {
+  try {
+    const r = await loadRequestForWorker(req.params.id, req.user.workerId);
+    if (!r) return res.status(404).json({ error: 'Request not found' });
+    if (r.status !== 'pending') return res.status(400).json({ error: `Request is already ${r.status}` });
+
+    const { signatureType, signatureData } = req.body;
+    if (!['draw', 'type', 'upload'].includes(signatureType) || !signatureData) {
+      return res.status(400).json({ error: 'signatureType (draw|type|upload) and signatureData are required' });
+    }
+
+    const ip = clientIp(req);
+
+    // Build the final signed content: rendered content + signature block.
+    // For PDFs the signature is stored alongside (signature_data + type) —
+    // no PDF overlay, keeping the original file untouched.
+    const signedBlock =
+      `\n\n---\nSigned by ${r.worker_id} on ${new Date().toISOString()}` +
+      (signatureType === 'type'
+        ? `\nSignature (typed): ${signatureData}`
+        : `\nSignature: [captured ${signatureType} image — stored in signature_data]`) +
+      (ip ? `\nSigner IP: ${ip}` : '');
+    const signedContent = (r.rendered_content || `[PDF document: ${r.document_name}]`) + signedBlock;
+
+    await pool.query(
+      `UPDATE signature_requests
+       SET status='signed', signed_at=NOW(), signature_type=?, signature_data=?, signer_ip=?, signed_content=?
+       WHERE id = ?`,
+      [signatureType, signatureData, ip, signedContent, req.params.id]
+    );
+    await logAudit(req.params.id, 'signed', ip);
+
+    // Notify admin
+    const [w] = await pool.query('SELECT name FROM workers WHERE id = ?', [r.worker_id]);
+    await pool.query(
+      'INSERT INTO notifications (id, worker, worker_id, message, urgency) VALUES (?, ?, ?, ?, ?)',
+      [`SGN-${req.params.id}`, w[0]?.name || r.worker_id, r.worker_id,
+       `[Signature] ${w[0]?.name || r.worker_id} signed "${r.document_name}" on ${new Date().toISOString().slice(0, 10)}.`,
+       'info']
+    );
+
+    res.json({ status: 'signed', signedAt: new Date().toISOString() });
+  } catch (e) {
+    console.error('Sign error:', e);
+    res.status(500).json({ error: 'Failed to sign' });
+  }
+});
+
+// Decline a request
+router.post('/requests/:id/decline', requireAuth, async (req, res) => {
+  try {
+    const r = await loadRequestForWorker(req.params.id, req.user.workerId);
+    if (!r) return res.status(404).json({ error: 'Request not found' });
+    if (r.status !== 'pending') return res.status(400).json({ error: `Request is already ${r.status}` });
+
+    const ip = clientIp(req);
+    await pool.query("UPDATE signature_requests SET status='declined', declined_at=NOW(), signer_ip=? WHERE id = ?", [ip, req.params.id]);
+    await logAudit(req.params.id, 'declined', ip);
+
+    const [w] = await pool.query('SELECT name FROM workers WHERE id = ?', [r.worker_id]);
+    await pool.query(
+      'INSERT INTO notifications (id, worker, worker_id, message, urgency) VALUES (?, ?, ?, ?, ?)',
+      [`SGN-${req.params.id}`, w[0]?.name || r.worker_id, r.worker_id,
+       `[Signature] ${w[0]?.name || r.worker_id} declined to sign "${r.document_name}" on ${new Date().toISOString().slice(0, 10)}.`,
+       'warning']
+    );
+
+    res.json({ status: 'declined' });
+  } catch (e) {
+    console.error('Decline error:', e);
+    res.status(500).json({ error: 'Failed to decline' });
+  }
+});
+
 /* ================= ADMIN: tracking ================= */
 
 // List all signature requests

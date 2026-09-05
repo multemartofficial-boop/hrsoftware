@@ -200,28 +200,71 @@ function SendModal({ doc, onClose, onSaved }: { doc: Doc; onClose: () => void; o
   );
 }
 
+const fmtTs = (v: string | null | undefined) =>
+  v ? new Date(v).toLocaleString() : "—";
+
 function ViewModal({ req, onClose }: { req: SigRequest; onClose: () => void }) {
   const [detail, setDetail] = useState<any>(null);
   useEffect(() => {
     apiClient.get(`/api/documents/requests/${req.id}`).then(setDetail).catch(() => setDetail({ error: true }));
   }, [req.id]);
+
+  let audit: { event: string; at: string; ip?: string }[] = [];
+  try {
+    audit = typeof detail?.audit_log === "string" ? JSON.parse(detail.audit_log) : detail?.audit_log || [];
+  } catch { audit = []; }
+
   return (
     <Modal title={req.document_name} description={`Sent to ${req.worker_name} · Status: ${cap(req.status)}`} onClose={onClose}>
       {detail === null ? (
         <p className="text-sm text-muted-foreground">Loading...</p>
-      ) : detail?.rendered_content ? (
-        <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border bg-secondary/50 p-3 text-sm">{detail.rendered_content}</pre>
-      ) : detail?.file_path ? (
-        <a
-          href={`http://localhost:3001/${String(detail.file_path).replace(/\\/g, "/")}`}
-          target="_blank"
-          rel="noreferrer"
-          className="text-sm text-primary underline"
-        >
-          Open PDF document
-        </a>
       ) : (
-        <p className="text-sm text-muted-foreground">No content available.</p>
+        <div className="space-y-4">
+          {/* Audit trail timeline */}
+          <div>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Audit trail</p>
+            <div className="space-y-1.5 text-sm">
+              <p><span className="font-medium">Sent:</span> {fmtTs(detail.sent_at)}</p>
+              <p><span className="font-medium">Viewed:</span> {fmtTs(detail.viewed_at)}</p>
+              {detail.signed_at && <p><span className="font-medium">Signed:</span> {fmtTs(detail.signed_at)}{detail.signer_ip ? ` · IP ${detail.signer_ip}` : ""}</p>}
+              {detail.declined_at && <p><span className="font-medium text-danger">Declined:</span> {fmtTs(detail.declined_at)}</p>}
+              {audit.length > 0 && (
+                <details className="text-xs text-muted-foreground">
+                  <summary className="cursor-pointer">Full event log ({audit.length} events)</summary>
+                  <ul className="mt-1 space-y-0.5 pl-3">
+                    {audit.map((e, i) => (
+                      <li key={i}>{fmtTs(e.at)} — {e.event}{e.ip ? ` (${e.ip})` : ""}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          </div>
+
+          {/* Signed version or original content */}
+          {detail.signed_content ? (
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Signed document</p>
+              <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border bg-secondary/50 p-3 text-sm">{detail.signed_content}</pre>
+              {detail.signature_type === "type" ? null : detail.signature_data ? (
+                <img src={detail.signature_data} alt="Signature" className="mt-2 max-h-24 rounded border border-border bg-white" />
+              ) : null}
+            </div>
+          ) : detail.rendered_content ? (
+            <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border bg-secondary/50 p-3 text-sm">{detail.rendered_content}</pre>
+          ) : detail.file_path ? (
+            <a
+              href={`http://localhost:3001/${String(detail.file_path).replace(/\\/g, "/")}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm text-primary underline"
+            >
+              Open PDF document
+            </a>
+          ) : (
+            <p className="text-sm text-muted-foreground">No content available.</p>
+          )}
+        </div>
       )}
       <div className="mt-4 flex justify-end">
         <GhostButton onClick={onClose}>Close</GhostButton>
