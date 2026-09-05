@@ -340,7 +340,14 @@ function WorkerDetails() {
                 <Td>{r.in}</Td>
                 <Td>{r.out || "—"}</Td>
                 <Td className="font-medium">{Number(r.hours ?? 0).toFixed(2)}h</Td>
-                <Td>{r.location}</Td>
+                <Td>
+                  <div className="leading-tight">
+                    <p>{r.location}</p>
+                    {r.locationMismatch && (
+                      <p className="text-xs font-medium text-danger">Location Mismatch</p>
+                    )}
+                  </div>
+                </Td>
                 <Td><StatusBadge status={r.source} /></Td>
               </tr>
             ))}

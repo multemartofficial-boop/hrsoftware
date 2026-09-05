@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useApi } from "@/lib/api-store";
 import { apiClient } from "@/lib/api-client";
-import { LogOut, Clock, LogIn, Calendar, MapPin } from "lucide-react";
+import { LogOut, Clock, LogIn, Calendar, MapPin, Navigation } from "lucide-react";
 import { inputCls } from "@/components/hr/bits";
 
 export const Route = createFileRoute("/worker/dashboard")({
@@ -24,6 +24,9 @@ function WorkerDashboard() {
   const [selectedLocation, setSelectedLocation] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [locations, setLocations] = useState<any[]>([]);
+  // Phase E: GPS must be captured before check-in is allowed
+  const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [geoStatus, setGeoStatus] = useState<"idle" | "requesting" | "granted" | "denied">("idle");
 
   const loadTodayAttendance = async (): Promise<{ checkedIn: boolean; record: any; visaExpired?: boolean }> => {
     try {
@@ -53,14 +56,34 @@ function WorkerDashboard() {
     });
   }, [session, router]);
 
+  const enableLocation = () => {
+    if (!("geolocation" in navigator)) {
+      setGeoStatus("denied");
+      return;
+    }
+    setGeoStatus("requesting");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCoords({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+        setGeoStatus("granted");
+      },
+      () => setGeoStatus("denied"),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
+    );
+  };
+
   const handleCheckIn = async () => {
     if (!selectedLocation) {
       alert('Please select a location');
       return;
     }
+    if (!coords) {
+      alert('Location access is required to check in. Please enable location services.');
+      return;
+    }
     setActionLoading(true);
     try {
-      await workerCheckIn(selectedLocation);
+      await workerCheckIn(selectedLocation, coords);
       setCheckedIn(true);
     } catch (err: any) {
       alert(err.message || 'Failed to check in');
@@ -156,12 +179,37 @@ function WorkerDashboard() {
               </div>
             </div>
           ) : (
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-4">
               <div className="flex items-center gap-3 text-muted-foreground">
                 <div className="w-3 h-3 rounded-full bg-muted-foreground" />
                 <span>You are not checked in</span>
               </div>
-              <div className="flex items-center gap-3">
+
+              {/* GPS capture is required before check-in */}
+              {geoStatus === "granted" && coords ? (
+                <div className="flex items-center gap-2 text-sm text-green-600">
+                  <Navigation className="size-4" />
+                  <span>Location on ({coords.latitude.toFixed(5)}, {coords.longitude.toFixed(5)})</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={enableLocation}
+                    disabled={geoStatus === "requesting"}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-secondary disabled:opacity-50"
+                  >
+                    <Navigation className="size-4" />
+                    {geoStatus === "requesting" ? "Locating..." : "Turn on location"}
+                  </button>
+                  {geoStatus === "denied" && (
+                    <p className="text-sm text-danger">
+                      Location access is required to check in. Please enable location services.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between">
                 <select
                   value={selectedLocation}
                   onChange={(e) => setSelectedLocation(e.target.value)}
@@ -176,7 +224,7 @@ function WorkerDashboard() {
                 </select>
                 <button
                   onClick={handleCheckIn}
-                  disabled={actionLoading || !selectedLocation}
+                  disabled={actionLoading || !selectedLocation || !coords}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                 >
                   <LogIn className="size-4" />

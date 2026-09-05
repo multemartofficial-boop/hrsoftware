@@ -234,7 +234,10 @@ function useApiState() {
         out: a.check_out_time,
         location: a.location,
         hours: Number(a.hours_worked),
-        source: a.source
+        source: a.source,
+        checkInLat: a.check_in_lat != null ? Number(a.check_in_lat) : null,
+        checkInLng: a.check_in_lng != null ? Number(a.check_in_lng) : null,
+        locationMismatch: a.location_mismatch === 1 || a.location_mismatch === true
       }));
       setAttendance(normalizedData);
     } catch (err) {
@@ -286,8 +289,13 @@ function useApiState() {
     setLoading({ ...loading, locations: true });
     setError(null);
     try {
-      const data = await apiClient.get<LocationItem[]>('/api/locations');
-      setLocations(data);
+      const data = await apiClient.get<any[]>('/api/locations');
+      setLocations(data.map(l => ({
+        ...l,
+        latitude: l.latitude != null ? Number(l.latitude) : null,
+        longitude: l.longitude != null ? Number(l.longitude) : null,
+        radiusMeters: l.radiusMeters != null ? Number(l.radiusMeters) : 200
+      })));
     } catch (err) {
       if (!(err instanceof Error && err.message.includes('401'))) {
         console.error('Failed to load locations:', err);
@@ -399,7 +407,10 @@ function useApiState() {
         out: a.check_out_time,
         location: a.location,
         hours: Number(a.hours_worked),
-        source: a.source
+        source: a.source,
+        checkInLat: a.check_in_lat != null ? Number(a.check_in_lat) : null,
+        checkInLng: a.check_in_lng != null ? Number(a.check_in_lng) : null,
+        locationMismatch: a.location_mismatch === 1 || a.location_mismatch === true
       }));
       setAttendance(normalizedData);
     } catch (err) {
@@ -568,9 +579,12 @@ function useApiState() {
     }
   };
 
-  const workerCheckIn = async (location: string) => {
+  const workerCheckIn = async (location: string, coords?: { latitude: number; longitude: number }) => {
     try {
-      const response = await apiClient.post<{ id: string; timeIn: string; location: string; message: string }>('/api/worker/attendance/checkin', { location });
+      const response = await apiClient.post<{ id: string; timeIn: string; location: string; locationMismatch?: boolean; distanceMeters?: number | null; message: string }>(
+        '/api/worker/attendance/checkin',
+        { location, latitude: coords?.latitude, longitude: coords?.longitude }
+      );
       await loadMyAttendance();
       return response;
     } catch (err) {
@@ -621,9 +635,9 @@ function useApiState() {
   };
 
   /* ---------------- locations ---------------- */
-  const addLocation = async (name: string, address: string) => {
+  const addLocation = async (name: string, address: string, geo?: { latitude?: number | null; longitude?: number | null; radiusMeters?: number }) => {
     try {
-      await apiClient.post('/api/locations', { name, address });
+      await apiClient.post('/api/locations', { name, address, ...geo });
       await loadLocations();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add location');

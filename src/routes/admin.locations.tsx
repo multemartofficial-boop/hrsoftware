@@ -22,18 +22,26 @@ function LocationForm({ editing, onClose }: { editing: LocationItem | null; onCl
   const { addLocation, updateLocation } = useApi();
   const [name, setName] = useState(editing?.name ?? "");
   const [address, setAddress] = useState(editing?.address ?? "");
+  const [latitude, setLatitude] = useState(editing?.latitude != null ? String(editing.latitude) : "");
+  const [longitude, setLongitude] = useState(editing?.longitude != null ? String(editing.longitude) : "");
+  const [radiusMeters, setRadiusMeters] = useState(String(editing?.radiusMeters ?? 200));
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (editing) updateLocation(editing.id, { name, address });
-    else addLocation(name, address);
+    const geo = {
+      latitude: latitude !== "" ? Number(latitude) : null,
+      longitude: longitude !== "" ? Number(longitude) : null,
+      radiusMeters: radiusMeters !== "" ? Number(radiusMeters) : 200,
+    };
+    if (editing) updateLocation(editing.id, { name, address, ...geo });
+    else addLocation(name, address, geo);
     onClose();
   };
 
   return (
     <Modal
       title={editing ? "Edit location" : "Add location"}
-      description="Locations feed the worker check-in dropdown."
+      description="Locations feed the worker check-in dropdown. Set GPS coordinates to enable geofenced check-in."
       onClose={onClose}
     >
       <form onSubmit={submit} className="space-y-4">
@@ -43,6 +51,17 @@ function LocationForm({ editing, onClose }: { editing: LocationItem | null; onCl
         <Field label="Address">
           <input required value={address} onChange={(e) => setAddress(e.target.value)} className={inputCls} placeholder="24 Camden High St, London" />
         </Field>
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Latitude" hint="e.g. 51.5072">
+            <input type="number" step="any" value={latitude} onChange={(e) => setLatitude(e.target.value)} className={inputCls} placeholder="51.5072" />
+          </Field>
+          <Field label="Longitude" hint="e.g. -0.1276">
+            <input type="number" step="any" value={longitude} onChange={(e) => setLongitude(e.target.value)} className={inputCls} placeholder="-0.1276" />
+          </Field>
+          <Field label="Radius (m)" hint="Allowed distance">
+            <input type="number" min="1" value={radiusMeters} onChange={(e) => setRadiusMeters(e.target.value)} className={inputCls} placeholder="200" />
+          </Field>
+        </div>
         <div className="flex justify-end gap-2">
           <GhostButton type="button" onClick={onClose}>
             Cancel

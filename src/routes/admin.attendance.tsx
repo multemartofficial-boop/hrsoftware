@@ -273,7 +273,19 @@ function AttendancePage() {
                 <Td>{fmtDate(a.date)}</Td>
                 <Td>{a.in}</Td>
                 <Td>{a.out}</Td>
-                <Td>{a.location}</Td>
+                <Td>
+                  <div className="leading-tight">
+                    <p>{a.location}</p>
+                    {a.locationMismatch && (
+                      <p className="text-xs font-medium text-danger">Location Mismatch</p>
+                    )}
+                    {a.checkInLat != null && (
+                      <p className="text-xs text-muted-foreground">
+                        {a.checkInLat.toFixed(5)}, {a.checkInLng?.toFixed(5)}
+                      </p>
+                    )}
+                  </div>
+                </Td>
                 <Td className="font-medium">{a.hours.toFixed(2)} h</Td>
                 <Td><StatusBadge status={a.source} /></Td>
                 <Td>

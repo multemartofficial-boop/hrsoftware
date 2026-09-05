@@ -29,6 +29,18 @@ const generateAttendanceId = () => {
   return `ATT-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 };
 
+// Haversine distance in meters between two lat/lng points
+const distanceMeters = (lat1, lng1, lat2, lng2) => {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+};
+
 // Worker: Get today's attendance status
 router.get('/today', requireAuth, requireWorker, async (req, res) => {
   try {
@@ -62,10 +74,20 @@ router.get('/today', requireAuth, requireWorker, async (req, res) => {
 // Worker: Check in
 router.post('/checkin', requireAuth, requireWorker, async (req, res) => {
   try {
-    const { location } = req.body;
-    
+    const { location, latitude, longitude } = req.body;
+
     if (!location) {
       return res.status(400).json({ error: 'Location is required' });
+    }
+
+    // Phase E: GPS position is required — the worker must enable location before
+    // check-in (the frontend enforces this too; this blocks direct API calls).
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res.status(400).json({
+        error: 'Location access is required to check in. Please enable location services.'
+      });
     }
     
     // Get worker details including expiry + visa status
@@ -103,17 +125,39 @@ router.post('/checkin', requireAuth, requireWorker, async (req, res) => {
     if (existing.length > 0) {
       return res.status(400).json({ error: 'Already checked in' });
     }
-    
+
+    // Geofence check: compare the captured GPS against the selected location's
+    // stored coordinates. Outside the radius → still allow check-in but flag it.
+    let locationMismatch = 0;
+    let dist = null;
+    const [locRows] = await pool.query(
+      'SELECT latitude, longitude, radius_meters FROM locations WHERE name = ?',
+      [location]
+    );
+    const loc = locRows[0];
+    if (loc && loc.latitude !== null && loc.longitude !== null) {
+      const radius = loc.radius_meters ?? 200;
+      dist = Math.round(distanceMeters(lat, lng, Number(loc.latitude), Number(loc.longitude)));
+      if (dist > radius) locationMismatch = 1;
+    }
+
     const attendanceId = generateAttendanceId();
-    
+
     await pool.query(
-      `INSERT INTO attendance 
-      (id, worker_id, worker, date, check_in_time, check_out_time, location, hours_worked, source) 
-      VALUES (?, ?, ?, ?, ?, NULL, ?, 0, 'Self')`,
-      [attendanceId, req.user.workerId, worker.name, todayStr, timeIn, location]
+      `INSERT INTO attendance
+      (id, worker_id, worker, date, check_in_time, check_out_time, location, hours_worked, source,
+       check_in_lat, check_in_lng, location_mismatch)
+      VALUES (?, ?, ?, ?, ?, NULL, ?, 0, 'Self', ?, ?, ?)`,
+      [attendanceId, req.user.workerId, worker.name, todayStr, timeIn, location,
+       lat, lng, locationMismatch]
     );
 
-    res.status(201).json({ id: attendanceId, timeIn, location, message: 'Checked in successfully' });
+    res.status(201).json({
+      id: attendanceId, timeIn, location,
+      locationMismatch: locationMismatch === 1,
+      distanceMeters: dist,
+      message: 'Checked in successfully'
+    });
   } catch (error) {
     console.error('Check in error:', error);
     res.status(500).json({ error: 'Server error' });

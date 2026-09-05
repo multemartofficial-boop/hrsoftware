@@ -8,11 +8,16 @@ const generateLocationId = () => {
   return `LOC-${Date.now()}`;
 };
 
-// Public: Get all locations (for registration form)
+// Public: Get all locations (for registration form + worker check-in)
 router.get('/', async (req, res) => {
   try {
     const [locations] = await pool.query('SELECT * FROM locations ORDER BY name');
-    res.json(locations);
+    res.json(locations.map(l => ({
+      ...l,
+      latitude: l.latitude !== null && l.latitude !== undefined ? Number(l.latitude) : null,
+      longitude: l.longitude !== null && l.longitude !== undefined ? Number(l.longitude) : null,
+      radiusMeters: l.radius_meters !== null && l.radius_meters !== undefined ? Number(l.radius_meters) : 200
+    })));
   } catch (error) {
     console.error('Get locations error:', error);
     res.status(500).json({ error: true, message: 'Failed to load locations' });
@@ -22,12 +27,15 @@ router.get('/', async (req, res) => {
 // Admin: Create location
 router.post('/', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { name, address } = req.body;
+    const { name, address, latitude, longitude, radiusMeters } = req.body;
     const locationId = generateLocationId();
-    
+
     await pool.query(
-      'INSERT INTO locations (id, name, address) VALUES (?, ?, ?)',
-      [locationId, name, address]
+      'INSERT INTO locations (id, name, address, latitude, longitude, radius_meters) VALUES (?, ?, ?, ?, ?, ?)',
+      [locationId, name, address,
+       latitude != null && latitude !== '' ? Number(latitude) : null,
+       longitude != null && longitude !== '' ? Number(longitude) : null,
+       radiusMeters != null && radiusMeters !== '' ? Number(radiusMeters) : 200]
     );
 
     res.status(201).json({ id: locationId, message: 'Location created successfully' });
@@ -43,8 +51,8 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   
   try {
     await connection.beginTransaction();
-    
-    const { name, address } = req.body;
+
+    const { name, address, latitude, longitude, radiusMeters } = req.body;
     
     // Get old location name for updating workers
     const [oldLocation] = await connection.query(
@@ -61,8 +69,12 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     
     // Update location
     await connection.query(
-      'UPDATE locations SET name = ?, address = ? WHERE id = ?',
-      [name, address, req.params.id]
+      'UPDATE locations SET name = ?, address = ?, latitude = ?, longitude = ?, radius_meters = ? WHERE id = ?',
+      [name, address,
+       latitude != null && latitude !== '' ? Number(latitude) : null,
+       longitude != null && longitude !== '' ? Number(longitude) : null,
+       radiusMeters != null && radiusMeters !== '' ? Number(radiusMeters) : 200,
+       req.params.id]
     );
     
     // Update workers if location name changed

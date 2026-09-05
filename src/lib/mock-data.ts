@@ -475,6 +475,10 @@ export type Attendance = {
   location: string;
   hours: number;
   source: "Self" | "Admin";
+  /** Phase E: worker's actual GPS at check-in + geofence flag */
+  checkInLat?: number | null;
+  checkInLng?: number | null;
+  locationMismatch?: boolean;
 };
 
 const att = (
@@ -569,7 +573,15 @@ export const seedPayrolls: Payroll[] = [
   mkSeed("PYRL-12030", "WRK-10248", "Priya Anand", 164, 15.25, 0, "Pending", 6),
 ];
 
-export type LocationItem = { id: string; name: string; address: string };
+export type LocationItem = {
+  id: string;
+  name: string;
+  address: string;
+  /** Phase E: geofence anchor — null when not configured */
+  latitude?: number | null;
+  longitude?: number | null;
+  radiusMeters?: number;
+};
 
 export const seedLocations: LocationItem[] = [
   { id: "LOC-01", name: "Camden Site", address: "24 Camden High St, London NW1 0JH" },
