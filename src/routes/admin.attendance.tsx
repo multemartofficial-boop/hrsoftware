@@ -35,6 +35,15 @@ export const Route = createFileRoute("/admin/attendance")({
 
 type FormState = { workerId: string; date: string; in: string; out: string; location: string };
 
+const distMeters = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+  const R = 6371000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const a =
+    Math.sin(toRad(lat2 - lat1) / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(toRad(lng2 - lng1) / 2) ** 2;
+  return Math.round(2 * R * Math.asin(Math.sqrt(a)));
+};
+
 function EntryForm({
   initial,
   editing,
@@ -274,16 +283,22 @@ function AttendancePage() {
                 <Td>{a.in}</Td>
                 <Td>{a.out}</Td>
                 <Td>
-                  <div className="leading-tight">
+                  <div className="flex items-center gap-1.5 leading-tight">
+                    {a.checkInLat != null && (() => {
+                      const loc = locations?.find((l) => l.name === a.location);
+                      const dist =
+                        loc?.latitude != null && loc?.longitude != null && a.checkInLng != null
+                          ? distMeters(a.checkInLat, a.checkInLng, Number(loc.latitude), Number(loc.longitude))
+                          : null;
+                      const tip = `${a.locationMismatch ? "Location Mismatch" : "Within radius"} — GPS: ${a.checkInLat.toFixed(5)}, ${a.checkInLng?.toFixed(5)}${dist != null ? ` — ${dist}m from site` : ""}`;
+                      return (
+                        <span
+                          className={`inline-block size-2.5 shrink-0 rounded-full ${a.locationMismatch ? "bg-danger" : "bg-success"}`}
+                          title={tip}
+                        />
+                      );
+                    })()}
                     <p>{a.location}</p>
-                    {a.locationMismatch && (
-                      <p className="text-xs font-medium text-danger">Location Mismatch</p>
-                    )}
-                    {a.checkInLat != null && (
-                      <p className="text-xs text-muted-foreground">
-                        {a.checkInLat.toFixed(5)}, {a.checkInLng?.toFixed(5)}
-                      </p>
-                    )}
                   </div>
                 </Td>
                 <Td className="font-medium">{a.hours.toFixed(2)} h</Td>
