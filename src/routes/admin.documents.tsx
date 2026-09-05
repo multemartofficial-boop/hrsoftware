@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Plus, FileText, Send, Eye, Ban, FileUp, FileSignature } from "lucide-react";
+import { Plus, FileText, Send, Eye, Ban, FileUp, FileSignature, Pencil, Trash2 } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import {
   Card, Field, GhostButton, Modal, PrimaryButton, inputCls,
@@ -87,9 +87,9 @@ function UploadModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
   );
 }
 
-function TemplateModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [name, setName] = useState("");
-  const [content, setContent] = useState("");
+function TemplateModal({ editing, onClose, onSaved }: { editing?: Doc | null; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(editing?.name ?? "");
+  const [content, setContent] = useState(editing?.content ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -98,7 +98,11 @@ function TemplateModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
     setBusy(true);
     setErr(null);
     try {
-      await apiClient.post("/api/documents/template", { name, content });
+      if (editing) {
+        await apiClient.put(`/api/documents/${editing.id}`, { name, content });
+      } else {
+        await apiClient.post("/api/documents/template", { name, content });
+      }
       onSaved();
       onClose();
     } catch (e: any) {
@@ -109,7 +113,11 @@ function TemplateModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
   };
 
   return (
-    <Modal title="New template" description="Reusable text — placeholders are auto-filled from the worker's record when sent." onClose={onClose}>
+    <Modal
+      title={editing ? "Edit template" : "New template"}
+      description="Reusable text — placeholders are auto-filled from the worker's record when sent. Already-sent requests keep their original content."
+      onClose={onClose}
+    >
       <form onSubmit={submit} className="space-y-4">
         <Field label="Template name">
           <input required value={name} onChange={(e) => setName(e.target.value)} className={inputCls} placeholder="Offer Letter" />
@@ -130,7 +138,57 @@ function TemplateModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
         {err && <p className="text-sm text-danger">{err}</p>}
         <div className="flex justify-end gap-2">
           <GhostButton type="button" onClick={onClose}>Cancel</GhostButton>
-          <PrimaryButton type="submit" disabled={busy}>{busy ? "Saving..." : "Save template"}</PrimaryButton>
+          <PrimaryButton type="submit" disabled={busy}>{busy ? "Saving..." : editing ? "Save changes" : "Save template"}</PrimaryButton>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function EditPdfModal({ doc, onClose, onSaved }: { doc: Doc; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(doc.name);
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      await apiClient.put(`/api/documents/${doc.id}`, { name });
+      if (file) {
+        const fd = new FormData();
+        fd.append("file", file);
+        await apiClient.uploadFile(`/documents/${doc.id}/file`, fd);
+      }
+      onSaved();
+      onClose();
+    } catch (e: any) {
+      setErr(e.message || "Failed to update document");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title="Edit PDF document" description="Rename the document or replace the PDF file. Already-sent requests keep their original file." onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        <Field label="Document name">
+          <input required value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
+        </Field>
+        <Field label="Replace PDF (optional)" hint="Leave empty to keep the current file">
+          <input
+            type="file"
+            accept="application/pdf,.pdf"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            className={inputCls}
+          />
+        </Field>
+        {err && <p className="text-sm text-danger">{err}</p>}
+        <div className="flex justify-end gap-2">
+          <GhostButton type="button" onClick={onClose}>Cancel</GhostButton>
+          <PrimaryButton type="submit" disabled={busy}>{busy ? "Saving..." : "Save changes"}</PrimaryButton>
         </div>
       </form>
     </Modal>
@@ -277,6 +335,8 @@ function DocumentsPage() {
   const [docs, setDocs] = useState<Doc[]>([]);
   const [requests, setRequests] = useState<SigRequest[]>([]);
   const [modal, setModal] = useState<"upload" | "template" | null>(null);
+  const [editing, setEditing] = useState<Doc | null>(null);
+  const [editPdf, setEditPdf] = useState<Doc | null>(null);
   const [sending, setSending] = useState<Doc | null>(null);
   const [viewing, setViewing] = useState<SigRequest | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -295,6 +355,17 @@ function DocumentsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const del = async (d: Doc) => {
+    if (!window.confirm(`Delete "${d.name}"? This cannot be undone.`)) return;
+    try {
+      await apiClient.delete(`/api/documents/${d.id}`);
+      setErr(null);
+      load();
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  };
 
   const cancel = async (id: string) => {
     try {
@@ -337,12 +408,28 @@ function DocumentsPage() {
               <Td><StatusBadge status={d.type === "template" ? "Template" : "PDF"} /></Td>
               <Td>{fmtDate(d.created_at)}</Td>
               <Td className="text-right">
-                <button
-                  onClick={() => setSending(d)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
-                >
-                  <Send className="size-3.5" /> Send for Signature
-                </button>
+                <div className="flex items-center justify-end gap-1">
+                  <button
+                    onClick={() => setSending(d)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
+                  >
+                    <Send className="size-3.5" /> Send for Signature
+                  </button>
+                  <button
+                    onClick={() => (d.type === "template" ? setEditing(d) : setEditPdf(d))}
+                    title="Edit"
+                    className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-primary"
+                  >
+                    <Pencil className="size-4" />
+                  </button>
+                  <button
+                    onClick={() => del(d)}
+                    title="Delete"
+                    className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-danger"
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
               </Td>
             </tr>
           ))}
@@ -382,6 +469,8 @@ function DocumentsPage() {
 
       {modal === "upload" && <UploadModal onClose={() => setModal(null)} onSaved={load} />}
       {modal === "template" && <TemplateModal onClose={() => setModal(null)} onSaved={load} />}
+      {editing && <TemplateModal editing={editing} onClose={() => setEditing(null)} onSaved={load} />}
+      {editPdf && <EditPdfModal doc={editPdf} onClose={() => setEditPdf(null)} onSaved={load} />}
       {sending && <SendModal doc={sending} onClose={() => setSending(null)} onSaved={load} />}
       {viewing && <ViewModal req={viewing} onClose={() => setViewing(null)} />}
     </AdminShell>

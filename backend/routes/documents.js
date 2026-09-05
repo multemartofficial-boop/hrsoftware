@@ -89,6 +89,72 @@ router.post('/template', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
+// Edit a document: rename always; content only for templates; optional file replace for PDFs
+router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { name, content } = req.body;
+    const [docs] = await pool.query('SELECT * FROM documents WHERE id = ?', [req.params.id]);
+    if (docs.length === 0) return res.status(404).json({ error: 'Document not found' });
+    const doc = docs[0];
+
+    const sets = ['name = ?'];
+    const params = [name ?? doc.name];
+    if (doc.type === 'template' && content !== undefined) {
+      sets.push('content = ?');
+      params.push(content);
+    }
+    params.push(req.params.id);
+    await pool.query(`UPDATE documents SET ${sets.join(', ')} WHERE id = ?`, params);
+    res.json({ message: 'Document updated' });
+  } catch (e) {
+    console.error('Update document error:', e);
+    res.status(500).json({ error: 'Failed to update document' });
+  }
+});
+
+// Replace the underlying PDF file (deletes the old file)
+router.put('/:id/file', requireAuth, requireAdmin, upload.single('file'), async (req, res) => {
+  try {
+    const [docs] = await pool.query('SELECT * FROM documents WHERE id = ?', [req.params.id]);
+    if (docs.length === 0) return res.status(404).json({ error: 'Document not found' });
+    if (docs[0].type !== 'uploaded_pdf') return res.status(400).json({ error: 'Only PDF uploads have files' });
+    if (!req.file) return res.status(400).json({ error: 'PDF file is required' });
+
+    if (docs[0].file_path && fs.existsSync(docs[0].file_path)) fs.unlinkSync(docs[0].file_path);
+    await pool.query('UPDATE documents SET file_path = ? WHERE id = ?', [req.file.path, req.params.id]);
+    res.json({ message: 'File replaced' });
+  } catch (e) {
+    console.error('Replace file error:', e);
+    res.status(500).json({ error: 'Failed to replace file' });
+  }
+});
+
+// Delete a document — blocked if any signature_requests are linked (audit integrity)
+router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [docs] = await pool.query('SELECT * FROM documents WHERE id = ?', [req.params.id]);
+    if (docs.length === 0) return res.status(404).json({ error: 'Document not found' });
+    const doc = docs[0];
+
+    const [[{ n }]] = await pool.query(
+      'SELECT COUNT(*) AS n FROM signature_requests WHERE document_id = ?',
+      [req.params.id]
+    );
+    if (n > 0) {
+      return res.status(409).json({
+        error: `Cannot delete — this document has ${n} signature request(s) linked to it. Cancel or resolve them first.`
+      });
+    }
+
+    if (doc.file_path && fs.existsSync(doc.file_path)) fs.unlinkSync(doc.file_path);
+    await pool.query('DELETE FROM documents WHERE id = ?', [req.params.id]);
+    res.json({ message: 'Document deleted' });
+  } catch (e) {
+    console.error('Delete document error:', e);
+    res.status(500).json({ error: 'Failed to delete document' });
+  }
+});
+
 // Preview a template rendered for a specific worker
 router.get('/:id/preview/:workerId', requireAuth, requireAdmin, async (req, res) => {
   try {
