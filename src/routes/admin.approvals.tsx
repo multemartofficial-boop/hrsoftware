@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Check, X, ArrowLeft, ExternalLink, RefreshCw } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
-import { Card, DataTable, EmptyRow, Person, StatusBadge, Td, Th } from "@/components/hr/bits";
+import { Card, DataTable, EmptyRow, Field, GhostButton, Modal, Person, PrimaryButton, StatusBadge, Td, Th, inputCls } from "@/components/hr/bits";
 import { type Application } from "@/lib/mock-data";
 import { ApplicationDetail } from "@/components/hr/application-detail";
 import { useApi } from "@/lib/api-store";
@@ -51,12 +51,83 @@ function Detail({
   );
 }
 
+function RateConfirmModal({
+  app,
+  onConfirm,
+  onCancel,
+}: {
+  app: Application;
+  onConfirm: (rate: number) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const expected = Number(app.rate) || 0;
+  const [rate, setRate] = useState(expected > 0 ? expected.toFixed(2) : "");
+  const [saving, setSaving] = useState(false);
+  const parsed = Number(rate);
+  const valid = Number.isFinite(parsed) && parsed > 0;
+  const changed = valid && Math.abs(parsed - expected) > 0.004;
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!valid || saving) return;
+    setSaving(true);
+    try {
+      await onConfirm(Math.round(parsed * 100) / 100);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="Confirm hourly rate"
+      description={`Approving ${app.name} (${app.id})`}
+      onClose={onCancel}
+    >
+      <form onSubmit={submit} className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          This applicant expects{" "}
+          <strong className="text-foreground">£{expected.toFixed(2)}/hour</strong>. Do you want to continue with
+          this rate, or set a different rate? The confirmed rate becomes the worker&apos;s hourly rate used for all
+          payroll calculations.
+        </p>
+        <Field
+          label="Hourly rate (£)"
+          hint={changed ? `Changed from applicant's expected £${expected.toFixed(2)}` : "Applicant's expected rate"}
+        >
+          <input
+            type="number"
+            min="0.01"
+            step="0.01"
+            required
+            autoFocus
+            value={rate}
+            onChange={(e) => setRate(e.target.value)}
+            className={inputCls}
+          />
+        </Field>
+        {!valid && rate !== "" && <p className="text-xs text-danger">Enter a rate greater than 0.</p>}
+        <div className="flex justify-end gap-2">
+          <GhostButton type="button" onClick={onCancel} disabled={saving}>
+            Cancel
+          </GhostButton>
+          <PrimaryButton type="submit" disabled={!valid || saving}>
+            <Check className="size-4" /> {saving ? "Approving…" : changed ? "Approve with new rate" : "Approve with this rate"}
+          </PrimaryButton>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 function Approvals() {
   const { applications, rejected, workers, approveApplication, rejectApplication, resendSetupLink, loading, error, loadAllApplications } = useApi();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [flashWorkerId, setFlashWorkerId] = useState<string | null>(null);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const selected = (applications || []).find((a) => a.id === selectedId) ?? null;
+  const confirming = (applications || []).find((a) => a.id === confirmingId) ?? null;
 
   // Separate approved applications into awaiting setup vs completed
   const awaitingSetup = (applications || []).filter(a => a.status === 'approved' && !workers?.some(w => w.id === a.workerId));
@@ -67,13 +138,18 @@ function Approvals() {
     loadAllApplications();
   }, []);
 
-  const approve = async (id: string) => {
-    const result = await approveApplication(id);
+  // Step 1: clicking Approve opens the rate confirmation; nothing is sent yet.
+  const approve = (id: string) => setConfirmingId(id);
+
+  // Step 2: admin confirmed (or edited) the rate — now actually approve.
+  const confirmApprove = async (id: string, rate: number) => {
+    const result = await approveApplication(id, rate);
+    setConfirmingId(null);
     setSelectedId(null);
     await loadAllApplications();
     if (result) {
       setFlashWorkerId(result.workerId);
-      setFlash(`Application approved — Worker Code: ${result.workerId} · Setup link sent to email.`);
+      setFlash(`Application approved — Worker Code: ${result.workerId} · Rate £${Number(result.rate ?? rate).toFixed(2)}/h · Setup link sent to email.`);
     }
   };
 
@@ -110,7 +186,7 @@ function Approvals() {
           <div className="text-red-500 font-medium">Failed to load applications</div>
           <div className="text-sm text-muted-foreground">{error}</div>
           <button
-            onClick={() => loadApplications()}
+            onClick={() => loadAllApplications()}
             className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm"
           >
             Retry
@@ -132,6 +208,13 @@ function Approvals() {
         </Link>
       }
     >
+      {confirming && (
+        <RateConfirmModal
+          app={confirming}
+          onConfirm={(rate) => confirmApprove(confirming.id, rate)}
+          onCancel={() => setConfirmingId(null)}
+        />
+      )}
       <div className="space-y-3">
         {flash && (
           <div className="card-surface flex items-center gap-3 px-5 py-3 text-sm">

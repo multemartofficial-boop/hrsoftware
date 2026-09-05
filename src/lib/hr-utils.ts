@@ -22,10 +22,10 @@ export const addMonths = (iso: string, months: number) => {
   return toISO(d);
 };
 
-export const fmtDate = (iso: string) => {
+export const fmtDate = (iso: string | Date | null | undefined) => {
   if (!iso) return "—";
-  const d = new Date(iso + "T00:00:00");
-  if (Number.isNaN(d.getTime())) return iso;
+  const d = iso instanceof Date ? iso : new Date(iso.includes("T") ? iso : iso + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return String(iso);
   return `${String(d.getDate()).padStart(2, "0")} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
 };
 

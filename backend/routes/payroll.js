@@ -9,7 +9,7 @@ const generatePayrollId = () => {
 };
 
 // Helper: Calculate payroll
-const calculatePayroll = async (workerId, from, to, advance, settings) => {
+const calculatePayroll = async (workerId, from, to, advance, settings, { allowZeroHours = false } = {}) => {
   // Get worker details
   const [workers] = await pool.query('SELECT * FROM workers WHERE id = ?', [workerId]);
   if (workers.length === 0) {
@@ -29,7 +29,7 @@ const calculatePayroll = async (workerId, from, to, advance, settings) => {
   const totalHours = Number(attendance[0].total_hours) || 0;
   
   // Validate: if no attendance records, return early with a clear error
-  if (totalHours === 0) {
+  if (totalHours === 0 && !allowZeroHours) {
     throw new Error('No attendance records found for this worker in the selected date range');
   }
   
@@ -133,7 +133,9 @@ router.post('/preview', requireAuth, requireAdmin, async (req, res) => {
       return res.status(500).json({ error: 'Settings not configured' });
     }
     
-    const preview = await calculatePayroll(workerId, from, to, advance || 0, settings[0]);
+    // Preview uses the exact same calculation as generation, but returns zeros instead of
+    // erroring when there is no attendance so the modal can warn the admin before generating.
+    const preview = await calculatePayroll(workerId, from, to, Number(advance) || 0, settings[0], { allowZeroHours: true });
     res.json(preview);
   } catch (error) {
     console.error('Preview payroll error:', error);

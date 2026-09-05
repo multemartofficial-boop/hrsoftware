@@ -454,9 +454,12 @@ function useApiState() {
     }
   };
 
-  const approveApplication = async (id: string) => {
+  const approveApplication = async (id: string, rate?: number) => {
     try {
-      const response = await apiClient.post<{ id: string; expiry: string; workerId: string; message: string; setupLink: string }>(`/api/applications/${id}/approve`, {});
+      const response = await apiClient.post<{ id: string; expiry: string; workerId: string; rate: number; message: string; setupLink: string }>(
+        `/api/applications/${id}/approve`,
+        rate !== undefined ? { rate } : {}
+      );
       await loadApplications();
       // Don't load workers yet - they're not created until password setup
       return response;

@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Plus, Download, Printer, Check, Trash2, Search } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
@@ -20,8 +20,23 @@ import {
 } from "@/components/hr/bits";
 import { PayrollBarChart, DonutChart, donutColors } from "@/components/hr/charts";
 import { useApi } from "@/lib/api-store";
+import { apiClient } from "@/lib/api-client";
 import { addDays, fmtDate, money, money2, todayISO } from "@/lib/hr-utils";
 import type { Payroll } from "@/lib/mock-data";
+
+type PayrollPreview = {
+  workerId: string;
+  worker: string;
+  rate: number;
+  hours: number;
+  overtime: number;
+  gross: number;
+  tax: number;
+  advance: number;
+  net: number;
+  from: string;
+  to: string;
+};
 
 export const Route = createFileRoute("/admin/payrolls")({
   head: () => ({
@@ -41,6 +56,43 @@ function NewPayrollForm({ onClose }: { onClose: () => void }) {
   const [from, setFrom] = useState(addDays(todayISO(), -30));
   const [to, setTo] = useState(todayISO());
   const [advance, setAdvance] = useState("0");
+  const [preview, setPreview] = useState<PayrollPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  // Live preview: call the backend endpoint that runs the SAME calculatePayroll()
+  // used by "Generate payroll", so the numbers shown here always match the result.
+  useEffect(() => {
+    if (!workerId || !from || !to) {
+      setPreview(null);
+      return;
+    }
+    let cancelled = false;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    const timer = setTimeout(async () => {
+      try {
+        const data = await apiClient.post<PayrollPreview>("/api/payroll/preview", {
+          workerId,
+          from,
+          to,
+          advance: Number(advance) || 0,
+        });
+        if (!cancelled) setPreview(data);
+      } catch (err) {
+        if (!cancelled) {
+          setPreview(null);
+          setPreviewError(err instanceof Error ? err.message : "Failed to load preview");
+        }
+      } finally {
+        if (!cancelled) setPreviewLoading(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [workerId, from, to, advance]);
 
   if (!workers || workers.length === 0) {
     return (
@@ -67,33 +119,6 @@ function NewPayrollForm({ onClose }: { onClose: () => void }) {
       </Modal>
     );
   }
-
-  const preview = useMemo(() => {
-    if (!workerId || !settings) return null;
-    const worker = workers?.find((w) => w.id === workerId);
-    if (!worker) return null;
-
-    const rate = worker.rate;
-    const weeks = Math.max(1, Math.ceil((new Date(to).getTime() - new Date(from).getTime()) / (7 * 24 * 60 * 60 * 1000)));
-    const normalHours = Math.min(40 * weeks, 160); // Simplified calculation
-    const gross = normalHours * rate;
-    const tax = gross * ((settings.taxRate + settings.niRate) / 100);
-    const net = gross - tax - (Number(advance) || 0);
-
-    return {
-      workerId,
-      worker: worker.name,
-      rate,
-      hours: normalHours,
-      overtime: 0,
-      gross,
-      tax,
-      advance: Number(advance) || 0,
-      net,
-      from,
-      to
-    };
-  }, [workerId, from, to, advance, workers, settings]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -140,8 +165,18 @@ function NewPayrollForm({ onClose }: { onClose: () => void }) {
           />
         </Field>
 
+        {previewLoading && !preview && (
+          <div className="sm:col-span-2 rounded-xl bg-secondary/60 p-4 text-sm text-muted-foreground">
+            Calculating preview from attendance…
+          </div>
+        )}
+        {previewError && (
+          <div className="sm:col-span-2 rounded-xl bg-secondary/60 p-4 text-sm text-danger">
+            {previewError}
+          </div>
+        )}
         {preview && settings && (
-          <div className="sm:col-span-2 rounded-xl bg-secondary/60 p-4">
+          <div className={`sm:col-span-2 rounded-xl bg-secondary/60 p-4${previewLoading ? " opacity-60" : ""}`}>
             <p className="mb-2 text-sm font-semibold">Calculation preview</p>
             <dl className="grid gap-y-1 text-sm sm:grid-cols-2">
               {[

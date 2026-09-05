@@ -282,6 +282,21 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
       ? JSON.parse(application.details || '{}')
       : (application.details || {});
 
+    if (application.status !== 'pending') {
+      await connection.rollback();
+      return res.status(400).json({ error: `Application is already ${application.status}` });
+    }
+
+    // Admin-confirmed hourly rate (defaults to the applicant's expected rate).
+    // This is what the worker row will be created with at password setup.
+    const confirmedRate = req.body.rate !== undefined && req.body.rate !== null && req.body.rate !== ''
+      ? Number(req.body.rate)
+      : Number(application.rate);
+    if (!Number.isFinite(confirmedRate) || confirmedRate <= 0) {
+      await connection.rollback();
+      return res.status(400).json({ error: 'A valid hourly rate greater than 0 is required' });
+    }
+
     // Generate worker code
     const year = new Date().getFullYear();
     const [workers] = await pool.query(
@@ -325,9 +340,10 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
           worker_id = ?, 
           worker_joined = ?, 
           worker_expiry = ?,
-          approval_token = ? 
+          approval_token = ?,
+          rate = ?
       WHERE id = ?`,
-      [workerId, joined, expiry, setupToken, req.params.id]
+      [workerId, joined, expiry, setupToken, confirmedRate, req.params.id]
     );
 
     // Send email with setup link
@@ -336,6 +352,7 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
       <h2>Welcome to WorkHR!</h2>
       <p>Your application has been approved and your worker account has been created.</p>
       <p><strong>Worker Code:</strong> ${workerId}</p>
+      <p><strong>Hourly Rate:</strong> £${confirmedRate.toFixed(2)}</p>
       <p><strong>Join Date:</strong> ${joined.toISOString().split('T')[0]}</p>
       <p><strong>Expiry Date:</strong> ${expiry.toISOString().split('T')[0]}</p>
       <p>To set your password and complete your account setup, click the link below:</p>
@@ -359,6 +376,7 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
       id: workerId,
       expiry: expiry.toISOString().split('T')[0],
       workerId,
+      rate: confirmedRate,
       message: 'Application approved successfully. Setup link sent to worker email.',
       setupLink: setupLink // Include for testing
     });
