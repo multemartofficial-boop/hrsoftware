@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Check } from "lucide-react";
+import { Check, Plus, Trash2 } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, inputCls } from "@/components/hr/bits";
 import { useApi } from "@/lib/api-store";
-import type { Settings as SettingsType } from "@/lib/mock-data";
+import { apiClient } from "@/lib/api-client";
+import { fmtDate, money } from "@/lib/hr-utils";
+import type { Settings as SettingsType, BankHoliday } from "@/lib/mock-data";
 
 export const Route = createFileRoute("/admin/settings")({
   head: () => ({
@@ -69,6 +71,10 @@ function SettingsPage() {
   const { settings, updateSettings, loading } = useApi();
   const [draft, setDraft] = useState<SettingsType | null>(null);
   const [saved, setSaved] = useState(false);
+  const [holidays, setHolidays] = useState<BankHoliday[]>([]);
+  const [newHolidayDate, setNewHolidayDate] = useState("");
+  const [newHolidayName, setNewHolidayName] = useState("");
+  const [holidayError, setHolidayError] = useState<string | null>(null);
 
   useEffect(() => {
     if (settings) {
@@ -76,9 +82,42 @@ function SettingsPage() {
     }
   }, [settings]);
 
+  useEffect(() => {
+    apiClient
+      .get<BankHoliday[]>("/api/settings/bank-holidays")
+      .then(setHolidays)
+      .catch(() => setHolidayError("Could not load bank holidays"));
+  }, []);
+
+  const addHoliday = async () => {
+    if (!newHolidayDate) return;
+    setHolidayError(null);
+    try {
+      const list = await apiClient.post<BankHoliday[]>("/api/settings/bank-holidays", {
+        date: newHolidayDate,
+        name: newHolidayName || "Bank Holiday",
+      });
+      setHolidays(list);
+      setNewHolidayDate("");
+      setNewHolidayName("");
+    } catch (err) {
+      setHolidayError(err instanceof Error ? err.message : "Failed to add bank holiday");
+    }
+  };
+
+  const removeHoliday = async (id: number) => {
+    setHolidayError(null);
+    try {
+      await apiClient.delete(`/api/settings/bank-holidays/${id}`);
+      setHolidays((h) => h.filter((x) => x.id !== id));
+    } catch (err) {
+      setHolidayError(err instanceof Error ? err.message : "Failed to remove bank holiday");
+    }
+  };
+
   const set = <K extends keyof SettingsType>(key: K, value: SettingsType[K]) => {
     if (draft) {
-      setDraft((d) => ({ ...d, [key]: value }));
+      setDraft({ ...draft, [key]: value });
     }
     setSaved(false);
   };
@@ -135,6 +174,63 @@ function SettingsPage() {
             onChange={(n) => set("billingMultiplier", n)}
             hint="Used in Reports to model client billing"
           />
+        </Section>
+
+        <Section title="Bank Holiday Pay" desc="Extra pay for hours worked on UK bank holidays. Applied to payroll and summary views.">
+          <NumField
+            label="Holiday pay multiplier"
+            value={draft.holidayPayMultiplier}
+            onChange={(n) => set("holidayPayMultiplier", n)}
+            hint={`e.g. 2.0 = double time (${money(draft.hourlyRate * draft.holidayPayMultiplier)}/h at default rate)`}
+          />
+          <div className="sm:col-span-2">
+            <span className="text-sm font-medium">UK bank holiday dates</span>
+            <p className="mt-0.5 mb-2 text-xs text-muted-foreground">
+              Attendance on these dates is paid at the holiday multiplier. Update annually.
+            </p>
+            <div className="space-y-1.5">
+              {holidays.map((h) => (
+                <div key={h.id} className="flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm">
+                  <span className="font-medium">{fmtDate(h.date)}</span>
+                  <span className="flex-1 text-muted-foreground">{h.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeHoliday(h.id)}
+                    className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-danger"
+                    title="Remove"
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
+              ))}
+              {holidays.length === 0 && (
+                <p className="text-xs text-muted-foreground">No bank holidays configured.</p>
+              )}
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <input
+                type="date"
+                value={newHolidayDate}
+                onChange={(e) => setNewHolidayDate(e.target.value)}
+                className={`${inputCls} w-40`}
+              />
+              <input
+                type="text"
+                value={newHolidayName}
+                onChange={(e) => setNewHolidayName(e.target.value)}
+                placeholder="Name (optional)"
+                className={`${inputCls} flex-1 min-w-32`}
+              />
+              <button
+                type="button"
+                onClick={addHoliday}
+                className="flex h-9 items-center gap-1 rounded-lg border border-border px-3 text-sm hover:bg-secondary"
+              >
+                <Plus className="size-4" /> Add
+              </button>
+            </div>
+            {holidayError && <p className="mt-1 text-xs text-danger">{holidayError}</p>}
+          </div>
         </Section>
 
         <Section title="Tax & Deductions" desc="Applied when calculating net pay on payroll runs.">

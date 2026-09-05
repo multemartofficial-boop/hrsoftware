@@ -486,8 +486,16 @@ export type Payroll = {
   advance: number;
   tax: number;
   net: number;
+  holidayHours?: number;
+  holidayPay?: number;
   status: "Completed" | "Pending";
   created: string; // ISO
+};
+
+export type BankHoliday = {
+  id: number;
+  date: string; // ISO
+  name: string;
 };
 
 const mkSeed = (
@@ -566,6 +574,7 @@ export type Settings = {
   companyName: string;
   payrollEmail: string;
   billingMultiplier: number;
+  holidayPayMultiplier: number;
 };
 
 export const seedSettings: Settings = {
@@ -582,6 +591,7 @@ export const seedSettings: Settings = {
   companyName: "WorkHR Staffing Ltd",
   payrollEmail: "payroll@workhr.co.uk",
   billingMultiplier: 1.45,
+  holidayPayMultiplier: 2.0,
 };
 
 export const seedToday = toISO(new Date());

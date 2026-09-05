@@ -29,7 +29,11 @@ type PayrollPreview = {
   worker: string;
   rate: number;
   hours: number;
+  regularHours: number;
   overtime: number;
+  holidayHours: number;
+  holidayPay: number;
+  holidayMultiplier: number;
   gross: number;
   tax: number;
   advance: number;
@@ -44,6 +48,8 @@ type SummaryWorker = {
   rate: number;
   hours: number;
   overtime: number;
+  holidayHours: number;
+  holidayPay: number;
   gross: number;
   tax: number;
   net: number;
@@ -53,6 +59,8 @@ type SummaryPeriod = {
   period: string;
   label: string;
   hours: number;
+  holidayHours: number;
+  holidayPay: number;
   gross: number;
   tax: number;
   net: number;
@@ -202,14 +210,17 @@ function NewPayrollForm({ onClose }: { onClose: () => void }) {
           <div className={`sm:col-span-2 rounded-xl bg-secondary/60 p-4${previewLoading ? " opacity-60" : ""}`}>
             <p className="mb-2 text-sm font-semibold">Calculation preview</p>
             <dl className="grid gap-y-1 text-sm sm:grid-cols-2">
-              {[
-                ["Hours in period", `${preview.hours.toFixed(2)} h`],
-                ["Overtime hours", `${preview.overtime.toFixed(2)} h × ${settings.overtimeMultiplier}`],
+              {([
+                ["Regular hours", `${(preview.regularHours ?? preview.hours).toFixed(2)} h`],
+                preview.overtime > 0 ? ["Overtime hours", `${preview.overtime.toFixed(2)} h × ${settings.overtimeMultiplier}`] : null,
+                preview.holidayHours > 0
+                  ? ["Holiday hours", `${preview.holidayHours.toFixed(2)} h × ${preview.holidayMultiplier ?? settings.holidayPayMultiplier} = ${money2(preview.holidayPay)}`]
+                  : null,
                 ["Hourly rate", money2(preview.rate)],
                 ["Gross pay", money2(preview.gross)],
                 [`Tax + NI (${settings.taxRate + settings.niRate}%)`, `-${money2(preview.tax)}`],
                 ["Advance", `-${money2(preview.advance)}`],
-              ].map(([k, v]) => (
+              ].filter(Boolean) as [string, string][]).map(([k, v]) => (
                 <div key={k} className="flex justify-between gap-4 pr-4">
                   <dt className="text-muted-foreground">{k}</dt>
                   <dd>{v}</dd>
@@ -281,13 +292,16 @@ function Payslip({ p, onClose }: { p: Payroll; onClose: () => void }) {
         </div>
 
         <dl className="mt-5 space-y-2 text-sm">
-          {[
+          {([
             ["Hours worked", `${p.hours.toFixed(2)} h`],
+            (p.holidayHours ?? 0) > 0
+              ? [`Holiday hours @ ×${settings.holidayPayMultiplier}`, `${(p.holidayHours ?? 0).toFixed(2)} h = ${money2(p.holidayPay ?? 0)}`]
+              : null,
             ["Hourly rate", money2(p.rate)],
             ["Gross pay", money2(p.gross)],
             ["Tax & NI", `-${money2(p.tax)}`],
             ["Advance deducted", `-${money2(p.advance)}`],
-          ].map(([k, v]) => (
+          ].filter(Boolean) as [string, string][]).map(([k, v]) => (
             <div key={k} className="flex justify-between border-b border-border pb-2">
               <dt className="text-muted-foreground">{k}</dt>
               <dd>{v}</dd>
@@ -377,7 +391,7 @@ function PayrollSummary({ period }: { period: "weekly" | "monthly" | "yearly" })
                 {p.label}
               </span>
             </Td>
-            <Td>{p.hours.toFixed(2)} h</Td>
+            <Td>{p.hours.toFixed(2)} h{p.holidayHours > 0 ? ` (${p.holidayHours.toFixed(2)}h holiday)` : ""}</Td>
             <Td>{money2(p.gross)}</Td>
             <Td className="text-muted-foreground">-{money2(p.tax)}</Td>
             <Td className="font-semibold">{money2(p.net)}</Td>
@@ -387,7 +401,11 @@ function PayrollSummary({ period }: { period: "weekly" | "monthly" | "yearly" })
               <Td className="pl-8 text-sm text-muted-foreground">
                 <Person name={w.worker} sub={w.workerId} />
               </Td>
-              <Td className="text-sm">{w.hours.toFixed(2)} h{w.overtime > 0 ? ` (+${w.overtime.toFixed(2)} OT)` : ""}</Td>
+              <Td className="text-sm">
+                {w.hours.toFixed(2)} h
+                {w.overtime > 0 ? ` (+${w.overtime.toFixed(2)} OT)` : ""}
+                {w.holidayHours > 0 ? ` (${w.holidayHours.toFixed(2)}h holiday)` : ""}
+              </Td>
               <Td className="text-sm">{money2(w.gross)}</Td>
               <Td className="text-sm text-muted-foreground">-{money2(w.tax)}</Td>
               <Td className="text-sm font-medium">{money2(w.net)}</Td>

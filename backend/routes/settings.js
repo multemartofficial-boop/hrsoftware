@@ -32,7 +32,8 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
         finalReminderDays: newSettings[0].final_reminder_days,
         companyName: newSettings[0].company_name,
         payrollEmail: newSettings[0].payroll_email,
-        billingMultiplier: newSettings[0].billing_multiplier
+        billingMultiplier: newSettings[0].billing_multiplier,
+        holidayPayMultiplier: newSettings[0].holiday_pay_multiplier
       };
 
       return res.json(transformed);
@@ -52,7 +53,8 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
       finalReminderDays: settings[0].final_reminder_days,
       companyName: settings[0].company_name,
       payrollEmail: settings[0].payroll_email,
-      billingMultiplier: settings[0].billing_multiplier
+      billingMultiplier: settings[0].billing_multiplier,
+      holidayPayMultiplier: settings[0].holiday_pay_multiplier
     };
 
     res.json(transformed);
@@ -78,21 +80,22 @@ router.put('/', requireAuth, requireAdmin, async (req, res) => {
       finalReminderDays,
       companyName,
       payrollEmail,
-      billingMultiplier
+      billingMultiplier,
+      holidayPayMultiplier
     } = req.body;
 
     await pool.query(
-      `UPDATE settings 
+      `UPDATE settings
       SET hourly_rate = ?, overtime_multiplier = ?, overtime_threshold = ?, contract_months = ?,
           tax_rate = ?, ni_rate = ?, pension_rate = ?, max_advance = ?,
           first_reminder_days = ?, final_reminder_days = ?, company_name = ?,
-          payroll_email = ?, billing_multiplier = ?
+          payroll_email = ?, billing_multiplier = ?, holiday_pay_multiplier = ?
       WHERE id = 1`,
       [
         hourlyRate, overtimeMultiplier, overtimeThreshold, contractMonths,
         taxRate, niRate, pensionRate, maxAdvance,
         firstReminderDays, finalReminderDays, companyName,
-        payrollEmail, billingMultiplier
+        payrollEmail, billingMultiplier, holidayPayMultiplier
       ]
     );
 
@@ -100,6 +103,83 @@ router.put('/', requireAuth, requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Update settings error:', error);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/* ---------------- UK bank holidays (Phase C) ---------------- */
+
+// Admin: List bank holidays
+router.get('/bank-holidays', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT id, holiday_date, name FROM bank_holidays ORDER BY holiday_date'
+    );
+    const fmtD = (v) => v instanceof Date
+      ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`
+      : String(v).slice(0, 10);
+    res.json(rows.map(r => ({ id: r.id, date: fmtD(r.holiday_date), name: r.name })));
+  } catch (error) {
+    console.error('Get bank holidays error:', error);
+    res.status(500).json({ error: 'Failed to load bank holidays' });
+  }
+});
+
+// Admin: Add a bank holiday
+router.post('/bank-holidays', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { date, name } = req.body;
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
+      return res.status(400).json({ error: 'A valid date (YYYY-MM-DD) is required' });
+    }
+    await pool.query(
+      'INSERT INTO bank_holidays (holiday_date, name) VALUES (?, ?)',
+      [date, (name && String(name).trim()) || 'Bank Holiday']
+    );
+    const [rows] = await pool.query(
+      'SELECT id, holiday_date, name FROM bank_holidays ORDER BY holiday_date'
+    );
+    const fmtD = (v) => v instanceof Date
+      ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`
+      : String(v).slice(0, 10);
+    res.status(201).json(rows.map(r => ({ id: r.id, date: fmtD(r.holiday_date), name: r.name })));
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ error: 'That date is already a bank holiday' });
+    }
+    console.error('Add bank holiday error:', error);
+    res.status(500).json({ error: 'Failed to add bank holiday' });
+  }
+});
+
+// Admin: Update a bank holiday (rename or move the date)
+router.put('/bank-holidays/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { date, name } = req.body;
+    if (date && !/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
+      return res.status(400).json({ error: 'A valid date (YYYY-MM-DD) is required' });
+    }
+    await pool.query(
+      'UPDATE bank_holidays SET holiday_date = COALESCE(?, holiday_date), name = COALESCE(?, name) WHERE id = ?',
+      [date || null, name ? String(name).trim() : null, req.params.id]
+    );
+    res.json({ message: 'Bank holiday updated' });
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({ error: 'That date is already a bank holiday' });
+    }
+    console.error('Update bank holiday error:', error);
+    res.status(500).json({ error: 'Failed to update bank holiday' });
+  }
+});
+
+// Admin: Delete a bank holiday
+router.delete('/bank-holidays/:id', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM bank_holidays WHERE id = ?', [req.params.id]);
+    res.json({ message: 'Bank holiday removed' });
+  } catch (error) {
+    console.error('Delete bank holiday error:', error);
+    res.status(500).json({ error: 'Failed to remove bank holiday' });
   }
 });
 

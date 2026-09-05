@@ -261,6 +261,8 @@ function useApiState() {
         to: p.periodEnd,
         hours: Number(p.hours),
         overtime: Number(p.overtime),
+        holidayHours: Number(p.holidayHours ?? 0),
+        holidayPay: Number(p.holidayPay ?? 0),
         rate: Number(p.rate),
         gross: Number(p.gross),
         advance: Number(p.advanceDeduction),
@@ -309,7 +311,8 @@ function useApiState() {
         niRate: Number(data.niRate),
         pensionRate: Number(data.pensionRate),
         maxAdvance: Number(data.maxAdvance),
-        billingMultiplier: Number(data.billingMultiplier)
+        billingMultiplier: Number(data.billingMultiplier),
+        holidayPayMultiplier: Number(data.holidayPayMultiplier ?? 2)
       };
       setSettings(normalizedData);
     } catch (err) {
@@ -716,7 +719,8 @@ function useApiState() {
         niRate: patch.niRate !== undefined ? Number(patch.niRate) : undefined,
         pensionRate: patch.pensionRate !== undefined ? Number(patch.pensionRate) : undefined,
         maxAdvance: patch.maxAdvance !== undefined ? Number(patch.maxAdvance) : undefined,
-        billingMultiplier: patch.billingMultiplier !== undefined ? Number(patch.billingMultiplier) : undefined
+        billingMultiplier: patch.billingMultiplier !== undefined ? Number(patch.billingMultiplier) : undefined,
+        holidayPayMultiplier: patch.holidayPayMultiplier !== undefined ? Number(patch.holidayPayMultiplier) : undefined
       };
       await apiClient.put('/api/settings', normalizedPatch);
       await loadSettings();

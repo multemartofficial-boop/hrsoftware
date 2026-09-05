@@ -8,59 +8,101 @@ const generatePayrollId = () => {
   return `PYRL-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 };
 
+// Helper: format a MySQL DATE/Date value as 'YYYY-MM-DD' using LOCAL date parts
+// (toISOString() would shift the day when the server timezone is ahead of UTC)
+const toLocalDateStr = (v) => {
+  if (v instanceof Date) {
+    return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+  }
+  return String(v).slice(0, 10);
+};
+
+// Helper: fetch configured UK bank holiday dates as a Set of 'YYYY-MM-DD' strings
+const getBankHolidaySet = async () => {
+  const [rows] = await pool.query('SELECT holiday_date FROM bank_holidays');
+  const set = new Set();
+  for (const r of rows) {
+    set.add(toLocalDateStr(r.holiday_date));
+  }
+  return set;
+};
+
 // Helper: Calculate payroll
+// Phase C: hours worked on configured bank holidays are paid at
+// rate * holiday_pay_multiplier. Holiday hours still count toward the
+// overtime threshold, but are always paid at the holiday rate rather
+// than the overtime rate (overtime is drawn from non-holiday hours).
 const calculatePayroll = async (workerId, from, to, advance, settings, { allowZeroHours = false } = {}) => {
   // Get worker details
   const [workers] = await pool.query('SELECT * FROM workers WHERE id = ?', [workerId]);
   if (workers.length === 0) {
     throw new Error('Worker not found');
   }
-  
+
   const worker = workers[0];
   // Convert rate from string to number
   const rate = Number(worker.rate) || 0;
-  
-  // Get total hours in period
+
+  const holidays = await getBankHolidaySet();
+
+  // Get per-day hours so holiday dates can be separated from regular hours
   const [attendance] = await pool.query(
-    'SELECT SUM(hours_worked) as total_hours FROM attendance WHERE worker_id = ? AND date >= ? AND date <= ?',
+    'SELECT date, SUM(hours_worked) as day_hours FROM attendance WHERE worker_id = ? AND date >= ? AND date <= ? GROUP BY date',
     [workerId, from, to]
   );
-  
-  const totalHours = Number(attendance[0].total_hours) || 0;
-  
+
+  let totalHours = 0;
+  let holidayHours = 0;
+  for (const row of attendance) {
+    const dateStr = toLocalDateStr(row.date);
+    const h = Number(row.day_hours) || 0;
+    totalHours += h;
+    if (holidays.has(dateStr)) holidayHours += h;
+  }
+  const regularHours = totalHours - holidayHours;
+
   // Validate: if no attendance records, return early with a clear error
   if (totalHours === 0 && !allowZeroHours) {
     throw new Error('No attendance records found for this worker in the selected date range');
   }
-  
+
   // Convert settings from strings to numbers
   const overtimeThreshold = Number(settings.overtime_threshold) || 40;
   const overtimeMultiplier = Number(settings.overtime_multiplier) || 1.5;
+  const holidayMultiplier = Number(settings.holiday_pay_multiplier) || 2;
   const taxRateValue = Number(settings.tax_rate) || 0;
   const niRateValue = Number(settings.ni_rate) || 0;
-  
-  // Calculate overtime
+
+  // Overtime: total hours count toward the threshold, but the excess is
+  // drawn from non-holiday hours first — holiday hours are always paid
+  // at the holiday rate instead of the overtime rate.
   const weeks = Math.max(1, Math.ceil((new Date(to) - new Date(from)) / (7 * 24 * 60 * 60 * 1000)));
-  const normalHours = Math.min(totalHours, overtimeThreshold * weeks);
-  const overtimeHours = Math.max(0, totalHours - normalHours);
-  
+  const overtimeHours = Math.min(regularHours, Math.max(0, totalHours - overtimeThreshold * weeks));
+  const normalHours = regularHours - overtimeHours;
+
   // Calculate amounts
-  const gross = (normalHours * rate) + (overtimeHours * rate * overtimeMultiplier);
+  const regularGross = (normalHours * rate) + (overtimeHours * rate * overtimeMultiplier);
+  const holidayPay = holidayHours * rate * holidayMultiplier;
+  const gross = regularGross + holidayPay;
   const taxRatePercent = (taxRateValue + niRateValue) / 100;
   const tax = gross * taxRatePercent;
   const net = gross - tax - advance;
-  
+
   // Validate all values are finite numbers
   if (!Number.isFinite(gross) || !Number.isFinite(tax) || !Number.isFinite(net)) {
     throw new Error('Invalid calculation results: gross, tax, or net pay is not a valid number');
   }
-  
+
   return {
     workerId,
     worker: worker.name,
     rate,
     hours: totalHours,
-    overtime: overtimeHours,
+    regularHours: Math.round(normalHours * 100) / 100,
+    overtime: Math.round(overtimeHours * 100) / 100,
+    holidayHours: Math.round(holidayHours * 100) / 100,
+    holidayPay: Math.round(holidayPay * 100) / 100,
+    holidayMultiplier,
     gross: Math.round(gross * 100) / 100,
     tax: Math.round(tax * 100) / 100,
     advance: Math.round(advance * 100) / 100,
@@ -106,6 +148,8 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
       periodEnd: p.period_end,
       hours: Number(p.hours),
       overtime: Number(p.overtime),
+      holidayHours: Number(p.holiday_hours || 0),
+      holidayPay: Number(p.holiday_pay || 0),
       rate: Number(p.rate),
       gross: Number(p.gross),
       advanceDeduction: Number(p.advance_deduction),
@@ -176,11 +220,12 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
     }
     
     await pool.query(
-      `INSERT INTO payroll 
-      (id, worker_id, worker, period_start, period_end, hours, overtime, rate, gross, advance_deduction, tax_ni, net_pay, status, generated_at) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', NOW())`,
+      `INSERT INTO payroll
+      (id, worker_id, worker, period_start, period_end, hours, overtime, holiday_hours, holiday_pay, rate, gross, advance_deduction, tax_ni, net_pay, status, generated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', NOW())`,
       [payrollId, calculation.workerId, calculation.worker, calculation.from, calculation.to,
-       calculation.hours, calculation.overtime, calculation.rate, calculation.gross,
+       calculation.hours, calculation.overtime, calculation.holidayHours, calculation.holidayPay,
+       calculation.rate, calculation.gross,
        calculation.advance, calculation.tax, calculation.net]
     );
 
@@ -246,9 +291,11 @@ router.get('/summary', requireAuth, requireAdmin, async (req, res) => {
     const s = settings[0];
     const overtimeThreshold = Number(s.overtime_threshold) || 40;
     const overtimeMultiplier = Number(s.overtime_multiplier) || 1.5;
+    const holidayMultiplier = Number(s.holiday_pay_multiplier) || 2;
     const taxRateValue = Number(s.tax_rate) || 0;
     const niRateValue = Number(s.ni_rate) || 0;
     const taxRatePercent = (taxRateValue + niRateValue) / 100;
+    const holidaySet = await getBankHolidaySet();
 
     // Fetch all attendance joined with worker rates
     const [rows] = await pool.query(
@@ -294,7 +341,7 @@ router.get('/summary', requireAuth, requireAdmin, async (req, res) => {
     // Group attendance by period, then by worker
     const groups = {};
     for (const row of rows) {
-      const dateStr = row.date instanceof Date ? row.date.toISOString().slice(0, 10) : String(row.date);
+      const dateStr = toLocalDateStr(row.date);
       const pk = periodKey(dateStr);
       if (!groups[pk]) groups[pk] = { label: periodLabel(pk), workers: {} };
       if (!groups[pk].workers[row.worker_id]) {
@@ -303,35 +350,56 @@ router.get('/summary', requireAuth, requireAdmin, async (req, res) => {
           worker: row.worker_name,
           rate: Number(row.rate) || 0,
           hours: 0,
+          holidayHours: 0,
         };
       }
-      groups[pk].workers[row.worker_id].hours += Number(row.hours_worked) || 0;
+      const h = Number(row.hours_worked) || 0;
+      groups[pk].workers[row.worker_id].hours += h;
+      if (holidaySet.has(dateStr)) {
+        groups[pk].workers[row.worker_id].holidayHours += h;
+      }
     }
 
     // Calculate payroll figures per worker per period, then aggregate
     const result = Object.entries(groups).map(([key, group]) => {
-      // Weeks used for overtime threshold calculation (same formula as calculatePayroll)
-      const weeks = period === 'weekly' ? 1
-        : period === 'monthly' ? Math.max(1, Math.ceil(30 / 7))
-        : 52;
+      // Weeks used for overtime threshold calculation (same formula as calculatePayroll:
+      // ceil(days_in_period / 7))
+      let weeks;
+      if (period === 'weekly') {
+        weeks = 1;
+      } else if (period === 'monthly') {
+        const [y, m] = key.split('-').map(Number);
+        const daysInMonth = new Date(y, m, 0).getDate();
+        weeks = Math.max(1, Math.ceil((daysInMonth - 1) / 7));
+      } else {
+        weeks = Math.max(1, Math.ceil(365 / 7));
+      }
 
-      let totalHours = 0, totalGross = 0, totalTax = 0, totalNet = 0;
+      let totalHours = 0, totalGross = 0, totalTax = 0, totalNet = 0, totalHolidayHours = 0, totalHolidayPay = 0;
       const workerBreakdown = Object.values(group.workers).map((w) => {
-        const normalHours = Math.min(w.hours, overtimeThreshold * weeks);
-        const overtimeHours = Math.max(0, w.hours - normalHours);
-        const gross = (normalHours * w.rate) + (overtimeHours * w.rate * overtimeMultiplier);
+        // Same holiday/overtime rule as calculatePayroll: holiday hours count
+        // toward the threshold but are paid at the holiday rate.
+        const regularHours = w.hours - w.holidayHours;
+        const overtimeHours = Math.min(regularHours, Math.max(0, w.hours - overtimeThreshold * weeks));
+        const normalHours = regularHours - overtimeHours;
+        const holidayPay = w.holidayHours * w.rate * holidayMultiplier;
+        const gross = (normalHours * w.rate) + (overtimeHours * w.rate * overtimeMultiplier) + holidayPay;
         const tax = gross * taxRatePercent;
         const net = gross - tax;
         totalHours += w.hours;
         totalGross += gross;
         totalTax += tax;
         totalNet += net;
+        totalHolidayHours += w.holidayHours;
+        totalHolidayPay += holidayPay;
         return {
           workerId: w.workerId,
           worker: w.worker,
           rate: w.rate,
           hours: Math.round(w.hours * 100) / 100,
           overtime: Math.round(overtimeHours * 100) / 100,
+          holidayHours: Math.round(w.holidayHours * 100) / 100,
+          holidayPay: Math.round(holidayPay * 100) / 100,
           gross: Math.round(gross * 100) / 100,
           tax: Math.round(tax * 100) / 100,
           net: Math.round(net * 100) / 100,
@@ -342,6 +410,8 @@ router.get('/summary', requireAuth, requireAdmin, async (req, res) => {
         period: key,
         label: group.label,
         hours: Math.round(totalHours * 100) / 100,
+        holidayHours: Math.round(totalHolidayHours * 100) / 100,
+        holidayPay: Math.round(totalHolidayPay * 100) / 100,
         gross: Math.round(totalGross * 100) / 100,
         tax: Math.round(totalTax * 100) / 100,
         net: Math.round(totalNet * 100) / 100,
