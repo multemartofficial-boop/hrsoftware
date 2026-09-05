@@ -40,12 +40,14 @@ export const daysUntil = (iso: string | Date) => {
 export const nowTime = () =>
   new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
 
-export const toMinutes = (t: string) => {
+export const toMinutes = (t: string | null | undefined) => {
+  if (!t) return 0;
   const [h, m] = t.split(":").map(Number);
   return (h || 0) * 60 + (m || 0);
 };
 
-export const hoursBetween = (tin: string, tout: string) => {
+export const hoursBetween = (tin: string | null | undefined, tout: string | null | undefined) => {
+  if (!tin || !tout) return 0;
   let diff = toMinutes(tout) - toMinutes(tin);
   if (diff < 0) diff += 24 * 60;
   return Math.round((diff / 60) * 100) / 100;

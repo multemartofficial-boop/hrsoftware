@@ -187,7 +187,18 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
     query += ' ORDER BY submitted DESC';
 
     const [applications] = await pool.query(query, params);
-    res.json(applications);
+
+    // Transform snake_case to camelCase to match frontend types
+    const transformed = applications.map(app => ({
+      ...app,
+      workerId: app.worker_id,
+      worker_joined: app.worker_joined,
+      worker_expiry: app.worker_expiry,
+      rejectedOn: app.rejected_on,
+      appliedFor: app.applied_for
+    }));
+
+    res.json(transformed);
   } catch (error) {
     console.error('Get applications error:', error);
     res.status(500).json({ error: true, message: 'Failed to load applications' });
@@ -200,7 +211,18 @@ router.get('/rejected', requireAuth, requireAdmin, async (req, res) => {
     const [applications] = await pool.query(
       'SELECT * FROM registration_applications WHERE status = "rejected" ORDER BY rejected_on DESC'
     );
-    res.json(applications);
+
+    // Transform snake_case to camelCase to match frontend types
+    const transformed = applications.map(app => ({
+      ...app,
+      workerId: app.worker_id,
+      worker_joined: app.worker_joined,
+      worker_expiry: app.worker_expiry,
+      rejectedOn: app.rejected_on,
+      appliedFor: app.applied_for
+    }));
+
+    res.json(transformed);
   } catch (error) {
     console.error('Get rejected applications error:', error);
     res.status(500).json({ error: true, message: 'Failed to load rejected applications' });
@@ -219,7 +241,19 @@ router.get('/:id', requireAuth, requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Application not found' });
     }
 
-    res.json(applications[0]);
+    const app = applications[0];
+
+    // Transform snake_case to camelCase to match frontend types
+    const transformed = {
+      ...app,
+      workerId: app.worker_id,
+      worker_joined: app.worker_joined,
+      worker_expiry: app.worker_expiry,
+      rejectedOn: app.rejected_on,
+      appliedFor: app.applied_for
+    };
+
+    res.json(transformed);
   } catch (error) {
     console.error('Get application error:', error);
     res.status(500).json({ error: 'Server error' });

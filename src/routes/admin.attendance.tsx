@@ -107,10 +107,13 @@ function EntryForm({
           <input required type="time" value={form.in} onChange={set("in")} className={inputCls} />
         </Field>
         <Field label="Time out">
-          <input required type="time" value={form.out} onChange={set("out")} className={inputCls} />
+          <input type="time" value={form.out} onChange={set("out")} className={inputCls} placeholder="Still checked in" />
         </Field>
         <p className="sm:col-span-2 rounded-lg bg-secondary/60 px-3 py-2 text-sm text-muted-foreground">
-          Total hours: <strong className="text-foreground">{hoursBetween(form.in, form.out).toFixed(2)} h</strong>
+          Total hours:{" "}
+          <strong className="text-foreground">
+            {form.out ? `${hoursBetween(form.in, form.out).toFixed(2)} h` : "— (still active)"}
+          </strong>
         </p>
         <div className="sm:col-span-2 flex justify-end gap-2">
           <GhostButton type="button" onClick={onClose}>
@@ -306,8 +309,8 @@ function AttendancePage() {
               ? {
                   workerId: editing.workerId,
                   date: editing.date,
-                  in: editing.check_in_time,
-                  out: editing.check_out_time,
+                  in: editing.in,
+                  out: editing.out || "",
                   location: editing.location,
                 }
               : blank

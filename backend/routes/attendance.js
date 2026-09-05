@@ -91,14 +91,15 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Worker not found' });
     }
     
-    const hours = calculateHours(timeIn, timeOut);
+    const finalTimeOut = timeOut || null;
+    const hours = calculateHours(timeIn, finalTimeOut);
     const attendanceId = generateAttendanceId();
     
     await pool.query(
       `INSERT INTO attendance 
       (id, worker_id, worker, date, check_in_time, check_out_time, location, hours_worked, source) 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Admin')`,
-      [attendanceId, workerId, workers[0].name, date, timeIn, timeOut, location, hours]
+      [attendanceId, workerId, workers[0].name, date, timeIn, finalTimeOut, location, hours]
     );
 
     res.status(201).json({ id: attendanceId, hours, message: 'Attendance added successfully' });
@@ -194,14 +195,15 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Worker not found' });
     }
     
-    const hours = calculateHours(timeIn, timeOut);
+    const finalTimeOut = timeOut || null;
+    const hours = calculateHours(timeIn, finalTimeOut);
     
     await pool.query(
       `UPDATE attendance 
       SET worker_id = ?, worker = ?, date = ?, check_in_time = ?, check_out_time = ?, 
           location = ?, hours_worked = ? 
       WHERE id = ?`,
-      [workerId, workers[0].name, date, timeIn, timeOut, location, hours, req.params.id]
+      [workerId, workers[0].name, date, timeIn, finalTimeOut, location, hours, req.params.id]
     );
 
     res.json({ hours, message: 'Attendance updated successfully' });
