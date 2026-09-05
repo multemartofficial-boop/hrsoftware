@@ -237,7 +237,8 @@ function useApiState() {
         source: a.source,
         checkInLat: a.check_in_lat != null ? Number(a.check_in_lat) : null,
         checkInLng: a.check_in_lng != null ? Number(a.check_in_lng) : null,
-        locationMismatch: a.location_mismatch === 1 || a.location_mismatch === true
+        locationMismatch: a.location_mismatch === 1 || a.location_mismatch === true,
+        assignmentStatus: a.assignment_status || 'none'
       }));
       setAttendance(normalizedData);
     } catch (err) {
@@ -410,7 +411,8 @@ function useApiState() {
         source: a.source,
         checkInLat: a.check_in_lat != null ? Number(a.check_in_lat) : null,
         checkInLng: a.check_in_lng != null ? Number(a.check_in_lng) : null,
-        locationMismatch: a.location_mismatch === 1 || a.location_mismatch === true
+        locationMismatch: a.location_mismatch === 1 || a.location_mismatch === true,
+        assignmentStatus: a.assignment_status || 'none'
       }));
       setAttendance(normalizedData);
     } catch (err) {

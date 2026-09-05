@@ -43,6 +43,7 @@ const teamMenu = [
   { to: "/admin/approvals", label: "Registration Approvals", icon: UserCheck },
   { to: "/admin/locations", label: "Locations", icon: MapPin },
   { to: "/admin/live-map", label: "Live Map", icon: MapPinned },
+  { to: "/admin/assignments", label: "Daily Assignments", icon: CalendarCheck },
   { to: "/admin/finance", label: "Buyer & Profit/Loss", icon: Scale },
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
 ] as const;
@@ -61,6 +62,7 @@ const moreMenu = [
   { to: "/admin/notifications", label: "Notifications", icon: Bell },
   { to: "/admin/locations", label: "Locations", icon: MapPin },
   { to: "/admin/live-map", label: "Live Map", icon: MapPinned },
+  { to: "/admin/assignments", label: "Daily Assignments", icon: CalendarCheck },
   { to: "/admin/finance", label: "Buyer & Profit/Loss", icon: Scale },
   { to: "/admin/settings", label: "Settings", icon: Settings },
   { to: "/admin/help", label: "Help & Center", icon: LifeBuoy },

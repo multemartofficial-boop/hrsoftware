@@ -141,21 +141,53 @@ router.post('/checkin', requireAuth, requireWorker, async (req, res) => {
       if (dist > radius) locationMismatch = 1;
     }
 
+    // Phase F: daily assignment check — compare the selected location against
+    // today's assigned location (if any). Workers with no assignment → 'none'.
+    let assignmentStatus = 'none';
+    let assignedLocation = null;
+    const [asgnRows] = await pool.query(
+      `SELECT l.name AS location_name FROM worker_location_assignments a
+       JOIN locations l ON l.id = a.location_id
+       WHERE a.worker_id = ? AND a.assigned_date = ?`,
+      [req.user.workerId, todayStr]
+    );
+    if (asgnRows.length > 0) {
+      assignedLocation = asgnRows[0].location_name;
+      assignmentStatus = assignedLocation === location ? 'match' : 'mismatch';
+    }
+
     const attendanceId = generateAttendanceId();
 
     await pool.query(
       `INSERT INTO attendance
       (id, worker_id, worker, date, check_in_time, check_out_time, location, hours_worked, source,
-       check_in_lat, check_in_lng, location_mismatch)
-      VALUES (?, ?, ?, ?, ?, NULL, ?, 0, 'Self', ?, ?, ?)`,
+       check_in_lat, check_in_lng, location_mismatch, assignment_status)
+      VALUES (?, ?, ?, ?, ?, NULL, ?, 0, 'Self', ?, ?, ?, ?)`,
       [attendanceId, req.user.workerId, worker.name, todayStr, timeIn, location,
-       lat, lng, locationMismatch]
+       lat, lng, locationMismatch, assignmentStatus]
     );
+
+    // Notify admin when the worker checks in at a different location than assigned
+    if (assignmentStatus === 'mismatch') {
+      try {
+        await pool.query(
+          `INSERT INTO notifications (id, worker, worker_id, message, urgency)
+           VALUES (?, ?, ?, ?, ?)`,
+          [`ASGN-${attendanceId}`, worker.name, req.user.workerId,
+           `[Assignment] ${worker.name} checked in at ${location} but was assigned to ${assignedLocation} on ${todayStr}.`,
+           'critical']
+        );
+      } catch (e) {
+        console.error('Assignment mismatch notification failed:', e);
+      }
+    }
 
     res.status(201).json({
       id: attendanceId, timeIn, location,
       locationMismatch: locationMismatch === 1,
       distanceMeters: dist,
+      assignmentStatus,
+      assignedLocation,
       message: 'Checked in successfully'
     });
   } catch (error) {

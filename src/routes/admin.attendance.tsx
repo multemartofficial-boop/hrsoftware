@@ -298,7 +298,15 @@ function AttendancePage() {
                         />
                       );
                     })()}
-                    <p>{a.location}</p>
+                    <div className="leading-tight">
+                      <p>{a.location}</p>
+                      {a.assignmentStatus === "match" && (
+                        <p className="text-xs font-medium text-green-600">Assignment Match</p>
+                      )}
+                      {a.assignmentStatus === "mismatch" && (
+                        <p className="text-xs font-medium text-danger">Assignment Mismatch</p>
+                      )}
+                    </div>
                   </div>
                 </Td>
                 <Td className="font-medium">{a.hours.toFixed(2)} h</Td>

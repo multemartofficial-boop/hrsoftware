@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { AlertTriangle, Clock, Info, RotateCcw, ShieldAlert } from "lucide-react";
+import { AlertTriangle, CalendarCheck, Clock, Info, RotateCcw, ShieldAlert } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, Person } from "@/components/hr/bits";
 import { useApi } from "@/lib/api-store";
@@ -53,6 +53,11 @@ function NotificationsPage() {
       {n.category === "visa" && (
         <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
           <ShieldAlert className="size-3" /> Visa
+        </span>
+      )}
+      {n.id?.startsWith("ASGN-") && (
+        <span className="inline-flex items-center gap-1 rounded-full bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning">
+          <CalendarCheck className="size-3" /> Assignment
         </span>
       )}
       <p className="text-sm text-muted-foreground">{n.message}</p>

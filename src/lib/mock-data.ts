@@ -479,6 +479,8 @@ export type Attendance = {
   checkInLat?: number | null;
   checkInLng?: number | null;
   locationMismatch?: boolean;
+  /** Phase F: 'none' | 'match' | 'mismatch' vs today's assigned location */
+  assignmentStatus?: string;
 };
 
 const att = (

@@ -346,6 +346,12 @@ function WorkerDetails() {
                     {r.locationMismatch && (
                       <p className="text-xs font-medium text-danger">Location Mismatch</p>
                     )}
+                    {r.assignmentStatus === "match" && (
+                      <p className="text-xs font-medium text-green-600">Assignment Match</p>
+                    )}
+                    {r.assignmentStatus === "mismatch" && (
+                      <p className="text-xs font-medium text-danger">Assignment Mismatch</p>
+                    )}
                   </div>
                 </Td>
                 <Td><StatusBadge status={r.source} /></Td>

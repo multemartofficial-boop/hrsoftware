@@ -82,6 +82,7 @@ app.use('/api/attendance', require('./routes/attendance'));
 app.use('/api/worker/attendance', require('./routes/worker-attendance'));
 app.use('/api/payroll', require('./routes/payroll'));
 app.use('/api/locations', require('./routes/locations'));
+app.use('/api/assignments', require('./routes/assignments'));
 app.use('/api/buyer-income', require('./routes/buyer-income'));
 app.use('/api/other-costs', require('./routes/other-costs'));
 app.use('/api/settings', require('./routes/settings'));
