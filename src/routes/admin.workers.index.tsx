@@ -122,6 +122,7 @@ function WorkerDirectory() {
             <option value="Expiring Soon">Expiring Soon</option>
             <option value="Expired">Expired</option>
             <option value="On Leave">On Leave</option>
+            <option value="Visa Expired">Visa Expired</option>
           </select>
           <select value={loc} onChange={(e) => setLoc(e.target.value)} className={selectCls}>
             <option value="all">All Locations</option>

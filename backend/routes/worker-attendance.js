@@ -33,20 +33,26 @@ const generateAttendanceId = () => {
 router.get('/today', requireAuth, requireWorker, async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
-    
+
     const [attendance] = await pool.query(
       'SELECT * FROM attendance WHERE worker_id = ? AND date = ? ORDER BY id DESC LIMIT 1',
       [req.user.workerId, today]
     );
-    
+
+    // Phase E: expose visa-expired state so the dashboard can block check-in.
+    // Applies only when a visa_expiry is on file AND today is on/after it.
+    const [wrows] = await pool.query('SELECT visa_expiry FROM workers WHERE id = ?', [req.user.workerId]);
+    const visaExpiry = wrows[0]?.visa_expiry;
+    const visaExpired = Boolean(visaExpiry) && String(visaExpiry).slice(0, 10) <= today;
+
     if (attendance.length === 0) {
-      return res.json({ checkedIn: false, record: null });
+      return res.json({ checkedIn: false, record: null, visaExpired });
     }
-    
+
     const record = attendance[0];
     const checkedIn = record.check_out_time === null;
-    
-    res.json({ checkedIn, record });
+
+    res.json({ checkedIn, record, visaExpired });
   } catch (error) {
     console.error('Get today attendance error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -62,26 +68,32 @@ router.post('/checkin', requireAuth, requireWorker, async (req, res) => {
       return res.status(400).json({ error: 'Location is required' });
     }
     
-    // Get worker details including expiry status
-    const [workers] = await pool.query('SELECT name, expiry, status FROM workers WHERE id = ?', [req.user.workerId]);
+    // Get worker details including expiry + visa status
+    const [workers] = await pool.query('SELECT name, expiry, status, visa_expiry FROM workers WHERE id = ?', [req.user.workerId]);
     if (workers.length === 0) {
       return res.status(404).json({ error: 'Worker not found' });
     }
-    
+
     const worker = workers[0];
-    
+
     // Check if worker is expired
     const today = new Date();
     const expiryDate = new Date(worker.expiry);
-    
+
     if (today > expiryDate || worker.status === 'expired') {
       return res.status(403).json({ error: 'Your account has expired, please contact admin' });
     }
-    
+
+    // Phase E: hard block on expired visa — legal requirement.
+    // Only applies when a visa_expiry is on file and today is on/after it.
     const todayStr = today.toISOString().split('T')[0];
+    if (worker.visa_expiry && String(worker.visa_expiry).slice(0, 10) <= todayStr) {
+      return res.status(403).json({ error: 'Visa expired — check-in blocked. Please contact your administrator.' });
+    }
+
     const now = new Date();
     const timeIn = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    
+
     // Check if already checked in today
     const [existing] = await pool.query(
       'SELECT * FROM attendance WHERE worker_id = ? AND date = ? AND check_out_time IS NULL',

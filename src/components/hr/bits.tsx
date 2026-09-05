@@ -26,6 +26,7 @@ const badgeTones: Record<string, string> = {
   "On Leave": "bg-warning-soft text-warning",
   "Expiring Soon": "bg-warning-soft text-warning",
   Expired: "bg-danger-soft text-danger",
+  "Visa Expired": "bg-purple-100 text-purple-700",
   Rejected: "bg-danger-soft text-danger",
   Self: "bg-primary-soft text-primary",
   Admin: "bg-secondary text-muted-foreground",

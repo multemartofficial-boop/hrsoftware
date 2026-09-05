@@ -731,6 +731,8 @@ function useApiState() {
 
   /* ---------------- derived calculations ---------------- */
   const workerStatus = (w: Worker): any => {
+    // Expired visa is a legal work block — surface it before everything else.
+    if (w.visaExpiry && daysUntil(w.visaExpiry) <= 0) return "Visa Expired";
     const left = daysUntil(w.expiry);
     if (left < 0) return "Expired";
     if (w.onLeave) return "On Leave";

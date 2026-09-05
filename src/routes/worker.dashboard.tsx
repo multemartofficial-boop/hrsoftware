@@ -19,15 +19,15 @@ function WorkerDashboard() {
   const router = useRouter();
   const { session, logout, workerCheckIn, workerCheckOut, attendance } = useApi();
   const [checkedIn, setCheckedIn] = useState(false);
+  const [visaExpired, setVisaExpired] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedLocation, setSelectedLocation] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [locations, setLocations] = useState<any[]>([]);
 
-  const loadTodayAttendance = async () => {
+  const loadTodayAttendance = async (): Promise<{ checkedIn: boolean; record: any; visaExpired?: boolean }> => {
     try {
-      const data = await apiClient.get('/api/worker/attendance/today');
-      return data;
+      return await apiClient.get<{ checkedIn: boolean; record: any; visaExpired?: boolean }>('/api/worker/attendance/today');
     } catch (err) {
       console.error('Failed to load today attendance:', err);
       return { checkedIn: false, record: null };
@@ -42,9 +42,10 @@ function WorkerDashboard() {
     // Load worker-specific data only
     Promise.all([
       loadTodayAttendance(),
-      apiClient.get('/api/locations').then(data => setLocations(data || []))
+      apiClient.get<any[]>('/api/locations').then(data => setLocations(data || []))
     ]).then(([todayData]) => {
       setCheckedIn(todayData.checkedIn);
+      setVisaExpired(Boolean(todayData.visaExpired));
       setLoading(false);
     }).catch(err => {
       console.error('Failed to load worker data:', err);
@@ -128,7 +129,7 @@ function WorkerDashboard() {
             <Clock className="size-5" />
             Today's Attendance
           </h2>
-          
+
           {checkedIn ? (
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3 text-green-600">
@@ -143,6 +144,16 @@ function WorkerDashboard() {
                 <LogOut className="size-4" />
                 {actionLoading ? 'Checking out...' : 'Check Out'}
               </button>
+            </div>
+          ) : visaExpired ? (
+            <div className="flex items-center gap-3 rounded-lg border border-danger/40 bg-danger-soft px-4 py-3 text-danger">
+              <LogIn className="size-5 shrink-0" />
+              <div>
+                <p className="font-medium">Your visa has expired.</p>
+                <p className="text-sm">
+                  You cannot check in until this is resolved. Please contact your administrator.
+                </p>
+              </div>
             </div>
           ) : (
             <div className="flex items-center justify-between">
