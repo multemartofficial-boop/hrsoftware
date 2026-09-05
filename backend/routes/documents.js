@@ -12,7 +12,8 @@ const generateId = (prefix) => `${prefix}-${Date.now()}-${Math.floor(Math.random
 // Multer for PDF uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const dir = 'uploads/documents';
+    // /tmp on Vercel (ephemeral); local uploads/ dir otherwise
+    const dir = process.env.VERCEL ? '/tmp/uploads/documents' : 'uploads/documents';
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },

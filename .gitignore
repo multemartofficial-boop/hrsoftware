@@ -8,6 +8,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+**/node_modules
 dist
 dist-ssr
 .output
@@ -15,6 +16,18 @@ dist-ssr
 .tanstack/**
 .nitro
 *.local
+
+# Environment secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Vercel local build
+.vercel
+
+# Uploaded files (runtime data — ephemeral on Vercel)
+backend/uploads/**
+!backend/uploads/.gitkeep
 
 # Wrangler / Cloudflare
 .wrangler/

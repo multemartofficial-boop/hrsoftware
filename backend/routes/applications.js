@@ -12,7 +12,8 @@ const { sendEmail } = require('../utils/email');
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = 'uploads/documents';
+    // /tmp on Vercel (ephemeral); local uploads/ dir otherwise
+    const uploadDir = process.env.VERCEL ? '/tmp/uploads/documents' : 'uploads/documents';
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
