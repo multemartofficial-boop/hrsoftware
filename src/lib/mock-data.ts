@@ -31,6 +31,8 @@ export type Worker = {
   siaBadgeExpiry?: string | Date;
   workerType?: string;
   subcontractCompany?: string;
+  /** Count of BS7858 checks marked complete (0–8), from backend (Phase E) */
+  complianceDone?: number;
 };
 
 /** expiry = today + daysLeft, joined = expiry - 90 days */
@@ -116,6 +118,31 @@ export const COMPLIANCE_ITEMS: { key: keyof Omit<Compliance, "criminalRecordsLev
 ];
 
 export const CRIMINAL_CHECK_LEVELS = ["Basic", "Standard", "Enhanced"];
+
+/* ---------------- per-worker BS7858 compliance (Phase E) ---------------- */
+
+export type WorkerCheckStatus = "not_started" | "in_progress" | "complete";
+
+export type WorkerComplianceCheck = {
+  key: string;
+  status: WorkerCheckStatus;
+  completedDate: string | null;
+  notes: string;
+  level: string;
+};
+
+export type WorkerCompliance = {
+  workerId: string;
+  checks: WorkerComplianceCheck[];
+  complete: number;
+  total: number;
+};
+
+export const WORKER_CHECK_STATUSES: { value: WorkerCheckStatus; label: string }[] = [
+  { value: "not_started", label: "Not Started" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "complete", label: "Complete" },
+];
 
 export const blankCompliance = (): Compliance => ({
   electronicId: false,
@@ -558,6 +585,8 @@ export type Notice = {
   message: string;
   urgency: "critical" | "warning" | "info";
   occurred_at: string;
+  /** 'contract' = probation/worker-code expiry, 'visa' = visa expiry (Phase E) */
+  category?: string;
 };
 
 export const seedActivity: Notice[] = [

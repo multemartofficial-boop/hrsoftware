@@ -52,7 +52,17 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
     query += ' ORDER BY joined DESC';
     
     const [workers] = await pool.query(query, params);
-    
+
+    // Compliance completion counts for the directory "X/8" column (Phase E)
+    const [complianceCounts] = await pool.query(
+      `SELECT worker_id, SUM(status = 'complete') AS done, COUNT(*) AS total
+       FROM worker_compliance_checks GROUP BY worker_id`
+    );
+    const complianceByWorker = {};
+    for (const c of complianceCounts) {
+      complianceByWorker[c.worker_id] = { done: Number(c.done), total: Number(c.total) };
+    }
+
     // Normalize database field names to match frontend expectations
     const normalizedWorkers = workers.map(w => ({
       ...w,
@@ -65,7 +75,8 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
       siaBadgeNumber: w.sia_badge_number,
       siaBadgeExpiry: w.sia_badge_expiry,
       workerType: w.worker_type || 'Direct',
-      subcontractCompany: w.subcontract_company
+      subcontractCompany: w.subcontract_company,
+      complianceDone: complianceByWorker[w.id]?.done || 0
     }));
     
     res.json(normalizedWorkers);
@@ -240,6 +251,133 @@ router.post('/:id/reset-password', requireAuth, requireAdmin, async (req, res) =
   } catch (error) {
     console.error('Reset worker password error:', error);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+/* ---------------- BS7858 compliance checklist (Phase E, admin-only) ---------------- */
+
+// The 8 BS7858 screening items. `level` is only used by criminalRecords.
+const COMPLIANCE_KEYS = [
+  'electronicId',
+  'addressHistory',
+  'financialChecks',
+  'rightToWork',
+  'employmentHistory5y',
+  'gapPeriods',
+  'academicQualifications',
+  'criminalRecords',
+];
+const COMPLIANCE_STATUSES = ['not_started', 'in_progress', 'complete'];
+const CRIMINAL_LEVELS = ['Basic', 'Standard', 'Enhanced'];
+
+// Admin: Get a worker's compliance checklist (fills defaults for missing rows)
+router.get('/:id/compliance', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [workers] = await pool.query('SELECT id FROM workers WHERE id = ?', [req.params.id]);
+    if (workers.length === 0) {
+      return res.status(404).json({ error: 'Worker not found' });
+    }
+
+    const [rows] = await pool.query(
+      'SELECT check_key, status, completed_date, notes, level FROM worker_compliance_checks WHERE worker_id = ?',
+      [req.params.id]
+    );
+    const byKey = {};
+    for (const r of rows) byKey[r.check_key] = r;
+
+    const checks = COMPLIANCE_KEYS.map((key) => {
+      const r = byKey[key];
+      return {
+        key,
+        status: r ? r.status : 'not_started',
+        completedDate: r && r.completed_date
+          ? (r.completed_date instanceof Date
+              ? `${r.completed_date.getFullYear()}-${String(r.completed_date.getMonth() + 1).padStart(2, '0')}-${String(r.completed_date.getDate()).padStart(2, '0')}`
+              : String(r.completed_date).slice(0, 10))
+          : null,
+        notes: r ? (r.notes || '') : '',
+        level: r ? (r.level || '') : '',
+      };
+    });
+
+    res.json({
+      workerId: req.params.id,
+      checks,
+      complete: checks.filter((c) => c.status === 'complete').length,
+      total: COMPLIANCE_KEYS.length,
+    });
+  } catch (error) {
+    console.error('Get compliance error:', error);
+    res.status(500).json({ error: 'Failed to load compliance checklist' });
+  }
+});
+
+// Admin: Save a worker's compliance checklist (upsert each item)
+router.put('/:id/compliance', requireAuth, requireAdmin, async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [workers] = await connection.query('SELECT id FROM workers WHERE id = ?', [req.params.id]);
+    if (workers.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Worker not found' });
+    }
+
+    const incoming = Array.isArray(req.body?.checks) ? req.body.checks : [];
+    for (const item of incoming) {
+      if (!COMPLIANCE_KEYS.includes(item.key)) continue;
+      const status = COMPLIANCE_STATUSES.includes(item.status) ? item.status : 'not_started';
+      const completedDate = item.completedDate && /^\d{4}-\d{2}-\d{2}$/.test(item.completedDate)
+        ? item.completedDate : null;
+      const notes = item.notes ? String(item.notes) : null;
+      const level = item.key === 'criminalRecords' && CRIMINAL_LEVELS.includes(item.level)
+        ? item.level : null;
+      await connection.query(
+        `INSERT INTO worker_compliance_checks (worker_id, check_key, status, completed_date, notes, level)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE status = VALUES(status), completed_date = VALUES(completed_date),
+           notes = VALUES(notes), level = VALUES(level)`,
+        [req.params.id, item.key, status, completedDate, notes, level]
+      );
+    }
+
+    await connection.commit();
+
+    // Return the saved checklist
+    const [rows] = await pool.query(
+      'SELECT check_key, status, completed_date, notes, level FROM worker_compliance_checks WHERE worker_id = ?',
+      [req.params.id]
+    );
+    const byKey = {};
+    for (const r of rows) byKey[r.check_key] = r;
+    const checks = COMPLIANCE_KEYS.map((key) => {
+      const r = byKey[key];
+      return {
+        key,
+        status: r ? r.status : 'not_started',
+        completedDate: r && r.completed_date
+          ? (r.completed_date instanceof Date
+              ? `${r.completed_date.getFullYear()}-${String(r.completed_date.getMonth() + 1).padStart(2, '0')}-${String(r.completed_date.getDate()).padStart(2, '0')}`
+              : String(r.completed_date).slice(0, 10))
+          : null,
+        notes: r ? (r.notes || '') : '',
+        level: r ? (r.level || '') : '',
+      };
+    });
+
+    res.json({
+      workerId: req.params.id,
+      checks,
+      complete: checks.filter((c) => c.status === 'complete').length,
+      total: COMPLIANCE_KEYS.length,
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error('Save compliance error:', error);
+    res.status(500).json({ error: 'Failed to save compliance checklist' });
+  } finally {
+    connection.release();
   }
 });
 

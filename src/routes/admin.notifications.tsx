@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { AlertTriangle, Clock, Info, RotateCcw } from "lucide-react";
+import { AlertTriangle, Clock, Info, RotateCcw, ShieldAlert } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, Person } from "@/components/hr/bits";
 import { useApi } from "@/lib/api-store";
@@ -50,6 +50,11 @@ function NotificationsPage() {
   const Row = ({ n, tone }: { n: Notice; tone: string }) => (
     <div className="flex flex-wrap items-center gap-4 py-3.5">
       <Person name={n.worker} sub={n.occurred_at} />
+      {n.category === "visa" && (
+        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+          <ShieldAlert className="size-3" /> Visa
+        </span>
+      )}
       <p className="text-sm text-muted-foreground">{n.message}</p>
       <span className={cn("ml-auto rounded-full px-2.5 py-1 text-xs font-medium capitalize", tone)}>
         {n.urgency}

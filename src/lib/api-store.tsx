@@ -754,7 +754,33 @@ function useApiState() {
       .filter(Boolean) as Notice[];
   }, [workers, settings]);
 
-  const notices = useMemo(() => [...expiryNotices, ...activity], [expiryNotices, activity]);
+  // Visa expiry notices (Phase E): computed live from workers' visaExpiry,
+  // recalculates on every load/poll just like the contract-expiry notices.
+  const visaNotices = useMemo(() => {
+    return workers
+      .map((w) => {
+        if (!w.visaExpiry) return null;
+        const left = daysUntil(w.visaExpiry);
+        if (left > 90) return null;
+        const urgency: Notice["urgency"] = left <= 7 ? "critical" : "warning";
+        const message =
+          left < 0
+            ? `Visa EXPIRED ${Math.abs(left)} day${Math.abs(left) === 1 ? "" : "s"} ago — cannot legally continue working, action required`
+            : `Visa expires in ${left} day${left === 1 ? "" : "s"} — expired visas cannot legally continue working, action required`;
+        return {
+          id: `VISA-${w.id}`,
+          worker: w.name,
+          workerId: w.id,
+          message,
+          urgency,
+          occurred_at: fmtDate(w.visaExpiry),
+          category: "visa",
+        };
+      })
+      .filter(Boolean) as Notice[];
+  }, [workers]);
+
+  const notices = useMemo(() => [...expiryNotices, ...visaNotices, ...activity], [expiryNotices, visaNotices, activity]);
 
   const payrollChart = useMemo(() => {
     const buckets: { key: string; month: string; cost: number; expense: number }[] = [];

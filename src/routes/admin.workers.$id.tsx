@@ -1,10 +1,19 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
-import { ArrowLeft, Copy, Check, RotateCcw, FileImage, Trash2 } from "lucide-react";
+import { ArrowLeft, Copy, Check, RotateCcw, FileImage, Trash2, ShieldCheck } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
-import { Card, DataTable, EmptyRow, StatusBadge, Td, Th } from "@/components/hr/bits";
-import { avatarUrl, money2 } from "@/lib/mock-data";
+import { Card, DataTable, EmptyRow, StatusBadge, Td, Th, inputCls } from "@/components/hr/bits";
+import {
+  avatarUrl,
+  money2,
+  COMPLIANCE_ITEMS,
+  CRIMINAL_CHECK_LEVELS,
+  WORKER_CHECK_STATUSES,
+  type WorkerCompliance,
+  type WorkerComplianceCheck,
+} from "@/lib/mock-data";
 import { useApi } from "@/lib/api-store";
+import { apiClient } from "@/lib/api-client";
 import { fmtDate, daysUntil } from "@/lib/hr-utils";
 
 export const Route = createFileRoute("/admin/workers/$id")({
@@ -19,9 +28,125 @@ export const Route = createFileRoute("/admin/workers/$id")({
   component: WorkerDetails,
 });
 
+/** Admin-only BS7858 compliance checklist — saved per worker via /api/workers/:id/compliance. */
+function ComplianceSection({ workerId, onSaved }: { workerId: string; onSaved: () => void }) {
+  const [data, setData] = useState<WorkerCompliance | null>(null);
+  const [loadingC, setLoadingC] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingC(true);
+    apiClient
+      .get<WorkerCompliance>(`/api/workers/${workerId}/compliance`)
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load checklist"); })
+      .finally(() => { if (!cancelled) setLoadingC(false); });
+    return () => { cancelled = true; };
+  }, [workerId]);
+
+  const update = (key: string, patch: Partial<WorkerComplianceCheck>) => {
+    setData((d) => (d ? { ...d, checks: d.checks.map((c) => (c.key === key ? { ...c, ...patch } : c)) } : d));
+    setSaved(false);
+  };
+
+  const save = async () => {
+    if (!data) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await apiClient.put<WorkerCompliance>(`/api/workers/${workerId}/compliance`, { checks: data.checks });
+      setData(res);
+      setSaved(true);
+      onSaved();
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save checklist");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const done = data?.checks.filter((c) => c.status === "complete").length ?? 0;
+  const labelOf = (key: string) => COMPLIANCE_ITEMS.find((i) => i.key === key)?.label ?? key;
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="grid size-9 place-items-center rounded-lg bg-primary/10 text-primary">
+          <ShieldCheck className="size-4" />
+        </span>
+        <div className="mr-auto">
+          <h2 className="text-base font-semibold">Compliance Checklist (BS7858)</h2>
+          <p className="text-xs text-muted-foreground">
+            {loadingC ? "Loading…" : `${done}/8 checks complete`} — tick off each screening step as it is completed outside the system.
+          </p>
+        </div>
+        <button
+          onClick={save}
+          disabled={saving || loadingC}
+          className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-60"
+        >
+          {saved ? <Check className="size-4" /> : null}
+          {saving ? "Saving…" : saved ? "Saved" : "Save checklist"}
+        </button>
+      </div>
+      {error && <p className="mt-2 text-xs text-danger">{error}</p>}
+
+      {!loadingC && data && (
+        <div className="mt-4 space-y-2">
+          {data.checks.map((c) => (
+            <div key={c.key} className="grid items-center gap-2 rounded-xl border border-border p-3 sm:grid-cols-[1fr_150px_140px]">
+              <div>
+                <p className="text-sm font-medium">{labelOf(c.key)}</p>
+                {c.key === "criminalRecords" && (
+                  <select
+                    value={c.level}
+                    onChange={(e) => update(c.key, { level: e.target.value })}
+                    className={`${inputCls} mt-1.5 h-8 w-40 text-xs`}
+                  >
+                    <option value="">Check level…</option>
+                    {CRIMINAL_CHECK_LEVELS.map((l) => (
+                      <option key={l} value={l}>{l}</option>
+                    ))}
+                  </select>
+                )}
+                <input
+                  value={c.notes}
+                  onChange={(e) => update(c.key, { notes: e.target.value })}
+                  placeholder="Notes (optional)"
+                  className={`${inputCls} mt-1.5 h-8 text-xs`}
+                />
+              </div>
+              <select
+                value={c.status}
+                onChange={(e) => update(c.key, { status: e.target.value as WorkerComplianceCheck["status"] })}
+                className={`${inputCls} h-9`}
+              >
+                {WORKER_CHECK_STATUSES.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+              <input
+                type="date"
+                value={c.completedDate ?? ""}
+                onChange={(e) => update(c.key, { completedDate: e.target.value || null })}
+                className={`${inputCls} h-9`}
+                title="Date completed"
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function WorkerDetails() {
   const { id } = useParams({ from: "/admin/workers/$id" });
-  const { workers, attendance, payrolls, workerStatus, reactivateWorker, deleteWorker, loading } = useApi();
+  const { workers, attendance, payrolls, workerStatus, reactivateWorker, deleteWorker, loading, loadWorkers } = useApi();
   const [copied, setCopied] = useState(false);
   const worker = workers?.find((w) => w.id === id);
 
@@ -82,7 +207,19 @@ function WorkerDetails() {
               <img src={avatarUrl(worker.name)} alt={worker.name} className="mx-auto size-32 rounded-2xl bg-secondary" />
               <h2 className="mt-4 text-lg font-semibold">{worker.name}</h2>
               <p className="text-sm text-muted-foreground">{worker.role}</p>
-              <div className="mt-3 flex justify-center"><StatusBadge status={status} /></div>
+              <div className="mt-3 flex justify-center gap-2">
+                <StatusBadge status={status} />
+                <span
+                  className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                    (worker.complianceDone ?? 0) >= 8
+                      ? "bg-success/10 text-success"
+                      : "bg-secondary text-muted-foreground"
+                  }`}
+                  title="BS7858 compliance checks complete"
+                >
+                  {worker.complianceDone ?? 0}/8 checks
+                </span>
+              </div>
             </div>
 
             <div>
@@ -176,6 +313,8 @@ function WorkerDetails() {
             </div>
           </div>
         </Card>
+
+        <ComplianceSection workerId={worker.id} onSaved={() => loadWorkers()} />
 
         <Card className="p-0">
           <div className="p-5">

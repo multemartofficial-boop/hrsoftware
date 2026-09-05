@@ -137,7 +137,7 @@ function WorkerDirectory() {
         </div>
 
         <DataTable
-          labels={["Photo", "Code", "Name", "Contact", "Location", "Joined", "Expiry", "Status", "Action"]}
+          labels={["Photo", "Code", "Name", "Contact", "Location", "Joined", "Expiry", "Compliance", "Status", "Action"]}
           head={
             <>
               <Th>Photo</Th>
@@ -147,12 +147,13 @@ function WorkerDirectory() {
               <Th>Location</Th>
               <Th>Joining Date</Th>
               <Th>Expiry</Th>
+              <Th>Compliance</Th>
               <Th>Status</Th>
               <Th className="text-right">Action</Th>
             </>
           }
         >
-          {(!rows || rows.length === 0) && <EmptyRow colSpan={9} text="No workers match these filters." />}
+          {(!rows || rows.length === 0) && <EmptyRow colSpan={10} text="No workers match these filters." />}
           {(rows || []).map((w) => {
             const left = daysUntil(w.expiry);
             return (
@@ -183,6 +184,17 @@ function WorkerDirectory() {
                       {left < 0 ? `${Math.abs(left)}d overdue` : `${left}d left`}
                     </p>
                   </div>
+                </Td>
+                <Td>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                      (w.complianceDone ?? 0) >= 8
+                        ? "bg-success/10 text-success"
+                        : "bg-secondary text-muted-foreground"
+                    }`}
+                  >
+                    {w.complianceDone ?? 0}/8
+                  </span>
                 </Td>
                 <Td>
                   <div className="flex items-center gap-2">

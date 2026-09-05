@@ -62,8 +62,29 @@ router.get('/expiry', requireAuth, requireAdmin, async (req, res) => {
           workerId: worker.id,
           message,
           urgency,
-          occurred_at: formatDate(worker.expiry)
+          occurred_at: formatDate(worker.expiry),
+          category: 'contract'
         });
+      }
+
+      // Visa expiry alerts (Phase E): 90-day window, separate from contract expiry
+      if (worker.visa_expiry) {
+        const visaDays = daysUntil(worker.visa_expiry);
+        if (visaDays <= 90) {
+          const visaUrgency = visaDays <= 7 ? 'critical' : 'warning';
+          const visaMessage = visaDays < 0
+            ? `Visa EXPIRED ${Math.abs(visaDays)} day${Math.abs(visaDays) === 1 ? '' : 's'} ago — cannot legally continue working, action required`
+            : `Visa expires in ${visaDays} day${visaDays === 1 ? '' : 's'} — expired visas cannot legally continue working, action required`;
+          expiryNotices.push({
+            id: `VISA-${worker.id}`,
+            worker: worker.name,
+            workerId: worker.id,
+            message: visaMessage,
+            urgency: visaUrgency,
+            occurred_at: formatDate(worker.visa_expiry),
+            category: 'visa'
+          });
+        }
       }
     }
 

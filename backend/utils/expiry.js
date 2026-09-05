@@ -100,7 +100,55 @@ const checkExpiringWorkers = async () => {
       
       console.log(`7-day expiry warning sent for worker ${worker.id}`);
     }
-    
+
+    // ---------------- Visa expiry alerts (Phase E) ----------------
+    // Check every active worker with a visa_expiry on file. A persistent
+    // notification is created when the days-left count crosses one of the
+    // threshold marks below; the deterministic notification id dedupes
+    // re-runs on the same threshold day.
+    const VISA_THRESHOLDS = [90, 60, 30, 14, 7, 3, 1, 0];
+    const [visaWorkers] = await pool.query(
+      `SELECT id, name, email, visa_expiry
+       FROM workers
+       WHERE status = 'active' AND visa_expiry IS NOT NULL`
+    );
+
+    for (const worker of visaWorkers) {
+      const expiry = new Date(worker.visa_expiry);
+      const expiryUTC = new Date(Date.UTC(expiry.getUTCFullYear(), expiry.getUTCMonth(), expiry.getUTCDate()));
+      const daysLeft = Math.ceil((expiryUTC - todayUTC) / (1000 * 60 * 60 * 24));
+
+      // Notify on exact threshold hits, or daily once expired/last day
+      const hit = VISA_THRESHOLDS.includes(daysLeft) || daysLeft < 0;
+      if (!hit) continue;
+
+      const notifId = `VISA-${worker.id}-D${daysLeft}`;
+      const urgency = daysLeft <= 7 ? 'critical' : 'warning';
+      const message = daysLeft < 0
+        ? `Visa EXPIRED ${Math.abs(daysLeft)} day${Math.abs(daysLeft) === 1 ? '' : 's'} ago — ${worker.name} cannot legally continue working, action required`
+        : `${worker.name}'s visa expires in ${daysLeft} day${daysLeft === 1 ? '' : 's'} — expired visas cannot legally continue working, action required`;
+
+      // Deterministic ID → duplicate insert on the same day is skipped
+      try {
+        await pool.query(
+          'INSERT INTO notifications (id, worker, worker_id, message, urgency, occurred_at) VALUES (?, ?, ?, ?, ?, "Just now")',
+          [notifId, worker.name, worker.id, `[Visa] ${message}`, urgency]
+        );
+        console.log(`Visa expiry alert created for ${worker.id} (${daysLeft} days left)`);
+
+        await sendEmail({
+          to: 'admin@workhr.com',
+          subject: `VISA EXPIRY: ${worker.name} (${worker.id}) — ${daysLeft} day${daysLeft === 1 ? '' : 's'} left`,
+          html: `<h2>Visa Expiry Alert</h2><p>${message}</p><p><strong>Visa Expiry Date:</strong> ${worker.visa_expiry}</p>`,
+          text: `VISA: ${message}`
+        });
+      } catch (e) {
+        if (e.code !== 'ER_DUP_ENTRY') {
+          console.error(`Failed to create visa notification for ${worker.id}:`, e.message);
+        }
+      }
+    }
+
     // Automatically update expired workers
     const [expiredWorkers] = await pool.query(
       `UPDATE workers 
