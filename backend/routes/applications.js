@@ -71,6 +71,8 @@ const transformApplication = (app) => {
     rejectedOn: app.rejected_on,
     appliedFor: app.applied_for,
     howHeard: app.how_heard,
+    subcontractCompany: app.subcontract_company,
+    workerType: app.worker_type || 'Direct',
     passportCountry: app.passport_country,
     passportNumber: app.passport_number,
     passportExpiry: app.passport_expiry,
@@ -112,9 +114,12 @@ router.post('/', upload.fields([
       workedBefore, beforeFrom, beforeTo, beforeReason,
       availability, rate, prefLocations,
       prevAddresses, employers, referees, skills,
-      howHeard, passportCountry, passportNumber, passportExpiry,
+      howHeard, subcontractCompany, passportCountry, passportNumber, passportExpiry,
       visaNumber, siaBadgeNumber, siaBadgeExpiry
     } = req.body;
+
+    // Direct vs Sub-contract: derived from the how-heard answer
+    const workerType = howHeard === 'Sub-contract' ? 'Sub-contract' : 'Direct';
 
     // Optional date fields must be NULL (not '') for MySQL DATE columns
     const nullableDate = (v) => (v && String(v).trim() ? v : null);
@@ -153,20 +158,23 @@ router.post('/', upload.fields([
       referees: parsedReferees,
       skills: parsedSkills,
       docUrls,
-      howHeard, passportCountry, passportNumber, passportExpiry,
+      howHeard, subcontractCompany, workerType,
+      passportCountry, passportNumber, passportExpiry,
       visaNumber, siaBadgeNumber, siaBadgeExpiry
     };
 
     // Insert main application
     await connection.query(
-      `INSERT INTO registration_applications 
+      `INSERT INTO registration_applications
       (id, name, submitted, phone, email, address, nid, applied_for, location, rate, status, details,
-       how_heard, passport_country, passport_number, passport_expiry,
-       visa_number, visa_expiry, sia_badge_number, sia_badge_expiry) 
-      VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [applicationId, `${forename} ${surname}`, mobile, email, address, ni, 'Site Operative', 
+       how_heard, subcontract_company, worker_type, passport_country, passport_number, passport_expiry,
+       visa_number, visa_expiry, sia_badge_number, sia_badge_expiry)
+      VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [applicationId, `${forename} ${surname}`, mobile, email, address, ni, 'Site Operative',
        parsedPrefLocations[0] || 'Unassigned', rate || 14.50, JSON.stringify(details),
-       howHeard || null, passportCountry || null, passportNumber || null, nullableDate(passportExpiry),
+       howHeard || null,
+       workerType === 'Sub-contract' ? (subcontractCompany || null) : null, workerType,
+       passportCountry || null, passportNumber || null, nullableDate(passportExpiry),
        visaNumber || null, nullableDate(visaExpiry), siaBadgeNumber || null, nullableDate(siaBadgeExpiry)]
     );
 

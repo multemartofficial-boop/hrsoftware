@@ -63,7 +63,9 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
       visaNumber: w.visa_number,
       visaExpiry: w.visa_expiry,
       siaBadgeNumber: w.sia_badge_number,
-      siaBadgeExpiry: w.sia_badge_expiry
+      siaBadgeExpiry: w.sia_badge_expiry,
+      workerType: w.worker_type || 'Direct',
+      subcontractCompany: w.subcontract_company
     }));
     
     res.json(normalizedWorkers);
@@ -107,9 +109,19 @@ router.get('/:id', requireAuth, requireAdmin, async (req, res) => {
     );
 
     // Normalize database field names to match frontend expectations
+    const w = workers[0];
     const normalizedWorker = {
-      ...workers[0],
-      onLeave: workers[0].on_leave === 1
+      ...w,
+      onLeave: w.on_leave === 1,
+      passportCountry: w.passport_country,
+      passportNumber: w.passport_number,
+      passportExpiry: w.passport_expiry,
+      visaNumber: w.visa_number,
+      visaExpiry: w.visa_expiry,
+      siaBadgeNumber: w.sia_badge_number,
+      siaBadgeExpiry: w.sia_badge_expiry,
+      workerType: w.worker_type || 'Direct',
+      subcontractCompany: w.subcontract_company
     };
 
     res.json({

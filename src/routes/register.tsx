@@ -163,6 +163,7 @@ function RegisterPage() {
     visaType: "",
     visaExpiry: "",
     howHeard: "",
+    subcontractCompany: "",
     passportCountry: "United Kingdom",
     passportNumber: "",
     passportExpiry: "",
@@ -219,8 +220,10 @@ function RegisterPage() {
 
   const pct = step * 25;
 
-  // Visa details are expected for non-UK/Irish passport holders (shown either way, never hard-blocking).
+  // Visa details are expected for non-UK/Irish passport holders, or anyone who
+  // answered "Yes" to holding a work permit/visa. Hidden entirely otherwise.
   const visaNeeded = requiresVisa(f.passportCountry);
+  const showVisaFields = f.hasVisa === "Yes" || visaNeeded;
   const visaMissing = visaNeeded && !(f.visaNumber.trim() && f.visaExpiry);
 
   const submit = async () => {
@@ -263,6 +266,7 @@ function RegisterPage() {
       formData.append('visaType', f.visaType);
       formData.append('visaExpiry', f.visaExpiry);
       formData.append('howHeard', f.howHeard);
+      formData.append('subcontractCompany', f.subcontractCompany);
       formData.append('passportCountry', f.passportCountry);
       formData.append('passportNumber', f.passportNumber);
       formData.append('passportExpiry', f.passportExpiry);
@@ -519,13 +523,19 @@ function RegisterPage() {
             </Section>
 
             <Section title="Passport">
-              <Field label="Passport Country" hint="Which country's passport do you hold?">
-                <select value={f.passportCountry} onChange={set("passportCountry")} className={inputCls}>
-                  <option value="">Select a country…</option>
+              <Field label="Passport Country" hint="Which country's passport do you hold? Start typing to search.">
+                <input
+                  list="passport-countries"
+                  value={f.passportCountry}
+                  onChange={set("passportCountry")}
+                  className={inputCls}
+                  placeholder="Type to search countries…"
+                />
+                <datalist id="passport-countries">
                   {COUNTRIES.map((c) => (
-                    <option key={c}>{c}</option>
+                    <option key={c} value={c} />
                   ))}
-                </select>
+                </datalist>
               </Field>
               <Field label="Passport Number">
                 <input value={f.passportNumber} onChange={set("passportNumber")} className={inputCls} />
@@ -542,18 +552,22 @@ function RegisterPage() {
                   <option>Yes</option>
                 </select>
               </Field>
-              <Field label="Visa Type">
-                <input value={f.visaType} onChange={set("visaType")} className={inputCls} />
-              </Field>
-              <Field
-                label={visaNeeded ? "Visa Number *" : "Visa Number"}
-                hint={visaNeeded ? "Required for non-UK/Irish passport holders" : "Not required for UK/Irish passport holders"}
-              >
-                <input value={f.visaNumber} onChange={set("visaNumber")} className={inputCls} />
-              </Field>
-              <Field label={visaNeeded ? "Visa Expiry Date *" : "Visa Expiry Date"}>
-                <input type="date" value={f.visaExpiry} onChange={set("visaExpiry")} className={inputCls} />
-              </Field>
+              {showVisaFields && (
+                <>
+                  <Field label="Visa Type">
+                    <input value={f.visaType} onChange={set("visaType")} className={inputCls} />
+                  </Field>
+                  <Field
+                    label={visaNeeded ? "Visa Number *" : "Visa Number"}
+                    hint={visaNeeded ? "Required for non-UK/Irish passport holders" : "Optional"}
+                  >
+                    <input value={f.visaNumber} onChange={set("visaNumber")} className={inputCls} />
+                  </Field>
+                  <Field label={visaNeeded ? "Visa Expiry Date *" : "Visa Expiry Date"}>
+                    <input type="date" value={f.visaExpiry} onChange={set("visaExpiry")} className={inputCls} />
+                  </Field>
+                </>
+              )}
               {visaMissing && (
                 <p className="sm:col-span-2 rounded-lg bg-secondary/60 px-3 py-2 text-xs text-danger">
                   You selected a {f.passportCountry} passport, so visa details are expected. Please add your visa
@@ -756,6 +770,19 @@ function RegisterPage() {
                   ))}
                 </select>
               </Field>
+              {f.howHeard === "Sub-contract" && (
+                <Field
+                  label="Sub-contract company name"
+                  hint="The company that is subcontracting you to work with us"
+                >
+                  <input
+                    value={f.subcontractCompany}
+                    onChange={set("subcontractCompany")}
+                    className={inputCls}
+                    placeholder="e.g. ABC Security Ltd"
+                  />
+                </Field>
+              )}
             </Section>
           </>
         )}
@@ -899,6 +926,7 @@ function RegisterPage() {
                 ["Availability", f.availability],
                 ["Expected hourly rate", f.rate ? `£${f.rate}` : ""],
                 ["How did you hear about us", f.howHeard],
+                ...(f.howHeard === "Sub-contract" ? [["Sub-contract company", f.subcontractCompany] as [string, string]] : []),
               ]}
             />
 

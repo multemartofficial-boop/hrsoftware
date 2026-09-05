@@ -124,6 +124,10 @@ function WorkerDetails() {
               <p className="mt-6 mb-2 text-sm font-semibold">Passport, visa &amp; SIA badge</p>
               <div className="grid gap-4 sm:grid-cols-2">
                 {[
+                  ["Employment type", worker.workerType || "Direct"],
+                  ...(worker.workerType === "Sub-contract"
+                    ? [["Sub-contract company", worker.subcontractCompany || "—"] as [string, string]]
+                    : []),
                   ["Passport country", worker.passportCountry || "—"],
                   ["Passport number", worker.passportNumber || "—"],
                   ["Passport expiry", worker.passportExpiry ? fmtDate(worker.passportExpiry) : "—"],

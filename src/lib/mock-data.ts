@@ -29,6 +29,8 @@ export type Worker = {
   visaExpiry?: string | Date;
   siaBadgeNumber?: string;
   siaBadgeExpiry?: string | Date;
+  workerType?: string;
+  subcontractCompany?: string;
 };
 
 /** expiry = today + daysLeft, joined = expiry - 90 days */
@@ -75,6 +77,8 @@ export type Application = {
   worker_expiry?: string;
   rejectedOn?: string;
   howHeard?: string;
+  subcontractCompany?: string;
+  workerType?: string;
   passportCountry?: string;
   passportNumber?: string;
   passportExpiry?: string | Date;
@@ -133,6 +137,7 @@ export const HOW_HEARD_OPTIONS = [
   "Facebook",
   "Search Engine",
   "Sub-contract",
+  "Other",
 ];
 
 const docUrl = (label: string) => `data:text/plain;charset=utf-8,${encodeURIComponent(`${label} preview document`)}`;

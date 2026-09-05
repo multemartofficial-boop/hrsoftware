@@ -401,6 +401,10 @@ export function ApplicationDetail({ app }: { app: Application }) {
               ["Preferred Hours", getDetail("availability", "Full-time")],
               ["Expected Hourly Rate", `£${(Number(getDetail("rate", String(app.rate))) || app.rate).toFixed(2)} / hour`],
               ["How did you hear about us", app.howHeard || getDetail("howHeard", "")],
+              ["Worker type", app.workerType || getDetail("workerType", "Direct")],
+              ...(app.workerType === "Sub-contract" || getDetail("workerType", "") === "Sub-contract"
+                ? [["Sub-contract company", app.subcontractCompany || getDetail("subcontractCompany", "")] as [string, string]]
+                : []),
             ]}
           />
         </div>
