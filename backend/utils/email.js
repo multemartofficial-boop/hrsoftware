@@ -48,8 +48,9 @@ const sendEmail = async (options) => {
       text
     };
 
-    await transporter.sendMail(mailOptions);
-    return { success: true, method: 'smtp' };
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`[email] SMTP accepted: ${JSON.stringify(info.accepted)} rejected: ${JSON.stringify(info.rejected)} response: ${info.response} messageId: ${info.messageId}`);
+    return { success: true, method: 'smtp', messageId: info.messageId };
   } catch (error) {
     console.error('Email send error:', error);
     // Fallback to console logging on error
@@ -59,7 +60,7 @@ const sendEmail = async (options) => {
     console.log('HTML:', html);
     console.log('Text:', text);
     console.log('========================================');
-    return { success: false, method: 'console' };
+    return { success: false, method: 'console', error: error.message };
   }
 };
 

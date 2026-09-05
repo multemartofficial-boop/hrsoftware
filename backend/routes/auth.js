@@ -340,34 +340,39 @@ router.post('/setup-password', async (req, res) => {
 // Request password reset (for both admin and worker)
 router.post('/forgot-password', async (req, res) => {
   try {
-    const { email } = req.body;
+    const email = (req.body.email || '').trim().toLowerCase();
 
     if (!email) {
       return res.status(400).json({ error: 'Email is required' });
     }
 
+    console.log(`[forgot-password] Request received for: ${email}`);
+
     // Check if email exists in users table (admin) or workers table (worker)
     const [users] = await pool.query(
-      'SELECT id, name, email, role, worker_id FROM users WHERE email = ?',
+      'SELECT id, name, email, role, worker_id FROM users WHERE LOWER(email) = ?',
       [email]
     );
 
     if (users.length === 0) {
       // Check workers table
       const [workers] = await pool.query(
-        'SELECT id, name, email FROM workers WHERE email = ?',
+        'SELECT id, name, email FROM workers WHERE LOWER(email) = ?',
         [email]
       );
 
       if (workers.length === 0) {
-        // Don't reveal if email exists for security
+        // Don't reveal if email exists for security (client still gets generic success)
+        console.warn(`[forgot-password] No account found for ${email} - no token created, no email sent`);
         return res.json({ message: 'If an account exists with this email, a password reset link will be sent.' });
       }
 
       const worker = workers[0];
+      console.log(`[forgot-password] Matched worker ${worker.id} (${worker.name}) in workers table`);
       await sendPasswordResetEmail(worker.email, worker.name, worker.id, 'worker');
     } else {
       const user = users[0];
+      console.log(`[forgot-password] Matched users row id=${user.id} role=${user.role} worker_id=${user.worker_id}`);
       if (user.role === 'admin') {
         await sendPasswordResetEmail(user.email, user.name, user.id, 'admin');
       } else if (user.role === 'worker') {
@@ -500,9 +505,9 @@ async function sendPasswordResetEmail(email, name, userId, userType) {
     [email, userType === 'worker' ? userId : null, token, expiresAt]
   );
 
-  const resetLink = `http://localhost:8080/reset-password?token=${token}`;
+  const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:8080'}/reset-password?token=${token}`;
 
-  await sendEmail({
+  const result = await sendEmail({
     to: email,
     subject: 'Password Reset Request',
     html: `
@@ -515,6 +520,13 @@ async function sendPasswordResetEmail(email, name, userId, userType) {
     `,
     text: `Hello ${name}, You have requested to reset your password. Click the link below to set a new password: ${resetLink} This link will expire in 1 hour. If you did not request this, please ignore this email.`
   });
+
+  if (result.success) {
+    console.log(`[forgot-password] Reset email sent via ${result.method} to ${email} (${userType})`);
+  } else {
+    console.error(`[forgot-password] Reset email NOT delivered to ${email} (${userType}) - method=${result.method}${result.error ? ` error=${result.error}` : ''}`);
+  }
+  return result;
 }
 
 module.exports = router;
