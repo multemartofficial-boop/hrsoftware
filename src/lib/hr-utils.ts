@@ -40,6 +40,14 @@ export const daysUntil = (iso: string | Date) => {
 export const nowTime = () =>
   new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
 
+/** Normalise a TIME value ("HH:MM:SS" or "HH:MM") to 24-hour "HH:MM". */
+export const hhmm = (t: string | null | undefined) =>
+  t ? String(t).slice(0, 5) : t;
+
+/** UK-style timestamp: "05/09/2026, 13:45" (24-hour). */
+export const fmtDateTime = (v: string | Date | null | undefined) =>
+  v ? new Date(v).toLocaleString("en-GB", { hour12: false }) : "—";
+
 export const toMinutes = (t: string | null | undefined) => {
   if (!t) return 0;
   const [h, m] = t.split(":").map(Number);

@@ -1,6 +1,10 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Sparkles, CheckCircle2, ArrowLeft, ArrowRight, Plus, Trash2 } from "lucide-react";
+import {
+  Sparkles, CheckCircle2, ArrowLeft, ArrowRight, Plus, Trash2, Check,
+  User, Phone, Mail, Calendar, MapPin, Hash, Landmark, FileText, Upload, X,
+  Briefcase, Globe, Clock, ShieldCheck, CircleDashed,
+} from "lucide-react";
 import { Card, Field, PrimaryButton, GhostButton, inputCls } from "@/components/hr/bits";
 import { useApi } from "@/lib/api-store";
 import { HOW_HEARD_OPTIONS } from "@/lib/mock-data";
@@ -24,6 +28,20 @@ const VACANCY = "Site Operative";
 const titles = ["Mr", "Mrs", "Ms", "Miss", "Dr"];
 const availabilityOptions = ["Full-time", "Part-time", "Weekends only", "Flexible"];
 
+/** European countries listed first in the searchable dropdown — most applicants are UK/EU. */
+const EU_COUNTRIES = new Set([
+  "United Kingdom", "Ireland", "Austria", "Belgium", "Bulgaria", "Croatia", "Cyprus",
+  "Czechia", "Denmark", "Estonia", "Finland", "France", "Germany", "Greece", "Hungary",
+  "Iceland", "Italy", "Latvia", "Liechtenstein", "Lithuania", "Luxembourg", "Malta",
+  "Netherlands", "Norway", "Poland", "Portugal", "Romania", "Slovakia", "Slovenia",
+  "Spain", "Sweden", "Switzerland",
+]);
+const COUNTRIES_ORDERED = [...COUNTRIES.filter((c) => EU_COUNTRIES.has(c)), ...COUNTRIES.filter((c) => !EU_COUNTRIES.has(c))];
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+const FILE_ACCEPT = ".jpg,.jpeg,.png,.pdf";
+const FILE_HINT = "Max file size: 5MB. Accepted formats: JPG, PNG, PDF";
+
 type Row = Record<string, string>;
 const g = (r: Row, k: string) => r[k] ?? "";
 
@@ -32,12 +50,35 @@ const blankEmployer: Row = { name: "", address: "", town: "", postcode: "", phon
 const blankReferee: Row = { name: "", phone: "", email: "", address: "", years: "", relationship: "" };
 const blankSkill: Row = { name: "", attained: "", expiry: "", number: "" };
 
-const steps = ["Personal Details", "Documents & Eligibility", "Work History", "Skills & Availability", "Review & Submit"];
+const steps = [
+  { name: "Personal Details", icon: User },
+  { name: "Documents & Eligibility", icon: FileText },
+  { name: "Work History", icon: Briefcase },
+  { name: "Skills & Availability", icon: Clock },
+  { name: "Review & Submit", icon: ShieldCheck },
+];
 
-function Section({ title, children, cols = 2 }: { title: string; children: React.ReactNode; cols?: number }) {
+/** Input rendered with a leading icon (used inside <Field>). */
+function IconInput({ icon, children }: { icon: React.ReactNode; children: React.ReactElement }) {
   return (
-    <div className="mt-6 first:mt-0">
-      <h3 className="mb-3 text-sm font-semibold tracking-tight text-primary">{title}</h3>
+    <div className="relative">
+      <span className="pointer-events-none absolute left-3 top-1/2 z-10 size-4 -translate-y-1/2 text-muted-foreground [&>svg]:size-4">
+        {icon}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+const iconCls = "pl-9"; // extra left padding for inputs rendered inside IconInput
+
+function Section({ title, icon, children, cols = 2 }: { title: string; icon?: React.ReactNode; children: React.ReactNode; cols?: number }) {
+  return (
+    <div className="mt-5 rounded-xl border border-border bg-secondary/30 p-4 first:mt-0 sm:p-5">
+      <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold tracking-tight text-primary">
+        {icon && <span className="grid size-6 place-items-center rounded-md bg-primary-soft text-primary [&>svg]:size-3.5">{icon}</span>}
+        {title}
+      </h3>
       <div className={cols === 2 ? "grid gap-4 sm:grid-cols-2" : "grid gap-4"}>{children}</div>
     </div>
   );
@@ -50,6 +91,7 @@ function Repeat({
   onRemove,
   children,
   min = 0,
+  optional = false,
 }: {
   title: string;
   rows: Row[];
@@ -57,23 +99,27 @@ function Repeat({
   onRemove: (i: number) => void;
   children: (row: Row, i: number) => React.ReactNode;
   min?: number;
+  optional?: boolean;
 }) {
   return (
-    <div className="mt-6">
+    <div className="mt-5 rounded-xl border border-border bg-secondary/30 p-4 sm:p-5">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold tracking-tight text-primary">{title}</h3>
+        <h3 className="flex items-center gap-2 text-sm font-semibold tracking-tight text-primary">
+          {title}
+          {optional && <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">optional</span>}
+        </h3>
         <button
           type="button"
           onClick={onAdd}
-          className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium hover:bg-secondary"
+          className="flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium hover:bg-secondary"
         >
           <Plus className="size-3.5" /> Add
         </button>
       </div>
       <div className="grid gap-4">
-        {rows.length === 0 && <p className="text-sm text-muted-foreground">None added.</p>}
+        {rows.length === 0 && <p className="text-sm text-muted-foreground">None added — click “Add” to include one.</p>}
         {rows.map((row, i) => (
-          <div key={i} className="rounded-xl border border-border p-4">
+          <div key={i} className="rounded-xl border border-border bg-card p-4">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-medium text-muted-foreground">
                 {title} {i + 1}
@@ -117,12 +163,132 @@ function Summary({ title, items }: { title: string; items: [string, string][] })
 
 const Req = () => <span className="text-danger"> *</span>;
 
+/** Searchable country picker (native datalist — type to filter). */
+function CountrySelect({
+  id,
+  value,
+  onChange,
+  invalid,
+}: {
+  id: string;
+  value: string;
+  onChange: (v: string) => void;
+  invalid?: boolean;
+}) {
+  return (
+    <>
+      <IconInput icon={<Globe />}>
+        <input
+          list={id}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className={`${inputCls} ${iconCls} ${invalid ? "border-danger" : ""}`}
+          placeholder="Type to search countries…"
+        />
+      </IconInput>
+      <datalist id={id}>
+        {COUNTRIES_ORDERED.map((c) => (
+          <option key={c} value={c} />
+        ))}
+      </datalist>
+    </>
+  );
+}
+
+/** File upload with preview, size/format validation and remove option. */
+function FileUpload({
+  label,
+  required,
+  fileName,
+  preview,
+  onPick,
+  onClear,
+  error,
+}: {
+  label: string;
+  required?: boolean;
+  fileName: string;
+  preview?: string | undefined;
+  onPick: (f: File | null) => void;
+  onClear: () => void;
+  error?: string | undefined;
+}) {
+  const [localErr, setLocalErr] = useState<string | null>(null);
+  const isImage = preview?.startsWith("data:image");
+  const msg = error ?? localErr;
+
+  const pick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    e.target.value = "";
+    if (!file) return;
+    if (file.size > MAX_FILE_SIZE) {
+      setLocalErr(`“${file.name}” is ${(file.size / 1024 / 1024).toFixed(1)}MB — over the 5MB limit.`);
+      return;
+    }
+    if (!/\.(jpe?g|png|pdf)$/i.test(file.name)) {
+      setLocalErr("Unsupported format — please use JPG, PNG or PDF.");
+      return;
+    }
+    setLocalErr(null);
+    onPick(file);
+  };
+
+  return (
+    <div>
+      <span className="text-sm font-medium">
+        {label}
+        {required && <Req />}
+      </span>
+      {fileName ? (
+        <div className="mt-1.5 flex items-center gap-3 rounded-lg border border-border bg-card p-2.5">
+          {isImage ? (
+            <img src={preview} alt="" className="size-10 shrink-0 rounded-md object-cover" />
+          ) : (
+            <span className="grid size-10 shrink-0 place-items-center rounded-md bg-primary-soft text-primary">
+              <FileText className="size-4" />
+            </span>
+          )}
+          <span className="min-w-0 flex-1 truncate text-sm">{fileName}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setLocalErr(null);
+              onClear();
+            }}
+            aria-label="Remove file"
+            className="grid size-7 shrink-0 place-items-center rounded-md border border-border text-muted-foreground hover:bg-secondary hover:text-danger"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      ) : (
+        <label
+          className={`mt-1.5 flex h-20 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-muted-foreground transition-colors hover:border-primary hover:text-primary ${
+            msg ? "border-danger" : "border-border"
+          }`}
+        >
+          <Upload className="size-4" />
+          <span className="text-xs font-medium">Click to upload</span>
+          <input type="file" accept={FILE_ACCEPT} className="hidden" onChange={pick} />
+        </label>
+      )}
+      {msg ? (
+        <span className="mt-1 block text-xs font-medium text-danger">{msg}</span>
+      ) : (
+        <span className="mt-1 block text-xs text-muted-foreground">{FILE_HINT}</span>
+      )}
+    </div>
+  );
+}
+
 function RegisterPage() {
-  const { submitApplication, locations, settings, loading } = useApi();
+  const { submitApplication, locations, settings } = useApi();
   const [step, setStep] = useState(0);
+  const [maxStep, setMaxStep] = useState(0);
   const [done, setDone] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const [f, setF] = useState({
     title: titles[0]!,
@@ -159,6 +325,9 @@ function RegisterPage() {
     idFront: "",
     idBack: "",
     proofAddress: "",
+    passportDoc: "",
+    visaDoc: "",
+    siaDoc: "",
     hasVisa: "No",
     visaType: "",
     visaExpiry: "",
@@ -190,11 +359,32 @@ function RegisterPage() {
   const [docUrls, setDocUrls] = useState<Record<string, string>>({});
   const [fileObjects, setFileObjects] = useState<Record<string, File>>({});
 
-  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((s) => ({ ...s, [k]: e.target.value }));
-  const setFile = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    setF((s) => ({ ...s, [k]: file?.name ?? "" }));
+  const err = (k: string) => errors[k];
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => {
+    const v = e.target.value;
+    setF((s) => ({ ...s, [k]: v }));
+    setErrors((s) => {
+      if (!s[k as string]) return s;
+      const { [k as string]: _d, ...rest } = s;
+      return rest;
+    });
+  };
+  const setVal = (k: keyof typeof f) => (v: string) => {
+    setF((s) => ({ ...s, [k]: v }));
+    setErrors((s) => {
+      if (!s[k as string]) return s;
+      const { [k as string]: _d, ...rest } = s;
+      return rest;
+    });
+  };
+  const pickFile = (k: keyof typeof f) => (file: File | null) => {
+    setErrors((s) => {
+      if (!s[k as string]) return s;
+      const { [k as string]: _d, ...rest } = s;
+      return rest;
+    });
     if (!file) {
+      setF((s) => ({ ...s, [k]: "" }));
       setDocUrls((s) => {
         const { [k as string]: _drop, ...rest } = s;
         return rest;
@@ -205,18 +395,20 @@ function RegisterPage() {
       });
       return;
     }
+    setF((s) => ({ ...s, [k]: file.name }));
     const reader = new FileReader();
     reader.onload = () => setDocUrls((s) => ({ ...s, [k as string]: String(reader.result) }));
     reader.readAsDataURL(file);
-    // Store the actual file object for FormData upload
     setFileObjects((s) => ({ ...s, [k as string]: file }));
   };
   const rowSet = (
     setter: React.Dispatch<React.SetStateAction<Row[]>>,
     i: number,
     key: string,
-  ) => (e: { target: { value: string } }) =>
-    setter((rows) => rows.map((r, idx) => (idx === i ? { ...r, [key]: e.target.value } : r)));
+  ) => (e: { target: { value: string } }) => {
+    const v = e.target.value;
+    setter((rows) => rows.map((r, idx) => (idx === i ? { ...r, [key]: v } : r)));
+  };
 
   const pct = step * 25;
 
@@ -226,12 +418,152 @@ function RegisterPage() {
   const showVisaFields = f.hasVisa === "Yes" || visaNeeded;
   const visaMissing = visaNeeded && !(f.visaNumber.trim() && f.visaExpiry);
 
+  /* ---------------- per-step validation ---------------- */
+
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const NI_RE = /^[A-Za-z]{2}\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-Da-d]$/;
+
+  const need = (acc: Record<string, string>, key: string, label: string, val?: string) => {
+    if (!val || !val.trim()) acc[key] = `Please enter ${label}`;
+  };
+  const rowNeed = (acc: Record<string, string>, prefix: string, i: number, key: string, label: string, row: Row) => {
+    if (!g(row, key).trim()) acc[`${prefix}${i}.${key}`] = `Please enter ${label}`;
+  };
+
+  const validateStep = (n: number): Record<string, string> => {
+    const e: Record<string, string> = {};
+    if (n === 0) {
+      need(e, "surname", "your surname", f.surname);
+      need(e, "forename", "your forename", f.forename);
+      need(e, "dob", "your date of birth", f.dob);
+      if (!f.mobile.trim()) e["mobile"] = "Please enter your mobile number";
+      else if (!/^[\d\s+()-]{7,}$/.test(f.mobile.trim())) e["mobile"] = "Please enter a valid phone number";
+      if (!f.email.trim()) e["email"] = "Please enter your email address";
+      else if (!EMAIL_RE.test(f.email.trim())) e["email"] = "Please enter a valid email address";
+      need(e, "addr1", "the first line of your address", f.addr1);
+      need(e, "town", "your town or city", f.town);
+      need(e, "county", "your county / region", f.county);
+      need(e, "postcode", "your postcode", f.postcode);
+      need(e, "country", "your country", f.country);
+      need(e, "addressFrom", "the date you moved to this address", f.addressFrom);
+      prevAddresses.forEach((r, i) => {
+        rowNeed(e, "prev", i, "line1", "the address line 1", r);
+        rowNeed(e, "prev", i, "town", "the town", r);
+        rowNeed(e, "prev", i, "postcode", "the postcode", r);
+        rowNeed(e, "prev", i, "country", "the country", r);
+        rowNeed(e, "prev", i, "from", "the start date", r);
+        rowNeed(e, "prev", i, "to", "the end date", r);
+      });
+      need(e, "birthPlace", "your town / place of birth", f.birthPlace);
+      need(e, "nationality", "your nationality", f.nationality);
+      if (!f.ni.trim()) e["ni"] = "Please enter your National Insurance number";
+      else if (!NI_RE.test(f.ni.trim())) e["ni"] = "Please enter a valid NI number (e.g. QQ 12 34 56 C)";
+      need(e, "kinForename", "their forename", f.kinForename);
+      need(e, "kinSurname", "their surname", f.kinSurname);
+      need(e, "kinPhone", "their phone number", f.kinPhone);
+      need(e, "kinAddr1", "the first line of their address", f.kinAddr1);
+      need(e, "kinTown", "their town or city", f.kinTown);
+      need(e, "kinCounty", "their county / region", f.kinCounty);
+      need(e, "kinPostcode", "their postcode", f.kinPostcode);
+    }
+    if (n === 1) {
+      need(e, "photo", "a profile photo", f.photo);
+      need(e, "idFront", "the front of your ID document", f.idFront);
+      need(e, "idBack", "the back of your ID document", f.idBack);
+      need(e, "proofAddress", "a proof of address document", f.proofAddress);
+      need(e, "passportCountry", "your passport country", f.passportCountry);
+      need(e, "passportNumber", "your passport number", f.passportNumber);
+      need(e, "passportExpiry", "your passport expiry date", f.passportExpiry);
+      need(e, "passportDoc", "a photo/scan of your passport", f.passportDoc);
+      if (showVisaFields) {
+        need(e, "visaType", "your visa type", f.visaType);
+        need(e, "visaNumber", "your visa number", f.visaNumber);
+        need(e, "visaExpiry", "your visa expiry date", f.visaExpiry);
+        need(e, "visaDoc", "a photo/scan of your visa document", f.visaDoc);
+      }
+      if (f.siaBadgeNumber.trim() || f.siaBadgeExpiry) {
+        need(e, "siaBadgeNumber", "your SIA badge number", f.siaBadgeNumber);
+        need(e, "siaBadgeExpiry", "your SIA badge expiry date", f.siaBadgeExpiry);
+        need(e, "siaDoc", "a photo/scan of your SIA badge", f.siaDoc);
+      }
+      need(e, "bankName", "your bank name", f.bankName);
+      need(e, "accountHolder", "the account holder name", f.accountHolder);
+      need(e, "sortAccount", "your sort code / account number", f.sortAccount);
+    }
+    if (n === 2) {
+      if (f.workedBefore === "Yes") {
+        need(e, "beforeFrom", "the start date", f.beforeFrom);
+        need(e, "beforeTo", "the end date", f.beforeTo);
+        need(e, "beforeReason", "the reason for leaving", f.beforeReason);
+      }
+      employers.forEach((r, i) => {
+        rowNeed(e, "emp", i, "name", "the employer / organisation name", r);
+        rowNeed(e, "emp", i, "role", "your role / position", r);
+        rowNeed(e, "emp", i, "from", "the start date", r);
+        rowNeed(e, "emp", i, "to", "the end date", r);
+        if (g(r, "email").trim() && !EMAIL_RE.test(g(r, "email").trim()))
+          e[`emp${i}.email`] = "Please enter a valid email address";
+      });
+      referees.forEach((r, i) => {
+        rowNeed(e, "ref", i, "name", "the referee name", r);
+        rowNeed(e, "ref", i, "phone", "the referee phone", r);
+        if (!g(r, "email").trim()) e[`ref${i}.email`] = "Please enter the referee email";
+        else if (!EMAIL_RE.test(g(r, "email").trim())) e[`ref${i}.email`] = "Please enter a valid email address";
+        rowNeed(e, "ref", i, "years", "the years known", r);
+        rowNeed(e, "ref", i, "relationship", "the relationship", r);
+      });
+    }
+    if (n === 3) {
+      skills.forEach((r, i) => {
+        rowNeed(e, "skill", i, "name", "the qualification / certificate name", r);
+      });
+      if (!prefLocations.length) e["prefLocations"] = "Please select at least one preferred work location";
+      need(e, "rate", "your expected hourly rate", f.rate);
+      need(e, "howHeard", "how you heard about us", f.howHeard);
+      if (f.howHeard === "Sub-contract") need(e, "subcontractCompany", "the sub-contract company name", f.subcontractCompany);
+    }
+    return e;
+  };
+
+  const validateAll = (): { step: number; errors: Record<string, string> } | null => {
+    for (let n = 0; n <= 3; n++) {
+      const e = validateStep(n);
+      if (Object.keys(e).length) return { step: n, errors: e };
+    }
+    return null;
+  };
+
+  const goTo = (n: number) => {
+    setStep(n);
+    setMaxStep((m) => Math.max(m, n));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const next = () => {
+    const e = validateStep(step);
+    setErrors(e);
+    if (Object.keys(e).length) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    goTo(Math.min(4, step + 1));
+  };
+
   const submit = async () => {
+    const bad = validateAll();
+    if (bad) {
+      setErrors(bad.errors);
+      goTo(bad.step);
+      return;
+    }
+    if (!confirmed) {
+      setErrors({ ["confirmed"]: "Please confirm the information is accurate" });
+      return;
+    }
     setSubmitting(true);
     try {
       const formData = new FormData();
-      
-      // Add basic fields
+
       formData.append('title', f.title);
       formData.append('surname', f.surname);
       formData.append('forename', f.forename);
@@ -284,14 +616,11 @@ function RegisterPage() {
       formData.append('beforeReason', f.beforeReason);
       formData.append('availability', f.availability);
       formData.append('rate', String(f.rate));
-      
-      // Add file uploads with actual file objects
-      if (fileObjects["photo"]) formData.append('photo', fileObjects["photo"]);
-      if (fileObjects["idFront"]) formData.append('idFront', fileObjects["idFront"]);
-      if (fileObjects["idBack"]) formData.append('idBack', fileObjects["idBack"]);
-      if (fileObjects["proofAddress"]) formData.append('proofAddress', fileObjects["proofAddress"]);
-      
-      // Add JSON arrays
+
+      for (const k of ["photo", "idFront", "idBack", "proofAddress", "passportDoc", "visaDoc", "siaDoc"]) {
+        if (fileObjects[k]) formData.append(k, fileObjects[k]);
+      }
+
       formData.append('prevAddresses', JSON.stringify(prevAddresses));
       formData.append('employers', JSON.stringify(employers));
       formData.append('referees', JSON.stringify(referees));
@@ -302,7 +631,7 @@ function RegisterPage() {
       setDone(response.id);
     } catch (error) {
       console.error('Submission error:', error);
-      alert('Failed to submit application. Please try again.');
+      setErrors({ ["submit"]: 'Failed to submit application. Please try again.' });
     } finally {
       setSubmitting(false);
     }
@@ -310,7 +639,7 @@ function RegisterPage() {
 
   if (done) {
     return (
-      <Shell>
+      <Shell step={step} maxStep={maxStep} onStep={() => {}}>
         <Card className="text-center">
           <CheckCircle2 className="mx-auto size-10 text-success" />
           <h1 className="mt-3 text-xl font-bold tracking-tight">Application submitted successfully</h1>
@@ -327,68 +656,93 @@ function RegisterPage() {
     );
   }
 
-  return (
-    <Shell>
-      <h1 className="text-2xl font-bold tracking-tight">Worker Registration</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Step {step + 1} of 5 — {steps[step]}
-      </p>
+  const hasErrors = Object.keys(errors).length > 0;
 
-      <div className="mt-4 mb-4">
-        <div className="h-7 w-full overflow-hidden rounded-full bg-secondary">
+  return (
+    <Shell step={step} maxStep={maxStep} onStep={goTo}>
+      <div className="mb-5 lg:hidden">
+        <h1 className="text-2xl font-bold tracking-tight">Worker Registration</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Step {step + 1} of 5 — {steps[step]!.name}
+        </p>
+        <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-secondary">
           <div
-            className="flex h-full items-center justify-end rounded-full bg-primary pr-3 text-xs font-semibold text-primary-foreground transition-all duration-300"
-            style={{ width: `${Math.max(pct, 12)}%` }}
-          >
-            Application Form {pct}% Complete
-          </div>
+            className="h-full rounded-full bg-primary transition-all duration-300"
+            style={{ width: `${Math.max(pct, 8)}%` }}
+          />
         </div>
       </div>
 
-      <Card className="pb-24 md:pb-5">
+      <Card className="pb-6">
+        <div className="mb-4 hidden items-baseline justify-between lg:flex">
+          <h2 className="text-lg font-semibold tracking-tight">{steps[step]!.name}</h2>
+          <span className="text-xs text-muted-foreground">Step {step + 1} of 5</span>
+        </div>
+        {hasErrors && (
+          <p className="mb-4 rounded-lg bg-danger-soft px-3 py-2 text-xs font-medium text-danger">
+            Some fields need your attention — please review the highlighted fields below.
+          </p>
+        )}
+
         {step === 0 && (
           <>
             <Field label="Job / Position applied for">
               <input readOnly value={VACANCY} className={`${inputCls} bg-secondary text-muted-foreground`} />
             </Field>
 
-            <Section title="Personal Details">
-              <Field label="Title">
+            <Section title="Personal Details" icon={<User />}>
+              <Field label="Title *">
                 <select value={f.title} onChange={set("title")} className={inputCls}>
                   {titles.map((t) => (
                     <option key={t}>{t}</option>
                   ))}
                 </select>
               </Field>
-              <Field label="Surname *">
-                <input value={f.surname} onChange={set("surname")} className={inputCls} />
+              <Field label="Surname *" error={err("surname")}>
+                <IconInput icon={<User />}>
+                  <input value={f.surname} onChange={set("surname")} className={`${inputCls} ${iconCls} ${err("surname") ? "border-danger" : ""}`} />
+                </IconInput>
               </Field>
-              <Field label="Forename *">
-                <input value={f.forename} onChange={set("forename")} className={inputCls} />
+              <Field label="Forename *" error={err("forename")}>
+                <IconInput icon={<User />}>
+                  <input value={f.forename} onChange={set("forename")} className={`${inputCls} ${iconCls} ${err("forename") ? "border-danger" : ""}`} />
+                </IconInput>
               </Field>
-              <Field label="Date of Birth *">
-                <input type="date" value={f.dob} onChange={set("dob")} className={inputCls} />
+              <Field label="Date of Birth *" error={err("dob")}>
+                <IconInput icon={<Calendar />}>
+                  <input type="date" value={f.dob} onChange={set("dob")} className={`${inputCls} ${iconCls} ${err("dob") ? "border-danger" : ""}`} />
+                </IconInput>
               </Field>
-              <Field label="Surname at Birth (if different)">
-                <input value={f.birthSurname} onChange={set("birthSurname")} className={inputCls} />
+              <Field label="Surname at Birth" hint="Only if different from your current surname">
+                <IconInput icon={<User />}>
+                  <input value={f.birthSurname} onChange={set("birthSurname")} className={`${inputCls} ${iconCls}`} />
+                </IconInput>
               </Field>
-              <Field label="Date of Name Change (if applicable)">
-                <input type="date" value={f.nameChangeDate} onChange={set("nameChangeDate")} className={inputCls} />
+              <Field label="Date of Name Change" hint="Only if applicable">
+                <IconInput icon={<Calendar />}>
+                  <input type="date" value={f.nameChangeDate} onChange={set("nameChangeDate")} className={`${inputCls} ${iconCls}`} />
+                </IconInput>
               </Field>
             </Section>
 
-            <Section title="Contact Information">
-              <Field label="Mobile *">
-                <input value={f.mobile} onChange={set("mobile")} className={inputCls} placeholder="+44 7700 900000" />
+            <Section title="Contact Information" icon={<Phone />}>
+              <Field label="Mobile *" error={err("mobile")}>
+                <IconInput icon={<Phone />}>
+                  <input type="tel" value={f.mobile} onChange={set("mobile")} className={`${inputCls} ${iconCls} ${err("mobile") ? "border-danger" : ""}`} placeholder="+44 7700 900000" />
+                </IconInput>
               </Field>
-              <Field label="Email *">
-                <input type="email" value={f.email} onChange={set("email")} className={inputCls} />
+              <Field label="Email *" error={err("email")}>
+                <IconInput icon={<Mail />}>
+                  <input type="email" value={f.email} onChange={set("email")} className={`${inputCls} ${iconCls} ${err("email") ? "border-danger" : ""}`} placeholder="you@example.com" />
+                </IconInput>
               </Field>
             </Section>
 
-            <Section title="Current Address">
-              <Field label="Address Line 1 *" className="sm:col-span-2">
-                <input value={f.addr1} onChange={set("addr1")} className={inputCls} />
+            <Section title="Current Address" icon={<MapPin />}>
+              <Field label="Address Line 1 *" className="sm:col-span-2" error={err("addr1")}>
+                <IconInput icon={<MapPin />}>
+                  <input value={f.addr1} onChange={set("addr1")} className={`${inputCls} ${iconCls} ${err("addr1") ? "border-danger" : ""}`} />
+                </IconInput>
               </Field>
               <Field label="Address Line 2">
                 <input value={f.addr2} onChange={set("addr2")} className={inputCls} />
@@ -396,33 +750,36 @@ function RegisterPage() {
               <Field label="Address Line 3">
                 <input value={f.addr3} onChange={set("addr3")} className={inputCls} />
               </Field>
-              <Field label="Town *">
-                <input value={f.town} onChange={set("town")} className={inputCls} />
+              <Field label="Town *" error={err("town")}>
+                <input value={f.town} onChange={set("town")} className={`${inputCls} ${err("town") ? "border-danger" : ""}`} />
               </Field>
-              <Field label="County *">
-                <input value={f.county} onChange={set("county")} className={inputCls} />
+              <Field label="County / Region *" error={err("county")}>
+                <input value={f.county} onChange={set("county")} className={`${inputCls} ${err("county") ? "border-danger" : ""}`} />
               </Field>
-              <Field label="Postcode *">
-                <input value={f.postcode} onChange={set("postcode")} className={inputCls} />
+              <Field label="Postcode *" error={err("postcode")}>
+                <input value={f.postcode} onChange={set("postcode")} className={`${inputCls} ${err("postcode") ? "border-danger" : ""}`} />
               </Field>
-              <Field label="Country *">
-                <input value={f.country} onChange={set("country")} className={inputCls} />
+              <Field label="Country *" error={err("country")}>
+                <CountrySelect id="cur-country" value={f.country} onChange={setVal("country")} invalid={!!err("country")} />
               </Field>
-              <Field label="At Current Address From *">
-                <input type="date" value={f.addressFrom} onChange={set("addressFrom")} className={inputCls} />
+              <Field label="At Current Address From *" error={err("addressFrom")}>
+                <IconInput icon={<Calendar />}>
+                  <input type="date" value={f.addressFrom} onChange={set("addressFrom")} className={`${inputCls} ${iconCls} ${err("addressFrom") ? "border-danger" : ""}`} />
+                </IconInput>
               </Field>
             </Section>
 
             <Repeat
               title="Previous Address"
+              optional
               rows={prevAddresses}
               onAdd={() => setPrevAddresses((r) => [...r, { ...blankPrevAddress }])}
               onRemove={(i) => setPrevAddresses((r) => r.filter((_, idx) => idx !== i))}
             >
               {(row, i) => (
                 <>
-                  <Field label="Address Line 1" className="sm:col-span-2">
-                    <input value={g(row,"line1")} onChange={rowSet(setPrevAddresses, i, "line1")} className={inputCls} />
+                  <Field label="Address Line 1 *" className="sm:col-span-2" error={err(`prev${i}.line1`)}>
+                    <input value={g(row,"line1")} onChange={rowSet(setPrevAddresses, i, "line1")} className={`${inputCls} ${err(`prev${i}.line1`) ? "border-danger" : ""}`} />
                   </Field>
                   <Field label="Address Line 2">
                     <input value={g(row,"line2")} onChange={rowSet(setPrevAddresses, i, "line2")} className={inputCls} />
@@ -430,37 +787,46 @@ function RegisterPage() {
                   <Field label="Address Line 3">
                     <input value={g(row,"line3")} onChange={rowSet(setPrevAddresses, i, "line3")} className={inputCls} />
                   </Field>
-                  <Field label="Town">
-                    <input value={g(row,"town")} onChange={rowSet(setPrevAddresses, i, "town")} className={inputCls} />
+                  <Field label="Town *" error={err(`prev${i}.town`)}>
+                    <input value={g(row,"town")} onChange={rowSet(setPrevAddresses, i, "town")} className={`${inputCls} ${err(`prev${i}.town`) ? "border-danger" : ""}`} />
                   </Field>
                   <Field label="County">
                     <input value={g(row,"county")} onChange={rowSet(setPrevAddresses, i, "county")} className={inputCls} />
                   </Field>
-                  <Field label="Postcode">
-                    <input value={g(row,"postcode")} onChange={rowSet(setPrevAddresses, i, "postcode")} className={inputCls} />
+                  <Field label="Postcode *" error={err(`prev${i}.postcode`)}>
+                    <input value={g(row,"postcode")} onChange={rowSet(setPrevAddresses, i, "postcode")} className={`${inputCls} ${err(`prev${i}.postcode`) ? "border-danger" : ""}`} />
                   </Field>
-                  <Field label="Country">
-                    <input value={g(row,"country")} onChange={rowSet(setPrevAddresses, i, "country")} className={inputCls} />
+                  <Field label="Country *" error={err(`prev${i}.country`)}>
+                    <CountrySelect id={`prev-country-${i}`} value={g(row,"country")} onChange={(v) => rowSet(setPrevAddresses, i, "country")({ target: { value: v } })} invalid={!!err(`prev${i}.country`)} />
                   </Field>
-                  <Field label="At Address From">
-                    <input type="date" value={g(row,"from")} onChange={rowSet(setPrevAddresses, i, "from")} className={inputCls} />
+                  <Field label="At Address From *" error={err(`prev${i}.from`)}>
+                    <input type="date" value={g(row,"from")} onChange={rowSet(setPrevAddresses, i, "from")} className={`${inputCls} ${err(`prev${i}.from`) ? "border-danger" : ""}`} />
                   </Field>
-                  <Field label="At Address To">
-                    <input type="date" value={g(row,"to")} onChange={rowSet(setPrevAddresses, i, "to")} className={inputCls} />
+                  <Field label="At Address To *" error={err(`prev${i}.to`)}>
+                    <input type="date" value={g(row,"to")} onChange={rowSet(setPrevAddresses, i, "to")} className={`${inputCls} ${err(`prev${i}.to`) ? "border-danger" : ""}`} />
                   </Field>
                 </>
               )}
             </Repeat>
 
-            <Section title="Nationality">
-              <Field label="Town / Place of Birth *">
-                <input value={f.birthPlace} onChange={set("birthPlace")} className={inputCls} />
+            <Section title="Nationality & Right to Work" icon={<Globe />}>
+              <Field label="Town / Place of Birth *" error={err("birthPlace")}>
+                <IconInput icon={<MapPin />}>
+                  <input value={f.birthPlace} onChange={set("birthPlace")} className={`${inputCls} ${iconCls} ${err("birthPlace") ? "border-danger" : ""}`} />
+                </IconInput>
               </Field>
-              <Field label="Nationality *">
-                <input value={f.nationality} onChange={set("nationality")} className={inputCls} />
+              <Field label="Nationality *" error={err("nationality")}>
+                <input list="nationalities" value={f.nationality} onChange={set("nationality")} className={`${inputCls} ${err("nationality") ? "border-danger" : ""}`} placeholder="Type to search…" />
+                <datalist id="nationalities">
+                  {COUNTRIES_ORDERED.map((c) => (
+                    <option key={c} value={c} />
+                  ))}
+                </datalist>
               </Field>
-              <Field label="National Insurance No *">
-                <input value={f.ni} onChange={set("ni")} className={inputCls} placeholder="QQ 12 34 56 C" />
+              <Field label="National Insurance No *" error={err("ni")}>
+                <IconInput icon={<Hash />}>
+                  <input value={f.ni} onChange={set("ni")} className={`${inputCls} ${iconCls} ${err("ni") ? "border-danger" : ""}`} placeholder="QQ 12 34 56 C" />
+                </IconInput>
               </Field>
               <Field label="Are you permitted to work in the UK? *">
                 <select value={f.rtw} onChange={set("rtw")} className={inputCls}>
@@ -470,18 +836,27 @@ function RegisterPage() {
               </Field>
             </Section>
 
-            <Section title="Next of Kin / Emergency Contact">
-              <Field label="Forename *">
-                <input value={f.kinForename} onChange={set("kinForename")} className={inputCls} />
+            <Section title="Next of Kin / Emergency Contact" icon={<User />}>
+              <Field label="Forename *" error={err("kinForename")}>
+                <IconInput icon={<User />}>
+                  <input value={f.kinForename} onChange={set("kinForename")} className={`${inputCls} ${iconCls} ${err("kinForename") ? "border-danger" : ""}`} />
+                </IconInput>
               </Field>
-              <Field label="Surname *">
-                <input value={f.kinSurname} onChange={set("kinSurname")} className={inputCls} />
+              <Field label="Surname *" error={err("kinSurname")}>
+                <IconInput icon={<User />}>
+                  <input value={f.kinSurname} onChange={set("kinSurname")} className={`${inputCls} ${iconCls} ${err("kinSurname") ? "border-danger" : ""}`} />
+                </IconInput>
               </Field>
-              <Field label="Phone *">
-                <input value={f.kinPhone} onChange={set("kinPhone")} className={inputCls} />
+              <Field label="Phone *" error={err("kinPhone")}>
+                <IconInput icon={<Phone />}>
+                  <input type="tel" value={f.kinPhone} onChange={set("kinPhone")} className={`${inputCls} ${iconCls} ${err("kinPhone") ? "border-danger" : ""}`} />
+                </IconInput>
               </Field>
-              <Field label="Address Line 1 *">
-                <input value={f.kinAddr1} onChange={set("kinAddr1")} className={inputCls} />
+              <div className="hidden sm:block" />
+              <Field label="Address Line 1 *" className="sm:col-span-2" error={err("kinAddr1")}>
+                <IconInput icon={<MapPin />}>
+                  <input value={f.kinAddr1} onChange={set("kinAddr1")} className={`${inputCls} ${iconCls} ${err("kinAddr1") ? "border-danger" : ""}`} />
+                </IconInput>
               </Field>
               <Field label="Address Line 2">
                 <input value={f.kinAddr2} onChange={set("kinAddr2")} className={inputCls} />
@@ -489,17 +864,14 @@ function RegisterPage() {
               <Field label="Address Line 3">
                 <input value={f.kinAddr3} onChange={set("kinAddr3")} className={inputCls} />
               </Field>
-              <Field label="Town *">
-                <input value={f.kinTown} onChange={set("kinTown")} className={inputCls} />
+              <Field label="Town *" error={err("kinTown")}>
+                <input value={f.kinTown} onChange={set("kinTown")} className={`${inputCls} ${err("kinTown") ? "border-danger" : ""}`} />
               </Field>
-              <Field label="County *">
-                <input value={f.kinCounty} onChange={set("kinCounty")} className={inputCls} />
+              <Field label="County *" error={err("kinCounty")}>
+                <input value={f.kinCounty} onChange={set("kinCounty")} className={`${inputCls} ${err("kinCounty") ? "border-danger" : ""}`} />
               </Field>
-              <Field label="Postcode *">
-                <input value={f.kinPostcode} onChange={set("kinPostcode")} className={inputCls} />
-              </Field>
-              <Field label="Country *">
-                <input value={f.kinCountry} onChange={set("kinCountry")} className={inputCls} />
+              <Field label="Postcode *" error={err("kinPostcode")}>
+                <input value={f.kinPostcode} onChange={set("kinPostcode")} className={`${inputCls} ${err("kinPostcode") ? "border-danger" : ""}`} />
               </Field>
             </Section>
           </>
@@ -507,45 +879,71 @@ function RegisterPage() {
 
         {step === 1 && (
           <>
-            <Section title="Uploads">
-              <Field label="Profile Photo *" hint={f.photo || undefined}>
-                <input type="file" accept="image/*" onChange={setFile("photo")} className={`${inputCls} py-2`} />
-              </Field>
-              <Field label="Proof of Address (optional)" hint={f.proofAddress || undefined}>
-                <input type="file" onChange={setFile("proofAddress")} className={`${inputCls} py-2`} />
-              </Field>
-              <Field label="NID / ID Document — Front *" hint={f.idFront || undefined}>
-                <input type="file" onChange={setFile("idFront")} className={`${inputCls} py-2`} />
-              </Field>
-              <Field label="NID / ID Document — Back" hint={f.idBack || undefined}>
-                <input type="file" onChange={setFile("idBack")} className={`${inputCls} py-2`} />
-              </Field>
+            <Section title="Document Uploads" icon={<Upload />}>
+              <FileUpload
+                label="Profile Photo"
+                required
+                fileName={f.photo}
+                preview={docUrls["photo"]}
+                onPick={pickFile("photo")}
+                onClear={() => pickFile("photo")(null)}
+                error={err("photo")}
+              />
+              <FileUpload
+                label="Proof of Address"
+                required
+                fileName={f.proofAddress}
+                preview={docUrls["proofAddress"]}
+                onPick={pickFile("proofAddress")}
+                onClear={() => pickFile("proofAddress")(null)}
+                error={err("proofAddress")}
+              />
+              <FileUpload
+                label="NID / ID Document — Front"
+                required
+                fileName={f.idFront}
+                preview={docUrls["idFront"]}
+                onPick={pickFile("idFront")}
+                onClear={() => pickFile("idFront")(null)}
+                error={err("idFront")}
+              />
+              <FileUpload
+                label="NID / ID Document — Back"
+                required
+                fileName={f.idBack}
+                preview={docUrls["idBack"]}
+                onPick={pickFile("idBack")}
+                onClear={() => pickFile("idBack")(null)}
+                error={err("idBack")}
+              />
             </Section>
 
-            <Section title="Passport">
-              <Field label="Passport Country" hint="Which country's passport do you hold? Start typing to search.">
-                <input
-                  list="passport-countries"
-                  value={f.passportCountry}
-                  onChange={set("passportCountry")}
-                  className={inputCls}
-                  placeholder="Type to search countries…"
-                />
-                <datalist id="passport-countries">
-                  {COUNTRIES.map((c) => (
-                    <option key={c} value={c} />
-                  ))}
-                </datalist>
+            <Section title="Passport" icon={<Globe />}>
+              <Field label="Passport Country *" error={err("passportCountry")} hint="Which country's passport do you hold? Type to search.">
+                <CountrySelect id="passport-countries" value={f.passportCountry} onChange={setVal("passportCountry")} invalid={!!err("passportCountry")} />
               </Field>
-              <Field label="Passport Number">
-                <input value={f.passportNumber} onChange={set("passportNumber")} className={inputCls} />
+              <Field label="Passport Number *" error={err("passportNumber")}>
+                <IconInput icon={<Hash />}>
+                  <input value={f.passportNumber} onChange={set("passportNumber")} className={`${inputCls} ${iconCls} ${err("passportNumber") ? "border-danger" : ""}`} />
+                </IconInput>
               </Field>
-              <Field label="Passport Expiry Date">
-                <input type="date" value={f.passportExpiry} onChange={set("passportExpiry")} className={inputCls} />
+              <Field label="Passport Expiry Date *" error={err("passportExpiry")}>
+                <IconInput icon={<Calendar />}>
+                  <input type="date" value={f.passportExpiry} onChange={set("passportExpiry")} className={`${inputCls} ${iconCls} ${err("passportExpiry") ? "border-danger" : ""}`} />
+                </IconInput>
               </Field>
+              <FileUpload
+                label="Passport Document"
+                required
+                fileName={f.passportDoc}
+                preview={docUrls["passportDoc"]}
+                onPick={pickFile("passportDoc")}
+                onClear={() => pickFile("passportDoc")(null)}
+                error={err("passportDoc")}
+              />
             </Section>
 
-            <Section title="Right to Work">
+            <Section title="Right to Work" icon={<ShieldCheck />}>
               <Field label="Do you hold any work permit / visa?">
                 <select value={f.hasVisa} onChange={set("hasVisa")} className={inputCls}>
                   <option>No</option>
@@ -554,54 +952,85 @@ function RegisterPage() {
               </Field>
               {showVisaFields && (
                 <>
-                  <Field label="Visa Type">
-                    <input value={f.visaType} onChange={set("visaType")} className={inputCls} />
+                  <Field label="Visa Type *" error={err("visaType")}>
+                    <input value={f.visaType} onChange={set("visaType")} className={`${inputCls} ${err("visaType") ? "border-danger" : ""}`} />
                   </Field>
                   <Field
-                    label={visaNeeded ? "Visa Number *" : "Visa Number"}
-                    hint={visaNeeded ? "Required for non-UK/Irish passport holders" : "Optional"}
+                    label="Visa Number *"
+                    error={err("visaNumber")}
+                    hint={visaNeeded ? "Required for non-UK/Irish passport holders" : undefined}
                   >
-                    <input value={f.visaNumber} onChange={set("visaNumber")} className={inputCls} />
+                    <input value={f.visaNumber} onChange={set("visaNumber")} className={`${inputCls} ${err("visaNumber") ? "border-danger" : ""}`} />
                   </Field>
-                  <Field label={visaNeeded ? "Visa Expiry Date *" : "Visa Expiry Date"}>
-                    <input type="date" value={f.visaExpiry} onChange={set("visaExpiry")} className={inputCls} />
+                  <Field label="Visa Expiry Date *" error={err("visaExpiry")}>
+                    <IconInput icon={<Calendar />}>
+                      <input type="date" value={f.visaExpiry} onChange={set("visaExpiry")} className={`${inputCls} ${iconCls} ${err("visaExpiry") ? "border-danger" : ""}`} />
+                    </IconInput>
                   </Field>
+                  <FileUpload
+                    label="Visa / Work Permit Document"
+                    required
+                    fileName={f.visaDoc}
+                    preview={docUrls["visaDoc"]}
+                    onPick={pickFile("visaDoc")}
+                    onClear={() => pickFile("visaDoc")(null)}
+                    error={err("visaDoc")}
+                  />
                 </>
               )}
               {visaMissing && (
                 <p className="sm:col-span-2 rounded-lg bg-secondary/60 px-3 py-2 text-xs text-danger">
                   You selected a {f.passportCountry} passport, so visa details are expected. Please add your visa
-                  number and expiry date.
+                  number, expiry date and document.
                 </p>
               )}
             </Section>
 
-            <Section title="SIA Badge">
-              <Field label="SIA Badge Number">
-                <input value={f.siaBadgeNumber} onChange={set("siaBadgeNumber")} className={inputCls} />
+            <Section title="SIA Badge" icon={<ShieldCheck />}>
+              <Field label="SIA Badge Number" hint="Leave blank if you don't hold an SIA badge" error={err("siaBadgeNumber")}>
+                <input value={f.siaBadgeNumber} onChange={set("siaBadgeNumber")} className={`${inputCls} ${err("siaBadgeNumber") ? "border-danger" : ""}`} />
               </Field>
-              <Field label="SIA Badge Expiry Date">
-                <input type="date" value={f.siaBadgeExpiry} onChange={set("siaBadgeExpiry")} className={inputCls} />
+              <Field label="SIA Badge Expiry Date" error={err("siaBadgeExpiry")}>
+                <IconInput icon={<Calendar />}>
+                  <input type="date" value={f.siaBadgeExpiry} onChange={set("siaBadgeExpiry")} className={`${inputCls} ${iconCls} ${err("siaBadgeExpiry") ? "border-danger" : ""}`} />
+                </IconInput>
+              </Field>
+              {(f.siaBadgeNumber.trim() || f.siaBadgeExpiry) && (
+                <FileUpload
+                  label="SIA Badge Document"
+                  required
+                  fileName={f.siaDoc}
+                  preview={docUrls["siaDoc"]}
+                  onPick={pickFile("siaDoc")}
+                  onClear={() => pickFile("siaDoc")(null)}
+                  error={err("siaDoc")}
+                />
+              )}
+            </Section>
+
+            <Section title="Bank Details (for payroll)" icon={<Landmark />}>
+              <Field label="Bank Name *" error={err("bankName")}>
+                <IconInput icon={<Landmark />}>
+                  <input value={f.bankName} onChange={set("bankName")} className={`${inputCls} ${iconCls} ${err("bankName") ? "border-danger" : ""}`} />
+                </IconInput>
+              </Field>
+              <Field label="Account Holder Name *" error={err("accountHolder")}>
+                <IconInput icon={<User />}>
+                  <input value={f.accountHolder} onChange={set("accountHolder")} className={`${inputCls} ${iconCls} ${err("accountHolder") ? "border-danger" : ""}`} />
+                </IconInput>
+              </Field>
+              <Field label="Sort Code / Account Number *" className="sm:col-span-2" error={err("sortAccount")}>
+                <IconInput icon={<Hash />}>
+                  <input value={f.sortAccount} onChange={set("sortAccount")} className={`${inputCls} ${iconCls} ${err("sortAccount") ? "border-danger" : ""}`} placeholder="00-00-00 / 12345678" />
+                </IconInput>
               </Field>
             </Section>
 
-            <Section title="Bank Details (for payroll)">
-              <Field label="Bank Name">
-                <input value={f.bankName} onChange={set("bankName")} className={inputCls} />
-              </Field>
-              <Field label="Account Holder Name">
-                <input value={f.accountHolder} onChange={set("accountHolder")} className={inputCls} />
-              </Field>
-              <Field label="Sort Code / Account Number" className="sm:col-span-2">
-                <input value={f.sortAccount} onChange={set("sortAccount")} className={inputCls} placeholder="00-00-00 / 12345678" />
-              </Field>
-            </Section>
-
-            <Section title="Emergency / Health Info (optional)">
-              <Field label="Any medical conditions we should be aware of" className="sm:col-span-2">
+            <Section title="Emergency / Health Info" icon={<FileText />}>
+              <Field label="Any medical conditions we should be aware of" hint="Optional" className="sm:col-span-2">
                 <input value={f.medical} onChange={set("medical")} className={inputCls} />
               </Field>
-              <Field label="Any dietary / accessibility needs" className="sm:col-span-2">
+              <Field label="Any dietary / accessibility needs" hint="Optional" className="sm:col-span-2">
                 <input value={f.dietary} onChange={set("dietary")} className={inputCls} />
               </Field>
             </Section>
@@ -610,37 +1039,48 @@ function RegisterPage() {
 
         {step === 2 && (
           <>
-            <Section title="Previous Employment With Us">
+            <Section title="Previous Employment With Us" icon={<Briefcase />}>
               <Field label="Have you worked for this company before?">
                 <select value={f.workedBefore} onChange={set("workedBefore")} className={inputCls}>
                   <option>No</option>
                   <option>Yes</option>
                 </select>
               </Field>
-              <Field label="Reason for leaving">
-                <input value={f.beforeReason} onChange={set("beforeReason")} className={inputCls} />
-              </Field>
-              <Field label="From">
-                <input type="date" value={f.beforeFrom} onChange={set("beforeFrom")} className={inputCls} />
-              </Field>
-              <Field label="To">
-                <input type="date" value={f.beforeTo} onChange={set("beforeTo")} className={inputCls} />
-              </Field>
+              {f.workedBefore === "Yes" && (
+                <>
+                  <Field label="From *" error={err("beforeFrom")}>
+                    <IconInput icon={<Calendar />}>
+                      <input type="date" value={f.beforeFrom} onChange={set("beforeFrom")} className={`${inputCls} ${iconCls} ${err("beforeFrom") ? "border-danger" : ""}`} />
+                    </IconInput>
+                  </Field>
+                  <Field label="To *" error={err("beforeTo")}>
+                    <IconInput icon={<Calendar />}>
+                      <input type="date" value={f.beforeTo} onChange={set("beforeTo")} className={`${inputCls} ${iconCls} ${err("beforeTo") ? "border-danger" : ""}`} />
+                    </IconInput>
+                  </Field>
+                  <Field label="Reason for leaving *" className="sm:col-span-2" error={err("beforeReason")}>
+                    <input value={f.beforeReason} onChange={set("beforeReason")} className={`${inputCls} ${err("beforeReason") ? "border-danger" : ""}`} />
+                  </Field>
+                </>
+              )}
             </Section>
 
             <Repeat
               title="Employment Record"
               rows={employers}
+              min={1}
               onAdd={() => setEmployers((r) => [...r, { ...blankEmployer }])}
               onRemove={(i) => setEmployers((r) => r.filter((_, idx) => idx !== i))}
             >
               {(row, i) => (
                 <>
-                  <Field label="Employer / Organisation Name *">
-                    <input value={g(row,"name")} onChange={rowSet(setEmployers, i, "name")} className={inputCls} />
+                  <Field label="Employer / Organisation Name *" error={err(`emp${i}.name`)}>
+                    <IconInput icon={<Briefcase />}>
+                      <input value={g(row,"name")} onChange={rowSet(setEmployers, i, "name")} className={`${inputCls} ${iconCls} ${err(`emp${i}.name`) ? "border-danger" : ""}`} />
+                    </IconInput>
                   </Field>
-                  <Field label="Role / Position *">
-                    <input value={g(row,"role")} onChange={rowSet(setEmployers, i, "role")} className={inputCls} />
+                  <Field label="Role / Position *" error={err(`emp${i}.role`)}>
+                    <input value={g(row,"role")} onChange={rowSet(setEmployers, i, "role")} className={`${inputCls} ${err(`emp${i}.role`) ? "border-danger" : ""}`} />
                   </Field>
                   <Field label="Address">
                     <input value={g(row,"address")} onChange={rowSet(setEmployers, i, "address")} className={inputCls} />
@@ -652,19 +1092,27 @@ function RegisterPage() {
                     <input value={g(row,"postcode")} onChange={rowSet(setEmployers, i, "postcode")} className={inputCls} />
                   </Field>
                   <Field label="Phone">
-                    <input value={g(row,"phone")} onChange={rowSet(setEmployers, i, "phone")} className={inputCls} />
+                    <IconInput icon={<Phone />}>
+                      <input type="tel" value={g(row,"phone")} onChange={rowSet(setEmployers, i, "phone")} className={`${inputCls} ${iconCls}`} />
+                    </IconInput>
                   </Field>
-                  <Field label="Email">
-                    <input value={g(row,"email")} onChange={rowSet(setEmployers, i, "email")} className={inputCls} />
+                  <Field label="Email" error={err(`emp${i}.email`)}>
+                    <IconInput icon={<Mail />}>
+                      <input type="email" value={g(row,"email")} onChange={rowSet(setEmployers, i, "email")} className={`${inputCls} ${iconCls} ${err(`emp${i}.email`) ? "border-danger" : ""}`} />
+                    </IconInput>
                   </Field>
                   <Field label="Reason for Leaving">
                     <input value={g(row,"reason")} onChange={rowSet(setEmployers, i, "reason")} className={inputCls} />
                   </Field>
-                  <Field label="From *">
-                    <input type="date" value={g(row,"from")} onChange={rowSet(setEmployers, i, "from")} className={inputCls} />
+                  <Field label="From *" error={err(`emp${i}.from`)}>
+                    <IconInput icon={<Calendar />}>
+                      <input type="date" value={g(row,"from")} onChange={rowSet(setEmployers, i, "from")} className={`${inputCls} ${iconCls} ${err(`emp${i}.from`) ? "border-danger" : ""}`} />
+                    </IconInput>
                   </Field>
-                  <Field label="To *">
-                    <input type="date" value={g(row,"to")} onChange={rowSet(setEmployers, i, "to")} className={inputCls} />
+                  <Field label="To *" error={err(`emp${i}.to`)}>
+                    <IconInput icon={<Calendar />}>
+                      <input type="date" value={g(row,"to")} onChange={rowSet(setEmployers, i, "to")} className={`${inputCls} ${iconCls} ${err(`emp${i}.to`) ? "border-danger" : ""}`} />
+                    </IconInput>
                   </Field>
                 </>
               )}
@@ -679,23 +1127,29 @@ function RegisterPage() {
             >
               {(row, i) => (
                 <>
-                  <Field label="Referee Name *">
-                    <input value={g(row,"name")} onChange={rowSet(setReferees, i, "name")} className={inputCls} />
+                  <Field label="Referee Name *" error={err(`ref${i}.name`)}>
+                    <IconInput icon={<User />}>
+                      <input value={g(row,"name")} onChange={rowSet(setReferees, i, "name")} className={`${inputCls} ${iconCls} ${err(`ref${i}.name`) ? "border-danger" : ""}`} />
+                    </IconInput>
                   </Field>
-                  <Field label="Referee Phone *">
-                    <input value={g(row,"phone")} onChange={rowSet(setReferees, i, "phone")} className={inputCls} />
+                  <Field label="Referee Phone *" error={err(`ref${i}.phone`)}>
+                    <IconInput icon={<Phone />}>
+                      <input type="tel" value={g(row,"phone")} onChange={rowSet(setReferees, i, "phone")} className={`${inputCls} ${iconCls} ${err(`ref${i}.phone`) ? "border-danger" : ""}`} />
+                    </IconInput>
                   </Field>
-                  <Field label="Referee Email *">
-                    <input value={g(row,"email")} onChange={rowSet(setReferees, i, "email")} className={inputCls} />
+                  <Field label="Referee Email *" error={err(`ref${i}.email`)}>
+                    <IconInput icon={<Mail />}>
+                      <input type="email" value={g(row,"email")} onChange={rowSet(setReferees, i, "email")} className={`${inputCls} ${iconCls} ${err(`ref${i}.email`) ? "border-danger" : ""}`} />
+                    </IconInput>
                   </Field>
                   <Field label="Referee Address">
                     <input value={g(row,"address")} onChange={rowSet(setReferees, i, "address")} className={inputCls} />
                   </Field>
-                  <Field label="How many years known *">
-                    <input value={g(row,"years")} onChange={rowSet(setReferees, i, "years")} className={inputCls} />
+                  <Field label="How many years known *" error={err(`ref${i}.years`)}>
+                    <input value={g(row,"years")} onChange={rowSet(setReferees, i, "years")} className={`${inputCls} ${err(`ref${i}.years`) ? "border-danger" : ""}`} />
                   </Field>
-                  <Field label="Relationship to you *">
-                    <input value={g(row,"relationship")} onChange={rowSet(setReferees, i, "relationship")} className={inputCls} />
+                  <Field label="Relationship to you *" error={err(`ref${i}.relationship`)}>
+                    <input value={g(row,"relationship")} onChange={rowSet(setReferees, i, "relationship")} className={`${inputCls} ${err(`ref${i}.relationship`) ? "border-danger" : ""}`} />
                   </Field>
                 </>
               )}
@@ -707,31 +1161,36 @@ function RegisterPage() {
           <>
             <Repeat
               title="Skills & Qualifications"
+              optional
               rows={skills}
               onAdd={() => setSkills((r) => [...r, { ...blankSkill }])}
               onRemove={(i) => setSkills((r) => r.filter((_, idx) => idx !== i))}
             >
               {(row, i) => (
                 <>
-                  <Field label="Qualification / Certificate Name">
-                    <input value={g(row,"name")} onChange={rowSet(setSkills, i, "name")} className={inputCls} />
+                  <Field label="Qualification / Certificate Name *" error={err(`skill${i}.name`)}>
+                    <input value={g(row,"name")} onChange={rowSet(setSkills, i, "name")} className={`${inputCls} ${err(`skill${i}.name`) ? "border-danger" : ""}`} />
                   </Field>
                   <Field label="Certificate Number">
                     <input value={g(row,"number")} onChange={rowSet(setSkills, i, "number")} className={inputCls} />
                   </Field>
                   <Field label="Date Attained">
-                    <input type="date" value={g(row,"attained")} onChange={rowSet(setSkills, i, "attained")} className={inputCls} />
+                    <IconInput icon={<Calendar />}>
+                      <input type="date" value={g(row,"attained")} onChange={rowSet(setSkills, i, "attained")} className={`${inputCls} ${iconCls}`} />
+                    </IconInput>
                   </Field>
-                  <Field label="Expiry Date (if applicable)">
-                    <input type="date" value={g(row,"expiry")} onChange={rowSet(setSkills, i, "expiry")} className={inputCls} />
+                  <Field label="Expiry Date" hint="If applicable">
+                    <IconInput icon={<Calendar />}>
+                      <input type="date" value={g(row,"expiry")} onChange={rowSet(setSkills, i, "expiry")} className={`${inputCls} ${iconCls}`} />
+                    </IconInput>
                   </Field>
                 </>
               )}
             </Repeat>
 
-            <Section title="Availability">
+            <Section title="Availability" icon={<Clock />}>
               <div className="sm:col-span-2">
-                <span className="text-sm font-medium">Preferred Work Location(s)</span>
+                <span className="text-sm font-medium">Preferred Work Location(s) *</span>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {(locations || []).map((l) => {
                     const on = prefLocations.includes(l.name);
@@ -739,31 +1198,40 @@ function RegisterPage() {
                       <button
                         type="button"
                         key={l.id}
-                        onClick={() =>
-                          setPrefLocations((s) => (on ? s.filter((x) => x !== l.name) : [...s, l.name]))
-                        }
-                        className={`rounded-full border px-3 py-1.5 text-xs font-medium ${
-                          on ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-secondary"
+                        onClick={() => {
+                          setPrefLocations((s) => (on ? s.filter((x) => x !== l.name) : [...s, l.name]));
+                          setErrors((s) => {
+                            if (!s["prefLocations"]) return s;
+                            const { prefLocations: _d, ...rest } = s;
+                            return rest;
+                          });
+                        }}
+                        className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium ${
+                          on ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:bg-secondary"
                         }`}
                       >
+                        <MapPin className="size-3" />
                         {l.name}
                       </button>
                     );
                   })}
                 </div>
+                {err("prefLocations") && <span className="mt-1 block text-xs font-medium text-danger">{err("prefLocations")}</span>}
               </div>
-              <Field label="Preferred Working Hours / Availability">
-                <select value={f.availability} onChange={set("availability")} className={inputCls}>
-                  {availabilityOptions.map((o) => (
-                    <option key={o}>{o}</option>
-                  ))}
-                </select>
+              <Field label="Preferred Working Hours / Availability *">
+                <IconInput icon={<Clock />}>
+                  <select value={f.availability} onChange={set("availability")} className={`${inputCls} ${iconCls}`}>
+                    {availabilityOptions.map((o) => (
+                      <option key={o}>{o}</option>
+                    ))}
+                  </select>
+                </IconInput>
               </Field>
-              <Field label="Expected Hourly Rate (£)">
-                <input type="number" step="0.25" min="0" value={f.rate} onChange={set("rate")} className={inputCls} />
+              <Field label="Expected Hourly Rate (£) *" error={err("rate")}>
+                <input type="number" step="0.25" min="0" value={f.rate} onChange={set("rate")} className={`${inputCls} ${err("rate") ? "border-danger" : ""}`} />
               </Field>
-              <Field label="How did you hear about us?">
-                <select value={f.howHeard} onChange={set("howHeard")} className={inputCls}>
+              <Field label="How did you hear about us? *" error={err("howHeard")}>
+                <select value={f.howHeard} onChange={set("howHeard")} className={`${inputCls} ${err("howHeard") ? "border-danger" : ""}`}>
                   <option value="">Select an option…</option>
                   {HOW_HEARD_OPTIONS.map((o) => (
                     <option key={o}>{o}</option>
@@ -772,13 +1240,14 @@ function RegisterPage() {
               </Field>
               {f.howHeard === "Sub-contract" && (
                 <Field
-                  label="Sub-contract company name"
+                  label="Sub-contract company name *"
+                  error={err("subcontractCompany")}
                   hint="The company that is subcontracting you to work with us"
                 >
                   <input
                     value={f.subcontractCompany}
                     onChange={set("subcontractCompany")}
-                    className={inputCls}
+                    className={`${inputCls} ${err("subcontractCompany") ? "border-danger" : ""}`}
                     placeholder="e.g. ABC Security Ltd"
                   />
                 </Field>
@@ -855,12 +1324,15 @@ function RegisterPage() {
                 ["Passport Country", f.passportCountry],
                 ["Passport Number", f.passportNumber],
                 ["Passport Expiry", f.passportExpiry],
+                ["Passport Document", f.passportDoc],
                 ["Work permit / visa", f.hasVisa],
                 ["Visa Type", f.visaType],
                 ["Visa Number", f.visaNumber],
                 ["Visa Expiry", f.visaExpiry],
+                ["Visa Document", f.visaDoc],
                 ["SIA Badge Number", f.siaBadgeNumber],
                 ["SIA Badge Expiry", f.siaBadgeExpiry],
+                ["SIA Badge Document", f.siaDoc],
                 ["Bank Name", f.bankName],
                 ["Account Holder", f.accountHolder],
                 ["Sort Code / Account", f.sortAccount],
@@ -930,11 +1402,18 @@ function RegisterPage() {
               ]}
             />
 
-            <label className="mt-6 flex items-start gap-3 rounded-xl border border-border p-4 text-sm">
+            <label className={`mt-6 flex items-start gap-3 rounded-xl border p-4 text-sm ${err("confirmed") ? "border-danger" : "border-border"}`}>
               <input
                 type="checkbox"
                 checked={confirmed}
-                onChange={(e) => setConfirmed(e.target.checked)}
+                onChange={(e) => {
+                  setConfirmed(e.target.checked);
+                  setErrors((s) => {
+                    if (!s["confirmed"]) return s;
+                    const { confirmed: _d, ...rest } = s;
+                    return rest;
+                  });
+                }}
                 className="mt-0.5 size-4 accent-primary"
               />
               <span>
@@ -942,21 +1421,23 @@ function RegisterPage() {
                 <Req />
               </span>
             </label>
+            {err("confirmed") && <p className="mt-1 text-xs font-medium text-danger">{err("confirmed")}</p>}
+            {err("submit") && <p className="mt-2 rounded-lg bg-danger-soft px-3 py-2 text-xs font-medium text-danger">{err("submit")}</p>}
           </>
         )}
       </Card>
 
       {/* step controls */}
       <div className="fixed inset-x-0 bottom-0 z-30 flex items-center gap-3 border-t border-border bg-card px-5 py-3 md:static md:mt-4 md:border-0 md:bg-transparent md:px-0 md:py-0">
-        <GhostButton disabled={step === 0} onClick={() => setStep((s) => Math.max(0, s - 1))} className="flex-1 md:flex-none">
+        <GhostButton disabled={step === 0} onClick={() => goTo(Math.max(0, step - 1))} className="flex-1 md:flex-none">
           <ArrowLeft className="size-4" /> Previous
         </GhostButton>
         {step < 4 ? (
-          <PrimaryButton onClick={() => setStep((s) => Math.min(4, s + 1))} className="flex-1 md:ml-auto md:flex-none">
+          <PrimaryButton onClick={next} className="flex-1 md:ml-auto md:flex-none">
             Next <ArrowRight className="size-4" />
           </PrimaryButton>
         ) : (
-          <PrimaryButton disabled={!confirmed || submitting} onClick={submit} className="flex-1 md:ml-auto md:flex-none">
+          <PrimaryButton disabled={submitting} onClick={submit} className="flex-1 md:ml-auto md:flex-none">
             {submitting ? 'Submitting...' : 'Submit application'}
           </PrimaryButton>
         )}
@@ -965,11 +1446,11 @@ function RegisterPage() {
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+function Shell({ children, step, maxStep, onStep }: { children: React.ReactNode; step: number; maxStep: number; onStep: (n: number) => void }) {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card">
-        <div className="mx-auto flex max-w-3xl items-center gap-3 px-5 py-4">
+        <div className="mx-auto flex max-w-6xl items-center gap-3 px-5 py-4">
           <span className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground">
             <Sparkles className="size-4" />
           </span>
@@ -979,7 +1460,66 @@ function Shell({ children }: { children: React.ReactNode }) {
           </Link>
         </div>
       </header>
-      <main className="mx-auto max-w-3xl px-5 py-8 max-md:pb-28">{children}</main>
+      <main className="mx-auto max-w-6xl px-5 py-8 max-md:pb-28">
+        <div className="grid gap-8 lg:grid-cols-[280px_1fr]">
+          {/* side progress panel */}
+          <aside className="hidden lg:block">
+            <div className="sticky top-8 rounded-2xl border border-border bg-card p-5">
+              <h1 className="text-lg font-bold tracking-tight">Worker Registration</h1>
+              <p className="mt-1 text-xs text-muted-foreground">Complete all 5 steps to submit your application.</p>
+              <ol className="mt-6 space-y-1">
+                {steps.map((s, i) => {
+                  const Icon = s.icon;
+                  const state = i < step ? "done" : i === step ? "current" : "todo";
+                  const clickable = i <= maxStep;
+                  return (
+                    <li key={s.name}>
+                      <button
+                        type="button"
+                        disabled={!clickable}
+                        onClick={() => clickable && onStep(i)}
+                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors ${
+                          state === "current"
+                            ? "bg-primary-soft font-semibold text-primary"
+                            : state === "done"
+                              ? "text-foreground hover:bg-secondary"
+                              : "text-muted-foreground"
+                        } ${clickable ? "cursor-pointer" : "cursor-default"}`}
+                      >
+                        <span
+                          className={`grid size-7 shrink-0 place-items-center rounded-full border text-xs font-semibold ${
+                            state === "done"
+                              ? "border-success bg-success text-success-foreground"
+                              : state === "current"
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-border bg-card"
+                          }`}
+                        >
+                          {state === "done" ? <Check className="size-3.5" /> : <Icon className="size-3.5" />}
+                        </span>
+                        <span className="flex-1">
+                          {i + 1}. {s.name}
+                        </span>
+                        {state === "current" && <CircleDashed className="size-3.5 animate-pulse" />}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+              <div className="mt-6 border-t border-border pt-4">
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all duration-300"
+                    style={{ width: `${Math.max(step * 25, 5)}%` }}
+                  />
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">{step * 25}% complete</p>
+              </div>
+            </div>
+          </aside>
+          <div className="min-w-0">{children}</div>
+        </div>
+      </main>
     </div>
   );
 }

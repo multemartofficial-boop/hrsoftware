@@ -237,7 +237,7 @@ function WorkerDashboard() {
                   <div>
                     <p className="font-medium">{d.document_name}</p>
                     <p className="text-xs text-muted-foreground">
-                      Sent {new Date(d.sent_at).toLocaleDateString()}
+                      Sent {new Date(d.sent_at).toLocaleDateString("en-GB")}
                     </p>
                   </div>
                   <button
@@ -279,7 +279,7 @@ function WorkerDashboard() {
                 <tbody>
                   {myAttendance.map((a) => (
                     <tr key={a.id} className="border-b hover:bg-secondary/40">
-                      <td className="py-3 px-4">{new Date(a.date).toLocaleDateString()}</td>
+                      <td className="py-3 px-4">{new Date(a.date).toLocaleDateString("en-GB")}</td>
                       <td className="py-3 px-4 flex items-center gap-2">
                         <MapPin className="size-4 text-muted-foreground" />
                         {a.location}

@@ -190,7 +190,7 @@ function LiveMapPage() {
             <span className="flex items-center gap-1.5"><span className="inline-block size-3 rounded bg-[#2563eb]" /> Location</span>
           </div>
           <span className="ml-auto text-xs text-muted-foreground">
-            Auto-refreshes every 45s · Last updated {lastRefresh.toLocaleTimeString()}
+            Auto-refreshes every 45s · Last updated {lastRefresh.toLocaleTimeString("en-GB", { hour12: false })}
           </span>
         </div>
         <div ref={mapRef} className="h-[calc(100vh-22rem)] min-h-100 w-full" />

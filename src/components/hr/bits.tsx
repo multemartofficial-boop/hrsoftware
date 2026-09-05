@@ -171,11 +171,13 @@ export const inputCls =
 export function Field({
   label,
   hint,
+  error,
   children,
   className,
 }: {
   label: string;
   hint?: string | undefined;
+  error?: string | undefined;
   children: ReactNode;
   className?: string | undefined;
 }) {
@@ -183,7 +185,11 @@ export function Field({
     <label className={cn("block", className)}>
       <span className="text-sm font-medium">{label}</span>
       {children}
-      {hint && <span className="mt-1 block text-xs text-muted-foreground">{hint}</span>}
+      {error ? (
+        <span className="mt-1 block text-xs font-medium text-danger">{error}</span>
+      ) : hint ? (
+        <span className="mt-1 block text-xs text-muted-foreground">{hint}</span>
+      ) : null}
     </label>
   );
 }

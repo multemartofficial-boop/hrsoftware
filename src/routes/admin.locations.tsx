@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Plus, MapPin, Pencil, Trash2, Users } from "lucide-react";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import { Plus, MapPin, Pencil, Trash2, Users, Search, Loader2 } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, Field, GhostButton, Modal, PrimaryButton, inputCls } from "@/components/hr/bits";
 import { useApi } from "@/lib/api-store";
@@ -18,6 +20,158 @@ export const Route = createFileRoute("/admin/locations")({
   component: LocationsPage,
 });
 
+const pinIcon = L.divIcon({
+  className: "",
+  iconSize: [28, 28],
+  iconAnchor: [14, 28],
+  html: `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="var(--primary)" stroke="#fff" stroke-width="1.5"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3" fill="#fff"/></svg>`,
+});
+
+function LocationMapPicker({
+  lat,
+  lng,
+  radius,
+  onPick,
+  onSearchSelect,
+}: {
+  lat: number | null;
+  lng: number | null;
+  radius: number;
+  onPick: (lat: number, lng: number) => void;
+  onSearchSelect: (address: string) => void;
+}) {
+  const mapDiv = useRef<HTMLDivElement | null>(null);
+  const mapObj = useRef<L.Map | null>(null);
+  const markerRef = useRef<L.Marker | null>(null);
+  const circleRef = useRef<L.Circle | null>(null);
+  const onPickRef = useRef(onPick);
+  const onSearchRef = useRef(onSearchSelect);
+  onPickRef.current = onPick;
+  onSearchRef.current = onSearchSelect;
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [searchErr, setSearchErr] = useState<string | null>(null);
+
+  const placePin = (la: number, lo: number, fly = false) => {
+    const map = mapObj.current;
+    if (!map) return;
+    const ll = L.latLng(la, lo);
+    if (markerRef.current) markerRef.current.setLatLng(ll);
+    else {
+      markerRef.current = L.marker(ll, { icon: pinIcon, draggable: true })
+        .addTo(map)
+        .on("dragend", () => {
+          const p = markerRef.current!.getLatLng();
+          onPickRef.current(p.lat, p.lng);
+        });
+    }
+    if (circleRef.current) circleRef.current.setLatLng(ll);
+    else {
+      circleRef.current = L.circle(ll, {
+        radius,
+        color: "var(--primary)",
+        weight: 1.5,
+        fillColor: "var(--primary)",
+        fillOpacity: 0.12,
+      }).addTo(map);
+    }
+    if (fly) map.flyTo(ll, Math.max(map.getZoom(), 15));
+  };
+
+  useEffect(() => {
+    if (!mapDiv.current || mapObj.current) return;
+    const map = L.map(mapDiv.current).setView([51.5072, -0.1276], 12);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 19,
+    }).addTo(map);
+    mapObj.current = map;
+    map.on("click", (e: L.LeafletMouseEvent) => {
+      placePin(e.latlng.lat, e.latlng.lng);
+      onPickRef.current(e.latlng.lat, e.latlng.lng);
+    });
+    if (lat != null && lng != null) {
+      placePin(lat, lng);
+      map.setView([lat, lng], 15);
+    }
+    // Leaflet needs a nudge once the modal finishes rendering
+    setTimeout(() => map.invalidateSize(), 100);
+    return () => {
+      map.remove();
+      mapObj.current = null;
+      markerRef.current = null;
+      circleRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep pin/circle in sync when lat/lng/radius change from outside (slider, search, manual edit)
+  useEffect(() => {
+    if (lat != null && lng != null && mapObj.current) placePin(lat, lng);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lat, lng]);
+
+  useEffect(() => {
+    circleRef.current?.setRadius(radius > 0 ? radius : 1);
+  }, [radius]);
+
+  const search = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = query.trim();
+    if (!q) return;
+    setSearching(true);
+    setSearchErr(null);
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`,
+        { headers: { "Accept-Language": "en" } },
+      );
+      const data = (await res.json()) as { lat: string; lon: string; display_name: string }[];
+      if (!data.length) {
+        setSearchErr("No results found — try a more specific address.");
+      } else {
+        const first = data[0]!;
+        const la = Number(first.lat);
+        const lo = Number(first.lon);
+        placePin(la, lo, true);
+        onPickRef.current(la, lo);
+        onSearchRef.current(first.display_name);
+      }
+    } catch {
+      setSearchErr("Search failed — check your connection and try again.");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  return (
+    <div>
+      <form onSubmit={search} className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className={`${inputCls} mt-0 pl-9 pr-10`}
+          placeholder="Search an address or place…"
+        />
+        <button
+          type="submit"
+          disabled={searching}
+          className="absolute right-1.5 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md bg-primary text-primary-foreground disabled:opacity-60"
+          aria-label="Search address"
+        >
+          {searching ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
+        </button>
+      </form>
+      {searchErr && <p className="mt-1 text-xs font-medium text-danger">{searchErr}</p>}
+      <div ref={mapDiv} className="mt-3 h-64 w-full rounded-xl border border-border" />
+      <p className="mt-1.5 text-xs text-muted-foreground">
+        Click the map or drag the pin to set the location. The circle shows the geofence radius.
+      </p>
+    </div>
+  );
+}
+
 function LocationForm({ editing, onClose }: { editing: LocationItem | null; onClose: () => void }) {
   const { addLocation, updateLocation } = useApi();
   const [name, setName] = useState(editing?.name ?? "");
@@ -25,14 +179,19 @@ function LocationForm({ editing, onClose }: { editing: LocationItem | null; onCl
   const [latitude, setLatitude] = useState(editing?.latitude != null ? String(editing.latitude) : "");
   const [longitude, setLongitude] = useState(editing?.longitude != null ? String(editing.longitude) : "");
   const [radiusMeters, setRadiusMeters] = useState(String(editing?.radiusMeters ?? 200));
+  const [geoErr, setGeoErr] = useState<string | null>(null);
+
+  const latNum = latitude !== "" && !Number.isNaN(Number(latitude)) ? Number(latitude) : null;
+  const lngNum = longitude !== "" && !Number.isNaN(Number(longitude)) ? Number(longitude) : null;
+  const radNum = radiusMeters !== "" && !Number.isNaN(Number(radiusMeters)) ? Number(radiusMeters) : 200;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    const geo = {
-      latitude: latitude !== "" ? Number(latitude) : null,
-      longitude: longitude !== "" ? Number(longitude) : null,
-      radiusMeters: radiusMeters !== "" ? Number(radiusMeters) : 200,
-    };
+    if (latNum == null || lngNum == null) {
+      setGeoErr("Pick a point on the map (search or click) to set the coordinates.");
+      return;
+    }
+    const geo = { latitude: latNum, longitude: lngNum, radiusMeters: radNum > 0 ? radNum : 200 };
     if (editing) updateLocation(editing.id, { name, address, ...geo });
     else addLocation(name, address, geo);
     onClose();
@@ -41,25 +200,60 @@ function LocationForm({ editing, onClose }: { editing: LocationItem | null; onCl
   return (
     <Modal
       title={editing ? "Edit location" : "Add location"}
-      description="Locations feed the worker check-in dropdown. Set GPS coordinates to enable geofenced check-in."
+      description="Search or click the map to place the pin — the circle shows the geofence radius."
       onClose={onClose}
+      wide
     >
       <form onSubmit={submit} className="space-y-4">
         <Field label="Location name">
           <input required value={name} onChange={(e) => setName(e.target.value)} className={inputCls} placeholder="Camden Site" />
         </Field>
-        <Field label="Address">
+        <Field label="Address" hint="Filled automatically when you search — editable if needed.">
           <input required value={address} onChange={(e) => setAddress(e.target.value)} className={inputCls} placeholder="24 Camden High St, London" />
         </Field>
-        <div className="grid grid-cols-3 gap-3">
-          <Field label="Latitude" hint="e.g. 51.5072">
-            <input type="number" step="any" value={latitude} onChange={(e) => setLatitude(e.target.value)} className={inputCls} placeholder="51.5072" />
+        <Field label="Location on map" error={geoErr ?? undefined}>
+          <LocationMapPicker
+            lat={latNum}
+            lng={lngNum}
+            radius={radNum}
+            onPick={(la, lo) => {
+              setLatitude(la.toFixed(6));
+              setLongitude(lo.toFixed(6));
+              setGeoErr(null);
+            }}
+            onSearchSelect={(a) => setAddress(a)}
+          />
+        </Field>
+        <Field label="Geofence radius" hint="Workers must be within this distance to check in.">
+          <div className="mt-1.5 flex items-center gap-3">
+            <input
+              type="range"
+              min="25"
+              max="2000"
+              step="25"
+              value={Math.min(Math.max(radNum, 25), 2000)}
+              onChange={(e) => setRadiusMeters(e.target.value)}
+              className="h-2 flex-1 accent-primary"
+            />
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                min="1"
+                value={radiusMeters}
+                onChange={(e) => setRadiusMeters(e.target.value)}
+                className="h-10 w-24 rounded-lg border border-border bg-card px-3 text-sm outline-none focus:border-primary"
+                placeholder="200"
+              />
+              <span className="text-sm text-muted-foreground">m</span>
+            </div>
+          </div>
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Latitude">
+            <input readOnly value={latitude} className={`${inputCls} bg-secondary text-muted-foreground`} placeholder="—" />
           </Field>
-          <Field label="Longitude" hint="e.g. -0.1276">
-            <input type="number" step="any" value={longitude} onChange={(e) => setLongitude(e.target.value)} className={inputCls} placeholder="-0.1276" />
-          </Field>
-          <Field label="Radius (m)" hint="Allowed distance">
-            <input type="number" min="1" value={radiusMeters} onChange={(e) => setRadiusMeters(e.target.value)} className={inputCls} placeholder="200" />
+          <Field label="Longitude">
+            <input readOnly value={longitude} className={`${inputCls} bg-secondary text-muted-foreground`} placeholder="—" />
           </Field>
         </div>
         <div className="flex justify-end gap-2">

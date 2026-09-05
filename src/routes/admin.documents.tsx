@@ -259,7 +259,7 @@ function SendModal({ doc, onClose, onSaved }: { doc: Doc; onClose: () => void; o
 }
 
 const fmtTs = (v: string | null | undefined) =>
-  v ? new Date(v).toLocaleString() : "—";
+  v ? new Date(v).toLocaleString("en-GB", { hour12: false }) : "—";
 
 function ViewModal({ req, onClose }: { req: SigRequest; onClose: () => void }) {
   const [detail, setDetail] = useState<any>(null);

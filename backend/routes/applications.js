@@ -99,7 +99,10 @@ router.post('/', upload.fields([
   { name: 'photo', maxCount: 1 },
   { name: 'idFront', maxCount: 1 },
   { name: 'idBack', maxCount: 1 },
-  { name: 'proofAddress', maxCount: 1 }
+  { name: 'proofAddress', maxCount: 1 },
+  { name: 'passportDoc', maxCount: 1 },
+  { name: 'visaDoc', maxCount: 1 },
+  { name: 'siaDoc', maxCount: 1 }
 ]), async (req, res) => {
   const connection = await pool.getConnection();
   
@@ -142,7 +145,10 @@ router.post('/', upload.fields([
       photo: req.files && req.files['photo'] ? `/uploads/documents/${req.files['photo'][0].filename}` : '',
       idFront: req.files && req.files['idFront'] ? `/uploads/documents/${req.files['idFront'][0].filename}` : '',
       idBack: req.files && req.files['idBack'] ? `/uploads/documents/${req.files['idBack'][0].filename}` : '',
-      proofAddress: req.files && req.files['proofAddress'] ? `/uploads/documents/${req.files['proofAddress'][0].filename}` : ''
+      proofAddress: req.files && req.files['proofAddress'] ? `/uploads/documents/${req.files['proofAddress'][0].filename}` : '',
+      passportDoc: req.files && req.files['passportDoc'] ? `/uploads/documents/${req.files['passportDoc'][0].filename}` : '',
+      visaDoc: req.files && req.files['visaDoc'] ? `/uploads/documents/${req.files['visaDoc'][0].filename}` : '',
+      siaDoc: req.files && req.files['siaDoc'] ? `/uploads/documents/${req.files['siaDoc'][0].filename}` : ''
     };
 
     // Build details object

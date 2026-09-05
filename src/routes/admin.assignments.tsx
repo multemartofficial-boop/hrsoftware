@@ -168,7 +168,7 @@ function AssignmentsPage() {
       <Card>
         <SectionTitle
           title="Today's assignments"
-          action={<span className="text-xs text-muted-foreground">Auto-refreshes every 45s · {lastPoll.toLocaleTimeString()}</span>}
+          action={<span className="text-xs text-muted-foreground">Auto-refreshes every 45s · {lastPoll.toLocaleTimeString("en-GB", { hour12: false })}</span>}
         />
         <DataTable
           labels={["Worker", "Assigned Location", "Checked In", "Status"]}
