@@ -16,7 +16,7 @@ import {
   BarChart3,
   Scale,
   Search,
-  UserPlus,
+
   Sparkles,
   MoreHorizontal,
   X,
@@ -350,11 +350,7 @@ function AdminShellInner({
             <LogOut className="size-4" />
           </button>
 
-          {action ?? (
-            <button className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90">
-              <UserPlus className="size-4" /> Invite
-            </button>
-          )}
+          {action}
         </header>
 
         <h1 className="mb-3 px-1 text-xl font-semibold tracking-tight lg:hidden">{title}</h1>
