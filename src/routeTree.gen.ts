@@ -20,6 +20,7 @@ import { Route as AdminApprovalsRouteImport } from './routes/admin.approvals'
 import { Route as AdminAttendanceRouteImport } from './routes/admin.attendance'
 import { Route as AdminFinanceRouteImport } from './routes/admin.finance'
 import { Route as AdminHelpRouteImport } from './routes/admin.help'
+import { Route as AdminLiveMapRouteImport } from './routes/admin.live-map'
 import { Route as AdminLocationsRouteImport } from './routes/admin.locations'
 import { Route as AdminNotificationsRouteImport } from './routes/admin.notifications'
 import { Route as AdminPayrollsRouteImport } from './routes/admin.payrolls'
@@ -84,6 +85,11 @@ const AdminHelpRoute = AdminHelpRouteImport.update({
   path: '/admin/help',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminLiveMapRoute = AdminLiveMapRouteImport.update({
+  id: '/admin/live-map',
+  path: '/admin/live-map',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminLocationsRoute = AdminLocationsRouteImport.update({
   id: '/admin/locations',
   path: '/admin/locations',
@@ -136,6 +142,7 @@ export interface FileRoutesByFullPath {
   '/admin/attendance': typeof AdminAttendanceRoute
   '/admin/finance': typeof AdminFinanceRoute
   '/admin/help': typeof AdminHelpRoute
+  '/admin/live-map': typeof AdminLiveMapRoute
   '/admin/locations': typeof AdminLocationsRoute
   '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/payrolls': typeof AdminPayrollsRoute
@@ -157,6 +164,7 @@ export interface FileRoutesByTo {
   '/admin/attendance': typeof AdminAttendanceRoute
   '/admin/finance': typeof AdminFinanceRoute
   '/admin/help': typeof AdminHelpRoute
+  '/admin/live-map': typeof AdminLiveMapRoute
   '/admin/locations': typeof AdminLocationsRoute
   '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/payrolls': typeof AdminPayrollsRoute
@@ -179,6 +187,7 @@ export interface FileRoutesById {
   '/admin/attendance': typeof AdminAttendanceRoute
   '/admin/finance': typeof AdminFinanceRoute
   '/admin/help': typeof AdminHelpRoute
+  '/admin/live-map': typeof AdminLiveMapRoute
   '/admin/locations': typeof AdminLocationsRoute
   '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/payrolls': typeof AdminPayrollsRoute
@@ -202,6 +211,7 @@ export interface FileRouteTypes {
     | '/admin/attendance'
     | '/admin/finance'
     | '/admin/help'
+    | '/admin/live-map'
     | '/admin/locations'
     | '/admin/notifications'
     | '/admin/payrolls'
@@ -223,6 +233,7 @@ export interface FileRouteTypes {
     | '/admin/attendance'
     | '/admin/finance'
     | '/admin/help'
+    | '/admin/live-map'
     | '/admin/locations'
     | '/admin/notifications'
     | '/admin/payrolls'
@@ -244,6 +255,7 @@ export interface FileRouteTypes {
     | '/admin/attendance'
     | '/admin/finance'
     | '/admin/help'
+    | '/admin/live-map'
     | '/admin/locations'
     | '/admin/notifications'
     | '/admin/payrolls'
@@ -266,6 +278,7 @@ export interface RootRouteChildren {
   AdminAttendanceRoute: typeof AdminAttendanceRoute
   AdminFinanceRoute: typeof AdminFinanceRoute
   AdminHelpRoute: typeof AdminHelpRoute
+  AdminLiveMapRoute: typeof AdminLiveMapRoute
   AdminLocationsRoute: typeof AdminLocationsRoute
   AdminNotificationsRoute: typeof AdminNotificationsRoute
   AdminPayrollsRoute: typeof AdminPayrollsRoute
@@ -355,6 +368,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminHelpRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/live-map': {
+      id: '/admin/live-map'
+      path: '/admin/live-map'
+      fullPath: '/admin/live-map'
+      preLoaderRoute: typeof AdminLiveMapRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/locations': {
       id: '/admin/locations'
       path: '/admin/locations'
@@ -436,6 +456,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminAttendanceRoute: AdminAttendanceRoute,
   AdminFinanceRoute: AdminFinanceRoute,
   AdminHelpRoute: AdminHelpRoute,
+  AdminLiveMapRoute: AdminLiveMapRoute,
   AdminLocationsRoute: AdminLocationsRoute,
   AdminNotificationsRoute: AdminNotificationsRoute,
   AdminPayrollsRoute: AdminPayrollsRoute,
