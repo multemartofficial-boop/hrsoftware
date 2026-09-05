@@ -31,9 +31,6 @@ const mainMenu = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { to: "/admin/attendance", label: "Attendance", icon: CalendarCheck },
   { to: "/admin/payrolls", label: "Payrolls", icon: Wallet },
-  { to: "/admin/notifications", label: "Notifications", icon: Bell },
-  { to: "/admin/settings", label: "Settings", icon: Settings },
-  { to: "/admin/help", label: "Help & Center", icon: LifeBuoy },
 ] as const;
 
 const teamMenu = [
@@ -45,6 +42,13 @@ const teamMenu = [
   { to: "/admin/documents", label: "Documents", icon: FileText },
   { to: "/admin/finance", label: "Buyer & Profit/Loss", icon: Scale },
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
+] as const;
+
+/* pinned to the very bottom of the sidebar */
+const bottomMenu = [
+  { to: "/admin/notifications", label: "Notifications", icon: Bell },
+  { to: "/admin/settings", label: "Settings", icon: Settings },
+  { to: "/admin/help", label: "Help & Center", icon: LifeBuoy },
 ] as const;
 
 /* tabs shown in the mobile bottom bar */
@@ -239,6 +243,12 @@ function AdminShellInner({
         </p>
         <nav className="flex flex-col gap-1">
           {teamMenu.map((i) => (
+            <NavItem key={i.to} {...i} />
+          ))}
+        </nav>
+
+        <nav className="mt-auto flex flex-col gap-1 border-t border-border pt-3">
+          {bottomMenu.map((i) => (
             <NavItem key={i.to} {...i} />
           ))}
         </nav>
