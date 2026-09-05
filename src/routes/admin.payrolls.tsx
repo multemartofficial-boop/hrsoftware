@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Plus, Download, Printer, Check, Trash2, Search } from "lucide-react";
+import { Plus, Download, Printer, Check, Trash2, Search, ChevronDown, ChevronRight } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import {
   Card,
@@ -37,6 +37,29 @@ type PayrollPreview = {
   from: string;
   to: string;
 };
+
+type SummaryWorker = {
+  workerId: string;
+  worker: string;
+  rate: number;
+  hours: number;
+  overtime: number;
+  gross: number;
+  tax: number;
+  net: number;
+};
+
+type SummaryPeriod = {
+  period: string;
+  label: string;
+  hours: number;
+  gross: number;
+  tax: number;
+  net: number;
+  workers: SummaryWorker[];
+};
+
+type SummaryTab = "custom" | "weekly" | "monthly" | "yearly";
 
 export const Route = createFileRoute("/admin/payrolls")({
   head: () => ({
@@ -287,12 +310,102 @@ function Payslip({ p, onClose }: { p: Payroll; onClose: () => void }) {
   );
 }
 
+function PayrollSummary({ period }: { period: "weekly" | "monthly" | "yearly" }) {
+  const [data, setData] = useState<SummaryPeriod[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    apiClient
+      .get<SummaryPeriod[]>(`/api/payroll/summary?period=${period}`)
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load summary"); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [period]);
+
+  const toggle = (key: string) =>
+    setExpanded((s) => {
+      const next = new Set(s);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-32">
+        <div className="text-muted-foreground">Loading summary…</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-32 gap-2">
+        <div className="text-red-500 text-sm font-medium">{error}</div>
+      </div>
+    );
+  }
+
+  return (
+    <DataTable
+      labels={["Period", "Hours", "Gross Pay", "Tax & NI", "Net Pay"]}
+      head={
+        <>
+          <Th>Period</Th>
+          <Th>Hours</Th>
+          <Th>Gross Pay</Th>
+          <Th>Tax & NI</Th>
+          <Th>Net Pay</Th>
+        </>
+      }
+    >
+      {data.length === 0 && <EmptyRow colSpan={5} text="No attendance data yet." />}
+      {data.map((p) => (
+        <Fragment key={p.period}>
+          <tr
+            className="cursor-pointer hover:bg-secondary/40"
+            onClick={() => toggle(p.period)}
+          >
+            <Td className="font-medium">
+              <span className="inline-flex items-center gap-1">
+                {expanded.has(p.period) ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                {p.label}
+              </span>
+            </Td>
+            <Td>{p.hours.toFixed(2)} h</Td>
+            <Td>{money2(p.gross)}</Td>
+            <Td className="text-muted-foreground">-{money2(p.tax)}</Td>
+            <Td className="font-semibold">{money2(p.net)}</Td>
+          </tr>
+          {expanded.has(p.period) && p.workers.map((w) => (
+            <tr key={`${p.period}-${w.workerId}`} className="bg-secondary/20">
+              <Td className="pl-8 text-sm text-muted-foreground">
+                <Person name={w.worker} sub={w.workerId} />
+              </Td>
+              <Td className="text-sm">{w.hours.toFixed(2)} h{w.overtime > 0 ? ` (+${w.overtime.toFixed(2)} OT)` : ""}</Td>
+              <Td className="text-sm">{money2(w.gross)}</Td>
+              <Td className="text-sm text-muted-foreground">-{money2(w.tax)}</Td>
+              <Td className="text-sm font-medium">{money2(w.net)}</Td>
+            </tr>
+          ))}
+        </Fragment>
+      ))}
+    </DataTable>
+  );
+}
+
 function PayrollsPage() {
   const { payrolls, payrollChart, deductionsData, totals, setPayrollStatus, deletePayroll, loading, workers, settings, error, loadPayrolls } = useApi();
   const [open, setOpen] = useState(false);
   const [slip, setSlip] = useState<Payroll | null>(null);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
+  const [tab, setTab] = useState<SummaryTab>("custom");
 
   const rows = (payrolls || []).filter(
     (p) =>
@@ -383,6 +496,36 @@ function PayrollsPage() {
           </Card>
         </div>
 
+        {/* Period summary tabs */}
+        <div className="flex gap-1 rounded-lg border border-border bg-card p-1">
+          {(["custom", "weekly", "monthly", "yearly"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
+                tab === t
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+              }`}
+            >
+              {t === "custom" ? "Custom" : t}
+            </button>
+          ))}
+        </div>
+
+        {tab !== "custom" ? (
+          <Card className="p-0">
+            <div className="p-5 pb-0">
+              <h2 className="text-base font-semibold">
+                {tab === "weekly" ? "Weekly" : tab === "monthly" ? "Monthly" : "Yearly"} Payroll Summary
+              </h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                Live from attendance records and hourly rates — click a row to expand per-worker details.
+              </p>
+            </div>
+            <PayrollSummary period={tab} />
+          </Card>
+        ) : (
         <Card className="p-0">
           <div className="flex flex-wrap items-center gap-3 p-5">
             <h2 className="mr-auto text-base font-semibold">Payroll list ({rows.length})</h2>
@@ -465,6 +608,7 @@ function PayrollsPage() {
             ))}
           </DataTable>
         </Card>
+        )}
       </div>
 
       {open && <NewPayrollForm onClose={() => setOpen(false)} />}
