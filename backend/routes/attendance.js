@@ -228,7 +228,10 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
 router.get('/active/shifts', requireAuth, requireAdmin, async (req, res) => {
   try {
     const [activeShifts] = await pool.query(
-      'SELECT * FROM attendance WHERE check_out_time IS NULL ORDER BY check_in_time DESC'
+      `SELECT a.*, w.address AS worker_address
+       FROM attendance a
+       LEFT JOIN workers w ON w.id = a.worker_id
+       WHERE a.check_out_time IS NULL ORDER BY a.check_in_time DESC`
     );
     res.json(activeShifts);
   } catch (error) {

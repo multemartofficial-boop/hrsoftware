@@ -153,7 +153,8 @@ function SettingsPage() {
         </button>
       }
     >
-      <div className="grid max-w-4xl gap-3">
+      <div className="grid gap-3 xl:grid-cols-2 xl:items-start">
+        <div className="space-y-3">
         <Section title="Pay Defaults" desc="Used by payroll runs whenever a worker has no custom rate.">
           <NumField label="Default hourly rate (£)" value={draft.hourlyRate} onChange={(n) => set("hourlyRate", n)} step="0.5" />
           <NumField
@@ -232,7 +233,9 @@ function SettingsPage() {
             {holidayError && <p className="mt-1 text-xs text-danger">{holidayError}</p>}
           </div>
         </Section>
+        </div>
 
+        <div className="space-y-3">
         <Section title="Tax & Deductions" desc="Applied when calculating net pay on payroll runs.">
           <NumField label="Tax rate (%)" value={draft.taxRate} onChange={(n) => set("taxRate", n)} step="1" />
           <NumField label="National Insurance (%)" value={draft.niRate} onChange={(n) => set("niRate", n)} step="1" />
@@ -265,6 +268,7 @@ function SettingsPage() {
           <TextField label="Company name" value={draft.companyName} onChange={(v) => set("companyName", v)} />
           <TextField label="Payroll contact email" value={draft.payrollEmail} onChange={(v) => set("payrollEmail", v)} />
         </Section>
+        </div>
       </div>
     </AdminShell>
   );

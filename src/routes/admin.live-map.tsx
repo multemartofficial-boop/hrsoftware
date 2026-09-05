@@ -4,7 +4,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { MapPin, RefreshCw } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
-import { Card } from "@/components/hr/bits";
+import { Card, DataTable, Th, Td, EmptyRow, Person, StatusBadge } from "@/components/hr/bits";
 import { useApi } from "@/lib/api-store";
 import { apiClient } from "@/lib/api-client";
 
@@ -30,6 +30,7 @@ type ActiveShift = {
   location_mismatch: number | boolean;
   nearest_location: string | null;
   distance_meters: number | string | null;
+  worker_address: string | null;
 };
 
 const haversineMeters = (lat1: number, lng1: number, lat2: number, lng2: number) => {
@@ -72,7 +73,7 @@ function LiveMapPage() {
   const loadShifts = async () => {
     try {
       const data = await apiClient.get<ActiveShift[]>("/api/attendance/active/shifts");
-      setShifts(data.filter((s) => s.check_in_lat != null && s.check_in_lng != null));
+      setShifts(data);
       setLastRefresh(new Date());
     } catch (e) {
       console.error("Live map refresh failed:", e);
@@ -128,8 +129,9 @@ function LiveMapPage() {
       points.push([lat, lng]);
     }
 
-    // Worker pins (green = matched, red = mismatch)
+    // Worker pins (green = matched, red = mismatch) — only those with GPS
     for (const s of shifts) {
+      if (s.check_in_lat == null || s.check_in_lng == null) continue;
       const lat = Number(s.check_in_lat);
       const lng = Number(s.check_in_lng);
       const mismatch = s.location_mismatch === 1 || s.location_mismatch === true;
@@ -191,7 +193,43 @@ function LiveMapPage() {
             Auto-refreshes every 45s · Last updated {lastRefresh.toLocaleTimeString()}
           </span>
         </div>
-        <div ref={mapRef} className="h-[calc(100vh-16rem)] min-h-100 w-full" />
+        <div ref={mapRef} className="h-[calc(100vh-22rem)] min-h-100 w-full" />
+      </Card>
+
+      {/* Checked-in workers list */}
+      <Card className="mt-4 p-0">
+        <div className="p-5">
+          <h2 className="text-base font-semibold">Checked-in workers ({shifts.length})</h2>
+        </div>
+        <DataTable
+          labels={["Worker", "Code", "Address", "Location", "Status"]}
+          head={
+            <>
+              <Th>Worker</Th>
+              <Th>Code</Th>
+              <Th>Address</Th>
+              <Th>Location</Th>
+              <Th>Status</Th>
+            </>
+          }
+        >
+          {shifts.length === 0 && <EmptyRow colSpan={5} text="No workers are currently checked in." />}
+          {shifts.map((s) => {
+            const mismatch = s.location_mismatch === 1 || s.location_mismatch === true;
+            const status = s.location === "Unknown/Unmatched"
+              ? "Unknown/Unmatched"
+              : mismatch ? "Location Mismatch" : "Matched";
+            return (
+              <tr key={s.id} className="hover:bg-secondary/40">
+                <Td><Person name={s.worker} /></Td>
+                <Td className="font-medium">{s.worker_id}</Td>
+                <Td><span className="block max-w-56 truncate" title={s.worker_address || ""}>{s.worker_address || "—"}</span></Td>
+                <Td>{s.location}</Td>
+                <Td><StatusBadge status={status} /></Td>
+              </tr>
+            );
+          })}
+        </DataTable>
       </Card>
     </AdminShell>
   );

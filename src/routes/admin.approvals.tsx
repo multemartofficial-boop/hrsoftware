@@ -129,9 +129,13 @@ function Approvals() {
   const selected = (applications || []).find((a) => a.id === selectedId) ?? null;
   const confirming = (applications || []).find((a) => a.id === confirmingId) ?? null;
 
-  // Separate approved applications into awaiting setup vs completed
-  const awaitingSetup = (applications || []).filter(a => a.status === 'approved' && !workers?.some(w => w.id === a.workerId));
-  const completedSetup = (applications || []).filter(a => a.status === 'approved' && workers?.some(w => w.id === a.workerId));
+  // Separate approved applications into awaiting setup vs completed.
+  // Prefer the server-computed passwordSet flag (worker row + password_hash),
+  // falling back to worker-existence only when the flag isn't available.
+  const isSetupComplete = (a: any) =>
+    a.passwordSet != null ? a.passwordSet : workers?.some(w => w.id === a.workerId) ?? false;
+  const awaitingSetup = (applications || []).filter(a => a.status === 'approved' && !isSetupComplete(a));
+  const completedSetup = (applications || []).filter(a => a.status === 'approved' && isSetupComplete(a));
 
   // Load all applications on mount
   useEffect(() => {

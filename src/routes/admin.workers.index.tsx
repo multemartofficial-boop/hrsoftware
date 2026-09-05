@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Search, Download, RotateCcw, Trash2, Eye } from "lucide-react";
+import { Search, RotateCcw, Trash2, Eye } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, DataTable, EmptyRow, Person, StatusBadge, Td, Th } from "@/components/hr/bits";
 import { avatarUrl } from "@/lib/mock-data";
@@ -132,9 +132,6 @@ function WorkerDirectory() {
               </option>
             ))}
           </select>
-          <button className="flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm">
-            <Download className="size-4" /> Export
-          </button>
         </div>
 
         <DataTable

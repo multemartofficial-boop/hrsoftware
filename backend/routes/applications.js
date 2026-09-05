@@ -66,6 +66,9 @@ const transformApplication = (app) => {
   return {
     ...app,
     workerId: app.worker_id,
+    // True only when the worker row exists AND password_hash is set —
+    // i.e. the worker actually completed password setup.
+    passwordSet: app.password_set !== undefined ? !!app.password_set : null,
     worker_joined: app.worker_joined,
     worker_expiry: app.worker_expiry,
     rejectedOn: app.rejected_on,
@@ -235,18 +238,20 @@ router.post('/', upload.fields([
 router.get('/', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { status } = req.query;
-    let query = 'SELECT * FROM registration_applications';
+    let query = `SELECT a.*, (w.password_hash IS NOT NULL) AS password_set
+      FROM registration_applications a
+      LEFT JOIN workers w ON w.id = a.worker_id`;
     const params = [];
 
     if (status === 'approved') {
-      query += ' WHERE status = "approved"';
+      query += ' WHERE a.status = "approved"';
     } else if (status === 'rejected') {
-      query += ' WHERE status = "rejected"';
+      query += ' WHERE a.status = "rejected"';
     } else {
-      query += ' WHERE status = "pending"';
+      query += ' WHERE a.status = "pending"';
     }
 
-    query += ' ORDER BY submitted DESC';
+    query += ' ORDER BY a.submitted DESC';
 
     const [applications] = await pool.query(query, params);
     res.json(applications.map(transformApplication));

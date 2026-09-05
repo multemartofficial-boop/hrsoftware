@@ -1,6 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Link, useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
-import { toast } from "sonner";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { GlobalSearch } from "@/components/hr/global-search";
 import {
   LayoutDashboard,
@@ -17,8 +16,6 @@ import {
   BarChart3,
   Scale,
   Search,
-  Mail,
-  RefreshCw,
   UserPlus,
   Sparkles,
   MoreHorizontal,
@@ -208,28 +205,15 @@ function AdminShellInner({
   action?: ReactNode;
   children: ReactNode;
 }) {
-  const { notices, workers, settings, totals, logout, session } = useApi();
+  const { notices, workers, logout, session } = useApi();
   const navigate = useNavigate();
 
   const handleLogout = () => {
     logout();
     void navigate({ to: "/", replace: true });
   };
-  const router = useRouter();
   const urgentCount = notices.filter((n) => n.urgency !== "info").length;
   const [searchOpen, setSearchOpen] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const refresh = () => {
-    setRefreshing(true);
-    void router.invalidate();
-    setTimeout(() => {
-      setRefreshing(false);
-      toast.success("Data refreshed", {
-        description: `${totals.activeWorkers} active workers · ${urgentCount} urgent alerts`,
-      });
-    }, 600);
-  };
 
   return (
     <div className="flex min-h-screen gap-3 bg-background p-3">
@@ -321,30 +305,8 @@ function AdminShellInner({
         <header className="card-surface mb-3 hidden flex-wrap items-center gap-3 px-5 py-3 lg:flex">
           <h1 className="mr-auto text-lg font-semibold tracking-tight">{title}</h1>
 
-          <GlobalSearch className="hidden w-64 md:block" />
+          <GlobalSearch className="hidden w-80 md:block" />
 
-          {settings && totals && (
-            <a
-              href={`mailto:${settings.payrollEmail}?subject=${encodeURIComponent(
-                `${settings.companyName} — HR update`,
-              )}&body=${encodeURIComponent(
-                `Active workers: ${totals.activeWorkers}\nExpiring soon: ${totals.expiringSoon}\nPending payrolls: ${totals.pendingCount}`,
-              )}`}
-              aria-label={`Email payroll contact ${settings.payrollEmail}`}
-            title={`Email ${settings.payrollEmail}`}
-            className="grid size-9 place-items-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary"
-          >
-            <Mail className="size-4" />
-          </a>
-          )}
-          <button
-            onClick={refresh}
-            aria-label="Refresh data"
-            title="Refresh data"
-            className="grid size-9 place-items-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary"
-          >
-            <RefreshCw className={cn("size-4", refreshing && "animate-spin")} />
-          </button>
           <Link
             to="/admin/notifications"
             className="relative grid size-9 place-items-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-secondary"
@@ -367,9 +329,6 @@ function AdminShellInner({
                 className={cn("size-8 rounded-full border-2 border-card bg-secondary", i && "-ml-2.5")}
               />
             ))}
-            <span className="-ml-2.5 grid size-8 place-items-center rounded-full border-2 border-card bg-primary-soft text-[10px] font-semibold text-primary">
-              +{Math.max(0, workers.length - 3)}
-            </span>
           </div>
 
           <button

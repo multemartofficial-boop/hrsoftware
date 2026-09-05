@@ -338,7 +338,8 @@ function useApiState() {
     setError(null);
     try {
       const data = await apiClient.get<BuyerIncome[]>('/api/buyer-income');
-      setBuyerIncome(data);
+      // MySQL DECIMAL returns strings — coerce so sums don't concatenate
+      setBuyerIncome((data || []).map((i) => ({ ...i, amount: Number(i.amount) || 0 })));
     } catch (err) {
       if (!(err instanceof Error && err.message.includes('401'))) {
         console.error('Failed to load buyer income:', err);
@@ -354,7 +355,8 @@ function useApiState() {
     setError(null);
     try {
       const data = await apiClient.get<OtherCost[]>('/api/other-costs');
-      setOtherCosts(data);
+      // MySQL DECIMAL returns strings — coerce so sums don't concatenate
+      setOtherCosts((data || []).map((c) => ({ ...c, amount: Number(c.amount) || 0 })));
     } catch (err) {
       if (!(err instanceof Error && err.message.includes('401'))) {
         console.error('Failed to load other costs:', err);

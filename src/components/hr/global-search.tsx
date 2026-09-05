@@ -1,15 +1,16 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Search, Users, MapPin, LayoutDashboard } from "lucide-react";
+import { Search, Users, MapPin, LayoutDashboard, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useApi } from "@/lib/api-store";
+import { apiClient } from "@/lib/api-client";
 import { avatarUrl } from "@/lib/mock-data";
 
 type Result = {
   key: string;
   label: string;
   sub: string;
-  kind: "worker" | "location" | "page";
+  kind: "worker" | "location" | "page" | "document";
   img?: string;
   go: () => void;
 };
@@ -37,11 +38,20 @@ export function GlobalSearch({
   autoFocus?: boolean;
   onDone?: () => void;
 }) {
-  const { workers, locations } = useApi();
+  const { workers, locations, session } = useApi();
   const navigate = useNavigate();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [docs, setDocs] = useState<{ id: string; name: string }[]>([]);
+
+  // Load documents once for search (admin context only)
+  useEffect(() => {
+    if (session?.role !== "admin") return;
+    apiClient.get<{ id: string; name: string }[]>("/api/documents")
+      .then(setDocs)
+      .catch(() => setDocs([]));
+  }, [session?.role]);
 
   const results = useMemo<Result[]>(() => {
     const term = q.trim().toLowerCase();
@@ -73,6 +83,16 @@ export function GlobalSearch({
           go: () => navigate({ to: "/admin/locations" }),
         });
     }
+    for (const d of docs) {
+      if (d.name.toLowerCase().includes(term))
+        out.push({
+          key: `d-${d.id}`,
+          label: d.name,
+          sub: "Document",
+          kind: "document",
+          go: () => navigate({ to: "/admin/documents" }),
+        });
+    }
     for (const p of pages) {
       if (p.label.toLowerCase().includes(term))
         out.push({
@@ -83,8 +103,15 @@ export function GlobalSearch({
           go: () => navigate({ to: p.to }),
         });
     }
-    return out.slice(0, 8);
-  }, [q, workers, locations, navigate]);
+    return out.slice(0, 10);
+  }, [q, workers, locations, docs, navigate]);
+
+  const groups: [string, string][] = [
+    ["worker", "Workers"],
+    ["location", "Locations"],
+    ["document", "Documents"],
+    ["page", "Pages"],
+  ];
 
   const pick = (r: Result) => {
     r.go();
@@ -95,7 +122,7 @@ export function GlobalSearch({
 
   return (
     <div className={cn("relative", className)}>
-      <Search className="absolute top-2.5 left-3 size-4 text-muted-foreground" />
+      <Search className="absolute top-3 left-3 size-4 text-muted-foreground" />
       <input
         autoFocus={autoFocus}
         value={q}
@@ -115,43 +142,54 @@ export function GlobalSearch({
             onDone?.();
           }
         }}
-        className="h-9 w-full rounded-lg border border-border bg-background pl-9 text-sm outline-none placeholder:text-muted-foreground focus:border-primary"
+        className="h-10 w-full rounded-lg border border-border bg-background pl-9 text-sm outline-none placeholder:text-muted-foreground focus:border-primary"
       />
 
       {open && q.trim() && (
-        <div className="absolute top-11 right-0 left-0 z-50 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
+        <div className="absolute top-12 right-0 left-0 z-50 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
           {results.length === 0 ? (
             <p className="px-3 py-4 text-sm text-muted-foreground">No matches for “{q}”</p>
           ) : (
-            results.map((r) => (
-              <button
-                key={r.key}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  if (blurTimer.current) clearTimeout(blurTimer.current);
-                  pick(r);
-                }}
-                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-secondary"
-              >
-                {r.img ? (
-                  <img src={r.img} alt="" className="size-7 shrink-0 rounded-full bg-secondary" />
-                ) : (
-                  <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary-soft text-primary">
-                    {r.kind === "location" ? (
-                      <MapPin className="size-3.5" />
-                    ) : r.kind === "page" ? (
-                      <LayoutDashboard className="size-3.5" />
-                    ) : (
-                      <Users className="size-3.5" />
-                    )}
-                  </span>
-                )}
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium">{r.label}</span>
-                  <span className="block truncate text-xs text-muted-foreground">{r.sub}</span>
-                </span>
-              </button>
-            ))
+            groups.map(([kind, label]) => {
+              const items = results.filter((r) => r.kind === kind);
+              if (!items.length) return null;
+              return (
+                <div key={kind}>
+                  <p className="bg-secondary/50 px-3 py-1.5 text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">{label}</p>
+                  {items.map((r) => (
+                    <button
+                      key={r.key}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        if (blurTimer.current) clearTimeout(blurTimer.current);
+                        pick(r);
+                      }}
+                      className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-secondary"
+                    >
+                      {r.img ? (
+                        <img src={r.img} alt="" className="size-7 shrink-0 rounded-full bg-secondary" />
+                      ) : (
+                        <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary-soft text-primary">
+                          {r.kind === "location" ? (
+                            <MapPin className="size-3.5" />
+                          ) : r.kind === "page" ? (
+                            <LayoutDashboard className="size-3.5" />
+                          ) : r.kind === "document" ? (
+                            <FileText className="size-3.5" />
+                          ) : (
+                            <Users className="size-3.5" />
+                          )}
+                        </span>
+                      )}
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium">{r.label}</span>
+                        <span className="block truncate text-xs text-muted-foreground">{r.sub}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              );
+            })
           )}
         </div>
       )}

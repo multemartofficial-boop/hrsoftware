@@ -64,7 +64,30 @@ export function PayrollBarChart({
   );
 }
 
-export const donutColors = ["oklch(0.55 0.23 291)", "oklch(0.72 0.12 195)", "oklch(0.84 0.08 291)"];
+export function DailyHoursChart({ data }: { data: { day: string; hours: number }[] }) {
+  return (
+    <ResponsiveContainer width="100%" height={280}>
+      <BarChart data={data} barCategoryGap={20}>
+        <CartesianGrid vertical={false} stroke="oklch(0.93 0.006 285)" />
+        <XAxis dataKey="day" axisLine={false} tickLine={false} {...axis} />
+        <YAxis
+          axisLine={false}
+          tickLine={false}
+          {...axis}
+          tickFormatter={(v: number) => (v >= 1000 ? `${v / 1000}k` : String(v))}
+        />
+        <Tooltip
+          cursor={{ fill: "oklch(0.55 0.23 291 / 0.06)" }}
+          contentStyle={tooltipStyle}
+          formatter={(v: number) => [`${Number(v).toFixed(2)} h`, "Hours worked"]}
+        />
+        <Bar dataKey="hours" fill="oklch(0.55 0.23 291)" radius={[6, 6, 6, 6]} barSize={16} />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+export const donutColors = ["oklch(0.55 0.23 291)", "oklch(0.72 0.12 195)", "oklch(0.84 0.08 291)", "oklch(0.65 0.18 30)", "oklch(0.5 0.1 260)"];
 
 export function DonutChart({
   data,

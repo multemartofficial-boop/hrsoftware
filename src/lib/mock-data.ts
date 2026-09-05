@@ -75,6 +75,8 @@ export type Application = {
   rate: number;
   status: "pending" | "approved" | "rejected";
   workerId?: string;
+  /** server-computed: worker row exists AND password_hash set (setup complete) */
+  passwordSet?: boolean | null;
   worker_joined?: string;
   worker_expiry?: string;
   rejectedOn?: string;
