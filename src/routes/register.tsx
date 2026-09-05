@@ -1,14 +1,14 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   Sparkles, CheckCircle2, ArrowLeft, ArrowRight, Plus, Trash2, Check,
   User, Phone, Mail, Calendar, MapPin, Hash, Landmark, FileText, Upload, X,
-  Briefcase, Globe, Clock, ShieldCheck, CircleDashed,
+  Briefcase, Globe, Clock, ShieldCheck, CircleDashed, ChevronDown, Search,
 } from "lucide-react";
 import { Card, Field, PrimaryButton, GhostButton, inputCls } from "@/components/hr/bits";
 import { useApi } from "@/lib/api-store";
 import { HOW_HEARD_OPTIONS } from "@/lib/mock-data";
-import { COUNTRIES, requiresVisa } from "@/lib/countries";
+import { EUROPEAN_COUNTRIES, requiresVisa } from "@/lib/countries";
 
 export const Route = createFileRoute("/register")({
   head: () => ({
@@ -28,15 +28,8 @@ const VACANCY = "Site Operative";
 const titles = ["Mr", "Mrs", "Ms", "Miss", "Dr"];
 const availabilityOptions = ["Full-time", "Part-time", "Weekends only", "Flexible"];
 
-/** European countries listed first in the searchable dropdown — most applicants are UK/EU. */
-const EU_COUNTRIES = new Set([
-  "United Kingdom", "Ireland", "Austria", "Belgium", "Bulgaria", "Croatia", "Cyprus",
-  "Czechia", "Denmark", "Estonia", "Finland", "France", "Germany", "Greece", "Hungary",
-  "Iceland", "Italy", "Latvia", "Liechtenstein", "Lithuania", "Luxembourg", "Malta",
-  "Netherlands", "Norway", "Poland", "Portugal", "Romania", "Slovakia", "Slovenia",
-  "Spain", "Sweden", "Switzerland",
-]);
-const COUNTRIES_ORDERED = [...COUNTRIES.filter((c) => EU_COUNTRIES.has(c)), ...COUNTRIES.filter((c) => !EU_COUNTRIES.has(c))];
+/** inputCls without the top margin — used inside custom wrappers that manage their own spacing. */
+const inputBase = "h-10 w-full rounded-lg border border-border bg-card px-3 text-sm outline-none focus:border-primary";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 const FILE_ACCEPT = ".jpg,.jpeg,.png,.pdf";
@@ -163,35 +156,112 @@ function Summary({ title, items }: { title: string; items: [string, string][] })
 
 const Req = () => <span className="text-danger"> *</span>;
 
-/** Searchable country picker (native datalist — type to filter). */
+/**
+ * Custom searchable country dropdown — European countries only.
+ * One shared implementation used for every country field in the form.
+ */
 function CountrySelect({
-  id,
   value,
   onChange,
   invalid,
+  placeholder = "Select country…",
 }: {
-  id: string;
   value: string;
   onChange: (v: string) => void;
   invalid?: boolean;
+  placeholder?: string;
 }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    setTimeout(() => searchRef.current?.focus(), 0);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const filtered = EUROPEAN_COUNTRIES.filter((c) =>
+    c.toLowerCase().includes(q.trim().toLowerCase()),
+  );
+
   return (
-    <>
-      <IconInput icon={<Globe />}>
-        <input
-          list={id}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className={`${inputCls} ${iconCls} ${invalid ? "border-danger" : ""}`}
-          placeholder="Type to search countries…"
-        />
-      </IconInput>
-      <datalist id={id}>
-        {COUNTRIES_ORDERED.map((c) => (
-          <option key={c} value={c} />
-        ))}
-      </datalist>
-    </>
+    <div ref={boxRef} className="relative mt-1.5">
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((o) => !o);
+          setQ("");
+        }}
+        className={`${inputBase} flex items-center gap-2 text-left ${invalid ? "border-danger" : ""} ${open ? "border-primary" : ""}`}
+      >
+        <Globe className="size-4 shrink-0 text-muted-foreground" />
+        <span className={`flex-1 truncate ${value ? "" : "text-muted-foreground"}`}>
+          {value || placeholder}
+        </span>
+        <ChevronDown className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="absolute z-40 mt-1 w-full overflow-hidden rounded-xl border border-border bg-card shadow-lg">
+          <div className="border-b border-border p-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                ref={searchRef}
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && filtered.length) {
+                    e.preventDefault();
+                    onChange(filtered[0]!);
+                    setOpen(false);
+                  }
+                }}
+                className="h-9 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-sm outline-none focus:border-primary"
+                placeholder="Type to search…"
+              />
+            </div>
+          </div>
+          <ul className="max-h-52 overflow-y-auto p-1">
+            {filtered.length === 0 && (
+              <li className="px-3 py-2 text-sm text-muted-foreground">No European countries match “{q}”.</li>
+            )}
+            {filtered.map((c) => {
+              const sel = c === value;
+              return (
+                <li key={c}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChange(c);
+                      setOpen(false);
+                    }}
+                    className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-secondary ${
+                      sel ? "bg-primary-soft font-medium text-primary" : ""
+                    }`}
+                  >
+                    <span className="flex-1">{c}</span>
+                    {sel && <Check className="size-4" />}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -282,7 +352,7 @@ function FileUpload({
 }
 
 function RegisterPage() {
-  const { submitApplication, locations, settings } = useApi();
+  const { submitApplication, locations, settings, loadLocations, loading } = useApi();
   const [step, setStep] = useState(0);
   const [maxStep, setMaxStep] = useState(0);
   const [done, setDone] = useState<string | null>(null);
@@ -358,6 +428,14 @@ function RegisterPage() {
   const [prefLocations, setPrefLocations] = useState<string[]>([]);
   const [docUrls, setDocUrls] = useState<Record<string, string>>({});
   const [fileObjects, setFileObjects] = useState<Record<string, File>>({});
+
+  // GET /api/locations is public — the store only auto-loads it for logged-in
+  // sessions, so the registration page must trigger it itself, otherwise the
+  // "Preferred Work Location(s)" selector renders nothing.
+  useEffect(() => {
+    void loadLocations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const err = (k: string) => errors[k];
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => {
@@ -465,6 +543,7 @@ function RegisterPage() {
       need(e, "kinTown", "their town or city", f.kinTown);
       need(e, "kinCounty", "their county / region", f.kinCounty);
       need(e, "kinPostcode", "their postcode", f.kinPostcode);
+      need(e, "kinCountry", "their country", f.kinCountry);
     }
     if (n === 1) {
       need(e, "photo", "a profile photo", f.photo);
@@ -760,7 +839,7 @@ function RegisterPage() {
                 <input value={f.postcode} onChange={set("postcode")} className={`${inputCls} ${err("postcode") ? "border-danger" : ""}`} />
               </Field>
               <Field label="Country *" error={err("country")}>
-                <CountrySelect id="cur-country" value={f.country} onChange={setVal("country")} invalid={!!err("country")} />
+                <CountrySelect value={f.country} onChange={setVal("country")} invalid={!!err("country")} />
               </Field>
               <Field label="At Current Address From *" error={err("addressFrom")}>
                 <IconInput icon={<Calendar />}>
@@ -797,7 +876,7 @@ function RegisterPage() {
                     <input value={g(row,"postcode")} onChange={rowSet(setPrevAddresses, i, "postcode")} className={`${inputCls} ${err(`prev${i}.postcode`) ? "border-danger" : ""}`} />
                   </Field>
                   <Field label="Country *" error={err(`prev${i}.country`)}>
-                    <CountrySelect id={`prev-country-${i}`} value={g(row,"country")} onChange={(v) => rowSet(setPrevAddresses, i, "country")({ target: { value: v } })} invalid={!!err(`prev${i}.country`)} />
+                    <CountrySelect value={g(row,"country")} onChange={(v) => rowSet(setPrevAddresses, i, "country")({ target: { value: v } })} invalid={!!err(`prev${i}.country`)} />
                   </Field>
                   <Field label="At Address From *" error={err(`prev${i}.from`)}>
                     <input type="date" value={g(row,"from")} onChange={rowSet(setPrevAddresses, i, "from")} className={`${inputCls} ${err(`prev${i}.from`) ? "border-danger" : ""}`} />
@@ -816,12 +895,7 @@ function RegisterPage() {
                 </IconInput>
               </Field>
               <Field label="Nationality *" error={err("nationality")}>
-                <input list="nationalities" value={f.nationality} onChange={set("nationality")} className={`${inputCls} ${err("nationality") ? "border-danger" : ""}`} placeholder="Type to search…" />
-                <datalist id="nationalities">
-                  {COUNTRIES_ORDERED.map((c) => (
-                    <option key={c} value={c} />
-                  ))}
-                </datalist>
+                <CountrySelect value={f.nationality} onChange={setVal("nationality")} invalid={!!err("nationality")} placeholder="Select nationality…" />
               </Field>
               <Field label="National Insurance No *" error={err("ni")}>
                 <IconInput icon={<Hash />}>
@@ -873,6 +947,9 @@ function RegisterPage() {
               <Field label="Postcode *" error={err("kinPostcode")}>
                 <input value={f.kinPostcode} onChange={set("kinPostcode")} className={`${inputCls} ${err("kinPostcode") ? "border-danger" : ""}`} />
               </Field>
+              <Field label="Country *" error={err("kinCountry")}>
+                <CountrySelect value={f.kinCountry} onChange={setVal("kinCountry")} invalid={!!err("kinCountry")} />
+              </Field>
             </Section>
           </>
         )}
@@ -920,7 +997,7 @@ function RegisterPage() {
 
             <Section title="Passport" icon={<Globe />}>
               <Field label="Passport Country *" error={err("passportCountry")} hint="Which country's passport do you hold? Type to search.">
-                <CountrySelect id="passport-countries" value={f.passportCountry} onChange={setVal("passportCountry")} invalid={!!err("passportCountry")} />
+                <CountrySelect value={f.passportCountry} onChange={setVal("passportCountry")} invalid={!!err("passportCountry")} />
               </Field>
               <Field label="Passport Number *" error={err("passportNumber")}>
                 <IconInput icon={<Hash />}>
@@ -1191,6 +1268,33 @@ function RegisterPage() {
             <Section title="Availability" icon={<Clock />}>
               <div className="sm:col-span-2">
                 <span className="text-sm font-medium">Preferred Work Location(s) *</span>
+                {(locations || []).length === 0 ? (
+                  loading?.["locations"] ? (
+                    <p className="mt-2 text-sm text-muted-foreground">Loading locations…</p>
+                  ) : (
+                    <>
+                      <p className="mt-1.5 text-xs text-muted-foreground">
+                        No locations are listed yet — type your preferred location below.
+                      </p>
+                      <IconInput icon={<MapPin />}>
+                        <input
+                          value={prefLocations[0] ?? ""}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setPrefLocations(v.trim() ? [v] : []);
+                            setErrors((s) => {
+                              if (!s["prefLocations"]) return s;
+                              const { prefLocations: _d, ...rest } = s;
+                              return rest;
+                            });
+                          }}
+                          className={`${inputCls} ${iconCls} ${err("prefLocations") ? "border-danger" : ""}`}
+                          placeholder="e.g. Camden Site"
+                        />
+                      </IconInput>
+                    </>
+                  )
+                ) : (
                 <div className="mt-2 flex flex-wrap gap-2">
                   {(locations || []).map((l) => {
                     const on = prefLocations.includes(l.name);
@@ -1216,6 +1320,7 @@ function RegisterPage() {
                     );
                   })}
                 </div>
+                )}
                 {err("prefLocations") && <span className="mt-1 block text-xs font-medium text-danger">{err("prefLocations")}</span>}
               </div>
               <Field label="Preferred Working Hours / Availability *">

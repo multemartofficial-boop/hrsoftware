@@ -206,3 +206,60 @@ export const VISA_EXEMPT_COUNTRIES = ["United Kingdom", "Ireland"];
 
 export const requiresVisa = (passportCountry: string) =>
   Boolean(passportCountry) && !VISA_EXEMPT_COUNTRIES.includes(passportCountry);
+
+/**
+ * European countries offered in the registration form's searchable country
+ * dropdown — EU member states, the UK, EEA/EFTA and other European states.
+ * Used everywhere a country is picked (address, nationality, next of kin,
+ * passport) since applicants realistically come from Europe.
+ */
+export const EUROPEAN_COUNTRIES = [
+  "United Kingdom",
+  "Ireland",
+  "Austria",
+  "Belgium",
+  "Bulgaria",
+  "Croatia",
+  "Cyprus",
+  "Czechia",
+  "Denmark",
+  "Estonia",
+  "Finland",
+  "France",
+  "Germany",
+  "Greece",
+  "Hungary",
+  "Italy",
+  "Latvia",
+  "Lithuania",
+  "Luxembourg",
+  "Malta",
+  "Netherlands",
+  "Poland",
+  "Portugal",
+  "Romania",
+  "Slovakia",
+  "Slovenia",
+  "Spain",
+  "Sweden",
+  "Iceland",
+  "Liechtenstein",
+  "Norway",
+  "Switzerland",
+  "Albania",
+  "Andorra",
+  "Belarus",
+  "Bosnia and Herzegovina",
+  "Georgia",
+  "Kosovo",
+  "Moldova",
+  "Monaco",
+  "Montenegro",
+  "North Macedonia",
+  "Russia",
+  "San Marino",
+  "Serbia",
+  "Turkey",
+  "Ukraine",
+  "Vatican City",
+];
