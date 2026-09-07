@@ -611,11 +611,21 @@ function RegisterPage() {
         }
         return next;
       });
-      if (Array.isArray(d["prevAddresses"])) setPrevAddresses(d["prevAddresses"]);
-      if (Array.isArray(d["employers"]) && d["employers"].length) setEmployers(d["employers"]);
-      if (Array.isArray(d["referees"]) && d["referees"].length) setReferees(d["referees"]);
-      if (Array.isArray(d["skills"])) setSkills(d["skills"]);
-      if (Array.isArray(d["prefLocations"])) setPrefLocations(d["prefLocations"]);
+      // Repeat-row arrays are stored as JSON strings inside details — parse them
+      const asRows = (v: any): Row[] => {
+        if (Array.isArray(v)) return v;
+        try { const p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch { return []; }
+      };
+      const prevA = asRows(d["prevAddresses"]);
+      if (prevA.length) setPrevAddresses(prevA);
+      const emps = asRows(d["employers"]);
+      if (emps.length) setEmployers(emps);
+      const refs = asRows(d["referees"]);
+      if (refs.length) setReferees(refs);
+      const sks = asRows(d["skills"]);
+      if (sks.length) setSkills(sks);
+      const locs = asRows(d["prefLocations"]);
+      if (locs.length) setPrefLocations(locs.map(String));
       // Previously uploaded docs are already on the server — mark them done
       const docs: Record<string, string> = d["docUrls"] || {};
       setExistingDocs(docs);
