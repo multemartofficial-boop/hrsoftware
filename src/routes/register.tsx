@@ -558,11 +558,28 @@ function RegisterPage() {
     }
   };
 
-  // Debounced autosave — 2.5s after the last change, once a valid email exists.
-  // Runs on every render so ANY field edit (not just Next/blur) schedules a save.
+  // Debounced autosave — 2.5s after the last *actual change*, once a valid
+  // email exists. A fingerprint of the form state prevents the save→render→
+  // re-save loop (setDraftSavedAt triggers a render, which must not re-arm).
+  const lastSavedFp = useRef("");
+  const fingerprint = JSON.stringify({
+    f,
+    prevAddresses,
+    employers,
+    referees,
+    skills,
+    prefLocations,
+    files: FILE_KEYS.map((k) => fileObjects[k] ? `${fileObjects[k].name}:${fileObjects[k].size}` : existingDocs[k] || ""),
+    step,
+  });
   useEffect(() => {
     if (!EMAIL_RE.test(f.email.trim())) return;
-    const t = setTimeout(() => void saveDraft(step), 2500);
+    if (fingerprint === lastSavedFp.current) return; // nothing new since last save
+    const fp = fingerprint;
+    const t = setTimeout(() => {
+      lastSavedFp.current = fp;
+      void saveDraft(step);
+    }, 2500);
     return () => clearTimeout(t);
   });
 
