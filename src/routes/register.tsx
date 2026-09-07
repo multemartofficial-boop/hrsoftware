@@ -516,22 +516,27 @@ function RegisterPage() {
 
   const FILE_KEYS = ["photo", "idFront", "idBack", "proofAddress", "passportDoc", "visaDoc", "siaDoc", "cv", "shareCode", "addressHistory"];
 
+  /** Latest-state ref so effects/page-leave handlers always build from fresh data. */
+  const latestRef = useRef<any>(null);
+  latestRef.current = { f, prevAddresses, employers, referees, skills, prefLocations, fileObjects, existingDocs, step };
+
   /** Shared payload builder — used by both draft autosave and final submit. */
   const buildFormData = (extra?: Record<string, string>) => {
+    const s = latestRef.current;
     const formData = new FormData();
-    for (const [k, v] of Object.entries(f)) {
+    for (const [k, v] of Object.entries(s.f)) {
       if (!FILE_KEYS.includes(k)) formData.append(k, String(v));
     }
     // Backend keeps the combined sortAccount field; send both granular + combined
-    formData.append('sortAccount', [f.sortCode, f.accountNumber].filter(Boolean).join(' / '));
-    formData.append('prevAddresses', JSON.stringify(prevAddresses));
-    formData.append('employers', JSON.stringify(employers));
-    formData.append('referees', JSON.stringify(referees));
-    formData.append('skills', JSON.stringify(skills));
-    formData.append('prefLocations', JSON.stringify(prefLocations));
-    formData.append('existingDocs', JSON.stringify(existingDocs));
+    formData.append('sortAccount', [s.f.sortCode, s.f.accountNumber].filter(Boolean).join(' / '));
+    formData.append('prevAddresses', JSON.stringify(s.prevAddresses));
+    formData.append('employers', JSON.stringify(s.employers));
+    formData.append('referees', JSON.stringify(s.referees));
+    formData.append('skills', JSON.stringify(s.skills));
+    formData.append('prefLocations', JSON.stringify(s.prefLocations));
+    formData.append('existingDocs', JSON.stringify(s.existingDocs));
     for (const k of FILE_KEYS) {
-      if (fileObjects[k]) formData.append(k, fileObjects[k]);
+      if (s.fileObjects[k]) formData.append(k, s.fileObjects[k]);
     }
     if (extra) for (const [k, v] of Object.entries(extra)) formData.append(k, v);
     return formData;
@@ -539,18 +544,51 @@ function RegisterPage() {
 
   /** Silently save progress to the backend so the applicant can resume later. */
   const saveDraft = async (completedStep: number) => {
-    if (!EMAIL_RE.test(f.email.trim())) return;
+    const s = latestRef.current;
+    if (!s || !EMAIL_RE.test(s.f.email.trim())) return;
     try {
       const res = await apiClient.uploadFile<{ id: string; docUrls: Record<string, string> }>(
         '/applications/draft',
         buildFormData({ lastStep: String(completedStep) }),
       );
-      setExistingDocs((s) => ({ ...s, ...res.docUrls }));
+      setExistingDocs((prev) => ({ ...prev, ...res.docUrls }));
       setDraftSavedAt(new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false }));
     } catch (e) {
       console.warn('Draft save failed:', e);
     }
   };
+
+  // Debounced autosave — 2.5s after the last change, once a valid email exists.
+  // Runs on every render so ANY field edit (not just Next/blur) schedules a save.
+  useEffect(() => {
+    if (!EMAIL_RE.test(f.email.trim())) return;
+    const t = setTimeout(() => void saveDraft(step), 2500);
+    return () => clearTimeout(t);
+  });
+
+  // Flush a final save when the tab is hidden or closed — best effort.
+  useEffect(() => {
+    const flush = () => {
+      const s = latestRef.current;
+      if (!s || !EMAIL_RE.test(s.f.email.trim())) return;
+      try {
+        const base = (import.meta as any).env?.['VITE_API_URL'] || ((import.meta as any).env?.DEV ? 'http://localhost:3001' : '');
+        fetch(`${base}/api/applications/draft`, {
+          method: 'POST',
+          body: buildFormData({ lastStep: String(s.step) }),
+          keepalive: true,
+        });
+      } catch { /* best effort */ }
+    };
+    const onVis = () => { if (document.hidden) flush(); };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** Load a saved draft back into the form. */
   const resumeDraft = async () => {
