@@ -8,7 +8,8 @@ import {
 import { Card, Field, PrimaryButton, GhostButton, inputCls } from "@/components/hr/bits";
 import { useApi } from "@/lib/api-store";
 import { HOW_HEARD_OPTIONS } from "@/lib/mock-data";
-import { EUROPEAN_COUNTRIES, requiresVisa } from "@/lib/countries";
+import { COUNTRIES, requiresVisa } from "@/lib/countries";
+import { apiClient } from "@/lib/api-client";
 
 export const Route = createFileRoute("/register")({
   head: () => ({
@@ -193,7 +194,7 @@ function CountrySelect({
     };
   }, [open]);
 
-  const filtered = EUROPEAN_COUNTRIES.filter((c) =>
+  const filtered = COUNTRIES.filter((c) =>
     c.toLowerCase().includes(q.trim().toLowerCase()),
   );
 
@@ -236,7 +237,7 @@ function CountrySelect({
           </div>
           <ul className="max-h-52 overflow-y-auto p-1">
             {filtered.length === 0 && (
-              <li className="px-3 py-2 text-sm text-muted-foreground">No European countries match “{q}”.</li>
+              <li className="px-3 py-2 text-sm text-muted-foreground">No countries match “{q}”.</li>
             )}
             {filtered.map((c) => {
               const sel = c === value;
@@ -271,6 +272,7 @@ function FileUpload({
   required,
   fileName,
   preview,
+  helper,
   onPick,
   onClear,
   error,
@@ -279,6 +281,7 @@ function FileUpload({
   required?: boolean;
   fileName: string;
   preview?: string | undefined;
+  helper?: string | undefined;
   onPick: (f: File | null) => void;
   onClear: () => void;
   error?: string | undefined;
@@ -345,7 +348,10 @@ function FileUpload({
       {msg ? (
         <span className="mt-1 block text-xs font-medium text-danger">{msg}</span>
       ) : (
-        <span className="mt-1 block text-xs text-muted-foreground">{FILE_HINT}</span>
+        <span className="mt-1 block text-xs text-muted-foreground">
+          {helper && <span className="block">{helper}</span>}
+          {FILE_HINT}
+        </span>
       )}
     </div>
   );
@@ -409,9 +415,14 @@ function RegisterPage() {
     visaNumber: "",
     siaBadgeNumber: "",
     siaBadgeExpiry: "",
+    passportType: "",
+    cv: "",
+    shareCode: "",
+    addressHistory: "",
     bankName: "",
     accountHolder: "",
-    sortAccount: "",
+    sortCode: "",
+    accountNumber: "",
     medical: "",
     dietary: "",
     workedBefore: "No",
@@ -428,6 +439,14 @@ function RegisterPage() {
   const [prefLocations, setPrefLocations] = useState<string[]>([]);
   const [docUrls, setDocUrls] = useState<Record<string, string>>({});
   const [fileObjects, setFileObjects] = useState<Record<string, File>>({});
+  /** Docs already stored on the server by a draft save — satisfy validation without re-upload. */
+  const [existingDocs, setExistingDocs] = useState<Record<string, string>>({});
+  const [resumeOpen, setResumeOpen] = useState(false);
+  const [resumeEmail, setResumeEmail] = useState("");
+  const [resumeBusy, setResumeBusy] = useState(false);
+  const [resumeMsg, setResumeMsg] = useState<string | null>(null);
+  const [resumed, setResumed] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
 
   // GET /api/locations is public — the store only auto-loads it for logged-in
   // sessions, so the registration page must trigger it itself, otherwise the
@@ -490,6 +509,98 @@ function RegisterPage() {
 
   const pct = step * 25;
 
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const NI_RE = /^[A-Za-z]{2}\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-Da-d]$/;
+  const SORT_RE = /^\d{2}-?\d{2}-?\d{2}$/;
+  const ACCOUNT_RE = /^\d{8}$/;
+
+  const FILE_KEYS = ["photo", "idFront", "idBack", "proofAddress", "passportDoc", "visaDoc", "siaDoc", "cv", "shareCode", "addressHistory"];
+
+  /** Shared payload builder — used by both draft autosave and final submit. */
+  const buildFormData = (extra?: Record<string, string>) => {
+    const formData = new FormData();
+    for (const [k, v] of Object.entries(f)) {
+      if (!FILE_KEYS.includes(k)) formData.append(k, String(v));
+    }
+    // Backend keeps the combined sortAccount field; send both granular + combined
+    formData.append('sortAccount', [f.sortCode, f.accountNumber].filter(Boolean).join(' / '));
+    formData.append('prevAddresses', JSON.stringify(prevAddresses));
+    formData.append('employers', JSON.stringify(employers));
+    formData.append('referees', JSON.stringify(referees));
+    formData.append('skills', JSON.stringify(skills));
+    formData.append('prefLocations', JSON.stringify(prefLocations));
+    formData.append('existingDocs', JSON.stringify(existingDocs));
+    for (const k of FILE_KEYS) {
+      if (fileObjects[k]) formData.append(k, fileObjects[k]);
+    }
+    if (extra) for (const [k, v] of Object.entries(extra)) formData.append(k, v);
+    return formData;
+  };
+
+  /** Silently save progress to the backend so the applicant can resume later. */
+  const saveDraft = async (completedStep: number) => {
+    if (!EMAIL_RE.test(f.email.trim())) return;
+    try {
+      const res = await apiClient.uploadFile<{ id: string; docUrls: Record<string, string> }>(
+        '/applications/draft',
+        buildFormData({ lastStep: String(completedStep) }),
+      );
+      setExistingDocs((s) => ({ ...s, ...res.docUrls }));
+      setDraftSavedAt(new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false }));
+    } catch (e) {
+      console.warn('Draft save failed:', e);
+    }
+  };
+
+  /** Load a saved draft back into the form. */
+  const resumeDraft = async () => {
+    const email = resumeEmail.trim();
+    if (!EMAIL_RE.test(email)) {
+      setResumeMsg('Please enter a valid email address');
+      return;
+    }
+    setResumeBusy(true);
+    setResumeMsg(null);
+    try {
+      const res = await apiClient.get<{ id: string; details: Record<string, any> }>(
+        `/api/applications/draft?email=${encodeURIComponent(email)}`,
+      );
+      const d = res.details;
+      setF((s) => {
+        const next = { ...s };
+        for (const k of Object.keys(next) as (keyof typeof s)[]) {
+          if (typeof d[k] === 'string') (next as any)[k] = d[k];
+        }
+        return next;
+      });
+      if (Array.isArray(d["prevAddresses"])) setPrevAddresses(d["prevAddresses"]);
+      if (Array.isArray(d["employers"]) && d["employers"].length) setEmployers(d["employers"]);
+      if (Array.isArray(d["referees"]) && d["referees"].length) setReferees(d["referees"]);
+      if (Array.isArray(d["skills"])) setSkills(d["skills"]);
+      if (Array.isArray(d["prefLocations"])) setPrefLocations(d["prefLocations"]);
+      // Previously uploaded docs are already on the server — mark them done
+      const docs: Record<string, string> = d["docUrls"] || {};
+      setExistingDocs(docs);
+      setF((s) => {
+        const next = { ...s };
+        for (const k of FILE_KEYS) {
+          if (docs[k]) (next as any)[k] = docs[k].split('/').pop()!;
+        }
+        return next;
+      });
+      setErrors({});
+      setResumed(true);
+      setResumeOpen(false);
+      const last = Number(d["lastStep"]);
+      if (last >= 1 && last <= 4) goTo(Math.min(4, last));
+      window.scrollTo({ top: 0 });
+    } catch (e) {
+      setResumeMsg('No saved application found for that email.');
+    } finally {
+      setResumeBusy(false);
+    }
+  };
+
   // Visa details are expected for non-UK/Irish passport holders, or anyone who
   // answered "Yes" to holding a work permit/visa. Hidden entirely otherwise.
   const visaNeeded = requiresVisa(f.passportCountry);
@@ -497,9 +608,6 @@ function RegisterPage() {
   const visaMissing = visaNeeded && !(f.visaNumber.trim() && f.visaExpiry);
 
   /* ---------------- per-step validation ---------------- */
-
-  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  const NI_RE = /^[A-Za-z]{2}\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-Da-d]$/;
 
   const need = (acc: Record<string, string>, key: string, label: string, val?: string) => {
     if (!val || !val.trim()) acc[key] = `Please enter ${label}`;
@@ -544,6 +652,10 @@ function RegisterPage() {
       need(e, "kinCounty", "their county / region", f.kinCounty);
       need(e, "kinPostcode", "their postcode", f.kinPostcode);
       need(e, "kinCountry", "their country", f.kinCountry);
+      need(e, "addressHistory", "proof of your 5-year address history", f.addressHistory);
+      if (!f.passportType) e["passportType"] = "Please select your passport type";
+      else if (f.passportType === "British Passport") need(e, "cv", "your CV", f.cv);
+      else if (f.passportType === "Other Passport") need(e, "shareCode", "your UKVI share code document", f.shareCode);
     }
     if (n === 1) {
       need(e, "photo", "a profile photo", f.photo);
@@ -567,7 +679,10 @@ function RegisterPage() {
       }
       need(e, "bankName", "your bank name", f.bankName);
       need(e, "accountHolder", "the account holder name", f.accountHolder);
-      need(e, "sortAccount", "your sort code / account number", f.sortAccount);
+      if (!f.sortCode.trim()) e["sortCode"] = "Please enter your sort code";
+      else if (!SORT_RE.test(f.sortCode.trim())) e["sortCode"] = "Sort code must be 6 digits (e.g. 12-34-56)";
+      if (!f.accountNumber.trim()) e["accountNumber"] = "Please enter your account number";
+      else if (!ACCOUNT_RE.test(f.accountNumber.trim())) e["accountNumber"] = "Account number must be 8 digits";
     }
     if (n === 2) {
       if (f.workedBefore === "Yes") {
@@ -625,7 +740,9 @@ function RegisterPage() {
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
-    goTo(Math.min(4, step + 1));
+    const nxt = Math.min(4, step + 1);
+    goTo(nxt);
+    void saveDraft(nxt); // autosave progress after every completed step
   };
 
   const submit = async () => {
@@ -641,72 +758,7 @@ function RegisterPage() {
     }
     setSubmitting(true);
     try {
-      const formData = new FormData();
-
-      formData.append('title', f.title);
-      formData.append('surname', f.surname);
-      formData.append('forename', f.forename);
-      formData.append('dob', f.dob);
-      formData.append('birthSurname', f.birthSurname);
-      formData.append('nameChangeDate', f.nameChangeDate);
-      formData.append('mobile', f.mobile);
-      formData.append('email', f.email);
-      formData.append('addr1', f.addr1);
-      formData.append('addr2', f.addr2);
-      formData.append('addr3', f.addr3);
-      formData.append('town', f.town);
-      formData.append('county', f.county);
-      formData.append('postcode', f.postcode);
-      formData.append('country', f.country);
-      formData.append('addressFrom', f.addressFrom);
-      formData.append('birthPlace', f.birthPlace);
-      formData.append('nationality', f.nationality);
-      formData.append('ni', f.ni);
-      formData.append('rtw', f.rtw);
-      formData.append('kinForename', f.kinForename);
-      formData.append('kinSurname', f.kinSurname);
-      formData.append('kinPhone', f.kinPhone);
-      formData.append('kinAddr1', f.kinAddr1);
-      formData.append('kinAddr2', f.kinAddr2);
-      formData.append('kinAddr3', f.kinAddr3);
-      formData.append('kinTown', f.kinTown);
-      formData.append('kinCounty', f.kinCounty);
-      formData.append('kinPostcode', f.kinPostcode);
-      formData.append('kinCountry', f.kinCountry);
-      formData.append('hasVisa', f.hasVisa);
-      formData.append('visaType', f.visaType);
-      formData.append('visaExpiry', f.visaExpiry);
-      formData.append('howHeard', f.howHeard);
-      formData.append('subcontractCompany', f.subcontractCompany);
-      formData.append('passportCountry', f.passportCountry);
-      formData.append('passportNumber', f.passportNumber);
-      formData.append('passportExpiry', f.passportExpiry);
-      formData.append('visaNumber', f.visaNumber);
-      formData.append('siaBadgeNumber', f.siaBadgeNumber);
-      formData.append('siaBadgeExpiry', f.siaBadgeExpiry);
-      formData.append('bankName', f.bankName);
-      formData.append('accountHolder', f.accountHolder);
-      formData.append('sortAccount', f.sortAccount);
-      formData.append('medical', f.medical);
-      formData.append('dietary', f.dietary);
-      formData.append('workedBefore', f.workedBefore);
-      formData.append('beforeFrom', f.beforeFrom);
-      formData.append('beforeTo', f.beforeTo);
-      formData.append('beforeReason', f.beforeReason);
-      formData.append('availability', f.availability);
-      formData.append('rate', String(f.rate));
-
-      for (const k of ["photo", "idFront", "idBack", "proofAddress", "passportDoc", "visaDoc", "siaDoc"]) {
-        if (fileObjects[k]) formData.append(k, fileObjects[k]);
-      }
-
-      formData.append('prevAddresses', JSON.stringify(prevAddresses));
-      formData.append('employers', JSON.stringify(employers));
-      formData.append('referees', JSON.stringify(referees));
-      formData.append('skills', JSON.stringify(skills));
-      formData.append('prefLocations', JSON.stringify(prefLocations));
-
-      const response = await submitApplication(formData);
+      const response = await submitApplication(buildFormData());
       setDone(response.id);
     } catch (error) {
       console.error('Submission error:', error);
@@ -751,6 +803,47 @@ function RegisterPage() {
           />
         </div>
       </div>
+
+      {/* resume a saved draft */}
+      {!resumed && (
+        <div className="mb-4">
+          <button
+            type="button"
+            onClick={() => setResumeOpen((o) => !o)}
+            className="text-sm font-medium text-primary hover:underline"
+          >
+            Already started an application? Resume here
+          </button>
+          {resumeOpen && (
+            <div className="mt-2 flex flex-col gap-2 rounded-xl border border-border bg-card p-4 sm:flex-row sm:items-center">
+              <div className="relative flex-1">
+                <Mail className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="email"
+                  value={resumeEmail}
+                  onChange={(e) => setResumeEmail(e.target.value)}
+                  className={`${inputBase} pl-9`}
+                  placeholder="Enter the email you used"
+                />
+              </div>
+              <PrimaryButton onClick={resumeDraft} disabled={resumeBusy} className="sm:flex-none">
+                {resumeBusy ? "Checking…" : "Find my application"}
+              </PrimaryButton>
+            </div>
+          )}
+          {resumeMsg && <p className="mt-1 text-xs font-medium text-danger">{resumeMsg}</p>}
+        </div>
+      )}
+      {resumed && (
+        <p className="mb-4 flex items-center gap-2 rounded-xl border border-success/40 bg-success-soft px-4 py-2.5 text-sm font-medium text-success">
+          <CheckCircle2 className="size-4" /> Your saved progress has been restored — continue where you left off.
+        </p>
+      )}
+      {draftSavedAt && !resumed && (
+        <p className="mb-4 text-xs text-muted-foreground">
+          Progress auto-saved at {draftSavedAt} — you can safely close this page and resume later via your email.
+        </p>
+      )}
 
       <Card className="pb-6">
         <div className="mb-4 hidden items-baseline justify-between lg:flex">
@@ -888,6 +981,19 @@ function RegisterPage() {
               )}
             </Repeat>
 
+            <Section title="Address History Documents" icon={<FileText />} cols={1}>
+              <FileUpload
+                label="Upload proof of 5-year address history"
+                required
+                helper="e.g. utility bills, bank statements, or tenancy agreements covering the last 5 years."
+                fileName={f.addressHistory}
+                preview={docUrls["addressHistory"]}
+                onPick={pickFile("addressHistory")}
+                onClear={() => pickFile("addressHistory")(null)}
+                error={err("addressHistory")}
+              />
+            </Section>
+
             <Section title="Nationality & Right to Work" icon={<Globe />}>
               <Field label="Town / Place of Birth *" error={err("birthPlace")}>
                 <IconInput icon={<MapPin />}>
@@ -897,11 +1003,40 @@ function RegisterPage() {
               <Field label="Nationality *" error={err("nationality")}>
                 <CountrySelect value={f.nationality} onChange={setVal("nationality")} invalid={!!err("nationality")} placeholder="Select nationality…" />
               </Field>
-              <Field label="National Insurance No *" error={err("ni")}>
+              <Field label="N.I Number *" error={err("ni")} hint="Example: AB123456C">
                 <IconInput icon={<Hash />}>
-                  <input value={f.ni} onChange={set("ni")} className={`${inputCls} ${iconCls} ${err("ni") ? "border-danger" : ""}`} placeholder="QQ 12 34 56 C" />
+                  <input value={f.ni} onChange={set("ni")} className={`${inputCls} ${iconCls} ${err("ni") ? "border-danger" : ""}`} placeholder="Insurance Number" />
                 </IconInput>
               </Field>
+              <Field label="Passport type *" error={err("passportType")}>
+                <select value={f.passportType} onChange={set("passportType")} className={`${inputCls} ${err("passportType") ? "border-danger" : ""}`}>
+                  <option value="">--Select Type--</option>
+                  <option>British Passport</option>
+                  <option>Other Passport</option>
+                </select>
+              </Field>
+              {f.passportType === "British Passport" && (
+                <FileUpload
+                  label="Upload CV"
+                  required
+                  fileName={f.cv}
+                  preview={docUrls["cv"]}
+                  onPick={pickFile("cv")}
+                  onClear={() => pickFile("cv")(null)}
+                  error={err("cv")}
+                />
+              )}
+              {f.passportType === "Other Passport" && (
+                <FileUpload
+                  label="Upload your UKVI share code"
+                  required
+                  fileName={f.shareCode}
+                  preview={docUrls["shareCode"]}
+                  onPick={pickFile("shareCode")}
+                  onClear={() => pickFile("shareCode")(null)}
+                  error={err("shareCode")}
+                />
+              )}
               <Field label="Are you permitted to work in the UK? *">
                 <select value={f.rtw} onChange={set("rtw")} className={inputCls}>
                   <option>Yes</option>
@@ -1096,9 +1231,30 @@ function RegisterPage() {
                   <input value={f.accountHolder} onChange={set("accountHolder")} className={`${inputCls} ${iconCls} ${err("accountHolder") ? "border-danger" : ""}`} />
                 </IconInput>
               </Field>
-              <Field label="Sort Code / Account Number *" className="sm:col-span-2" error={err("sortAccount")}>
+              <Field label="Sort Code *" error={err("sortCode")} hint="Format: 12-34-56">
                 <IconInput icon={<Hash />}>
-                  <input value={f.sortAccount} onChange={set("sortAccount")} className={`${inputCls} ${iconCls} ${err("sortAccount") ? "border-danger" : ""}`} placeholder="00-00-00 / 12345678" />
+                  <input
+                    value={f.sortCode}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, "").slice(0, 6);
+                      const masked = [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4, 6)].filter(Boolean).join("-");
+                      setVal("sortCode")(masked);
+                    }}
+                    inputMode="numeric"
+                    className={`${inputCls} ${iconCls} ${err("sortCode") ? "border-danger" : ""}`}
+                    placeholder="12-34-56"
+                  />
+                </IconInput>
+              </Field>
+              <Field label="Account Number *" error={err("accountNumber")} hint="8-digit UK account number">
+                <IconInput icon={<Hash />}>
+                  <input
+                    value={f.accountNumber}
+                    onChange={(e) => setVal("accountNumber")(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                    inputMode="numeric"
+                    className={`${inputCls} ${iconCls} ${err("accountNumber") ? "border-danger" : ""}`}
+                    placeholder="12345678"
+                  />
                 </IconInput>
               </Field>
             </Section>
@@ -1438,9 +1594,14 @@ function RegisterPage() {
                 ["SIA Badge Number", f.siaBadgeNumber],
                 ["SIA Badge Expiry", f.siaBadgeExpiry],
                 ["SIA Badge Document", f.siaDoc],
+                ["Passport type", f.passportType],
+                ["CV", f.cv],
+                ["UKVI share code doc", f.shareCode],
+                ["5-year address history", f.addressHistory],
                 ["Bank Name", f.bankName],
                 ["Account Holder", f.accountHolder],
-                ["Sort Code / Account", f.sortAccount],
+                ["Sort Code", f.sortCode],
+                ["Account Number", f.accountNumber],
                 ["Medical conditions", f.medical],
                 ["Dietary / accessibility", f.dietary],
               ]}

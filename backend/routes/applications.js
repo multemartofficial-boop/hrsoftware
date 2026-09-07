@@ -96,15 +96,100 @@ const generateApplicationId = () => {
 };
 
 // Public: Submit new application
-router.post('/', upload.fields([
+const appUploadFields = [
   { name: 'photo', maxCount: 1 },
   { name: 'idFront', maxCount: 1 },
   { name: 'idBack', maxCount: 1 },
   { name: 'proofAddress', maxCount: 1 },
   { name: 'passportDoc', maxCount: 1 },
   { name: 'visaDoc', maxCount: 1 },
-  { name: 'siaDoc', maxCount: 1 }
-]), async (req, res) => {
+  { name: 'siaDoc', maxCount: 1 },
+  { name: 'cv', maxCount: 1 },
+  { name: 'shareCode', maxCount: 1 },
+  { name: 'addressHistory', maxCount: 1 }
+];
+
+const DOC_KEYS = ['photo', 'idFront', 'idBack', 'proofAddress', 'passportDoc', 'visaDoc', 'siaDoc', 'cv', 'shareCode', 'addressHistory'];
+
+const buildDocUrls = (req, existing = {}) => {
+  const docUrls = { ...existing };
+  for (const k of DOC_KEYS) {
+    docUrls[k] = req.files && req.files[k] ? `/uploads/documents/${req.files[k][0].filename}` : (existing[k] || '');
+  }
+  return docUrls;
+};
+
+// Delete draft applications older than 30 days so abandoned drafts don't pile up
+const cleanupOldDrafts = async () => {
+  await pool.query(
+    'DELETE FROM registration_applications WHERE status = "draft" AND submitted < NOW() - INTERVAL 30 DAY'
+  );
+};
+
+// Public: save a draft application (autosave / resume later)
+router.post('/draft', upload.fields(appUploadFields), async (req, res) => {
+  try {
+    await cleanupOldDrafts();
+    const { email, lastStep, existingDocs } = req.body;
+    if (!email || !String(email).trim()) {
+      return res.status(400).json({ error: 'Email is required to save a draft' });
+    }
+    let prevDocs = {};
+    try { prevDocs = JSON.parse(existingDocs || '{}'); } catch { prevDocs = {}; }
+    const docUrls = buildDocUrls(req, prevDocs);
+
+    // Keep every posted field so the form can be fully restored
+    const details = { ...req.body, docUrls };
+    delete details.existingDocs;
+
+    const [rows] = await pool.query(
+      'SELECT id FROM registration_applications WHERE email = ? AND status = "draft" ORDER BY submitted DESC LIMIT 1',
+      [email]
+    );
+    let appId;
+    if (rows.length) {
+      appId = rows[0].id;
+      await pool.query(
+        'UPDATE registration_applications SET details = ?, submitted = NOW() WHERE id = ?',
+        [JSON.stringify(details), appId]
+      );
+    } else {
+      appId = generateApplicationId();
+      await pool.query(
+        `INSERT INTO registration_applications
+        (id, name, submitted, phone, email, address, nid, applied_for, location, rate, status, details)
+        VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, 'draft', ?)`,
+        [appId, `${req.body.forename || ''} ${req.body.surname || ''}`.trim() || 'Draft',
+         req.body.mobile || '', email, req.body.addr1 || '', req.body.ni || '', 'Site Operative',
+         '', req.body.rate || 0, JSON.stringify(details)]
+      );
+    }
+    res.json({ id: appId, docUrls, message: 'Draft saved' });
+  } catch (error) {
+    console.error('Draft save error:', error);
+    res.status(500).json({ error: 'Failed to save draft' });
+  }
+});
+
+// Public: fetch a saved draft by email (for "resume your application")
+router.get('/draft', async (req, res) => {
+  try {
+    const email = String(req.query.email || '').trim();
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+    const [rows] = await pool.query(
+      'SELECT id, details, submitted FROM registration_applications WHERE email = ? AND status = "draft" ORDER BY submitted DESC LIMIT 1',
+      [email]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'No saved application found for that email' });
+    const details = typeof rows[0].details === 'string' ? JSON.parse(rows[0].details) : rows[0].details;
+    res.json({ id: rows[0].id, details, submitted: rows[0].submitted });
+  } catch (error) {
+    console.error('Draft fetch error:', error);
+    res.status(500).json({ error: 'Failed to load draft' });
+  }
+});
+
+router.post('/', upload.fields(appUploadFields), async (req, res) => {
   const connection = await pool.getConnection();
   
   try {
@@ -122,7 +207,8 @@ router.post('/', upload.fields([
       availability, rate, prefLocations,
       prevAddresses, employers, referees, skills,
       howHeard, subcontractCompany, passportCountry, passportNumber, passportExpiry,
-      visaNumber, siaBadgeNumber, siaBadgeExpiry
+      visaNumber, siaBadgeNumber, siaBadgeExpiry,
+      passportType, sortCode, accountNumber
     } = req.body;
 
     // Direct vs Sub-contract: derived from the how-heard answer
@@ -141,16 +227,17 @@ router.post('/', upload.fields([
     const parsedSkills = skills ? JSON.parse(skills) : [];
     const parsedPrefLocations = prefLocations ? JSON.parse(prefLocations) : [];
 
-    // Build document URLs (handle missing files gracefully)
-    const docUrls = {
-      photo: req.files && req.files['photo'] ? `/uploads/documents/${req.files['photo'][0].filename}` : '',
-      idFront: req.files && req.files['idFront'] ? `/uploads/documents/${req.files['idFront'][0].filename}` : '',
-      idBack: req.files && req.files['idBack'] ? `/uploads/documents/${req.files['idBack'][0].filename}` : '',
-      proofAddress: req.files && req.files['proofAddress'] ? `/uploads/documents/${req.files['proofAddress'][0].filename}` : '',
-      passportDoc: req.files && req.files['passportDoc'] ? `/uploads/documents/${req.files['passportDoc'][0].filename}` : '',
-      visaDoc: req.files && req.files['visaDoc'] ? `/uploads/documents/${req.files['visaDoc'][0].filename}` : '',
-      siaDoc: req.files && req.files['siaDoc'] ? `/uploads/documents/${req.files['siaDoc'][0].filename}` : ''
-    };
+    // A resumed application may have docs already stored on its draft — merge them
+    let existingDocs = {};
+    try { existingDocs = JSON.parse(req.body.existingDocs || '{}'); } catch { existingDocs = {}; }
+    const docUrls = buildDocUrls(req, existingDocs);
+
+    // If a draft exists for this email, remove it (child rows are only written for
+    // final submissions, so deleting the draft row is enough)
+    await connection.query(
+      'DELETE FROM registration_applications WHERE email = ? AND status = "draft"',
+      [email]
+    );
 
     // Build details object
     const details = {
@@ -170,7 +257,8 @@ router.post('/', upload.fields([
       docUrls,
       howHeard, subcontractCompany, workerType,
       passportCountry, passportNumber, passportExpiry,
-      visaNumber, siaBadgeNumber, siaBadgeExpiry
+      visaNumber, siaBadgeNumber, siaBadgeExpiry,
+      passportType, sortCode, accountNumber
     };
 
     // Insert main application

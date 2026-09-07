@@ -44,6 +44,17 @@ async function ensureSchema() {
     } catch (error) {
       console.log('⚠️ Could not modify attendance.check_out_time:', error.message);
     }
+
+    // Allow 'draft' status on registration_applications (save & resume feature)
+    try {
+      await pool.query(
+        'ALTER TABLE registration_applications MODIFY COLUMN status ENUM(?,?,?,?) NOT NULL DEFAULT ?',
+        ['pending', 'approved', 'rejected', 'draft', 'pending']
+      );
+      console.log('✅ registration_applications.status supports draft');
+    } catch (error) {
+      console.log('⚠️ Could not update status enum:', error.message);
+    }
   } catch (error) {
     console.error('Schema setup error:', error);
   }
