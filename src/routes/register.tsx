@@ -42,9 +42,9 @@ const availabilityOptions = ["Full-time", "Part-time", "Weekends only", "Flexibl
 /** inputCls without the top margin — used inside custom wrappers that manage their own spacing. */
 const inputBase = "h-10 w-full rounded-lg border border-border bg-card px-3 text-sm outline-none focus:border-primary";
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+const MAX_FILE_SIZE = 3 * 1024 * 1024; // 3 MB
 const FILE_ACCEPT = ".jpg,.jpeg,.png,.pdf";
-const FILE_HINT = "Max file size: 5MB. Accepted formats: JPG, PNG, PDF";
+const FILE_HINT = "Max file size: 3MB. Accepted formats: JPG, PNG, PDF";
 
 type Row = Record<string, string>;
 const g = (r: Row, k: string) => r[k] ?? "";
@@ -305,7 +305,7 @@ function FileUpload({
     e.target.value = "";
     if (!file) return;
     if (file.size > MAX_FILE_SIZE) {
-      setLocalErr(`“${file.name}” is ${(file.size / 1024 / 1024).toFixed(1)}MB — over the 5MB limit.`);
+      setLocalErr(`“${file.name}” is ${(file.size / 1024 / 1024).toFixed(1)}MB — over the ${(MAX_FILE_SIZE / 1024 / 1024).toFixed(0)}MB limit.`);
       return;
     }
     if (!/\.(jpe?g|png|pdf)$/i.test(file.name)) {
