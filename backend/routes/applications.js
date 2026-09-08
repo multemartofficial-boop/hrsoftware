@@ -98,18 +98,17 @@ const generateApplicationId = () => {
 // Public: Submit new application
 const appUploadFields = [
   { name: 'photo', maxCount: 1 },
-  { name: 'idFront', maxCount: 1 },
-  { name: 'idBack', maxCount: 1 },
   { name: 'proofAddress', maxCount: 1 },
   { name: 'passportDoc', maxCount: 1 },
-  { name: 'visaDoc', maxCount: 1 },
-  { name: 'siaDoc', maxCount: 1 },
+  { name: 'eVisa', maxCount: 1 },
+  { name: 'siaDocFront', maxCount: 1 },
+  { name: 'siaDocBack', maxCount: 1 },
   { name: 'cv', maxCount: 1 },
   { name: 'shareCode', maxCount: 1 },
-  { name: 'addressHistory', maxCount: 1 }
+  { name: 'rtwShareCode', maxCount: 1 }
 ];
 
-const DOC_KEYS = ['photo', 'idFront', 'idBack', 'proofAddress', 'passportDoc', 'visaDoc', 'siaDoc', 'cv', 'shareCode', 'addressHistory'];
+const DOC_KEYS = ['photo', 'proofAddress', 'passportDoc', 'eVisa', 'siaDocFront', 'siaDocBack', 'cv', 'shareCode', 'rtwShareCode'];
 
 const buildDocUrls = (req, existing = {}) => {
   const docUrls = { ...existing };
@@ -160,7 +159,7 @@ router.post('/draft', upload.fields(appUploadFields), async (req, res) => {
         (id, name, submitted, phone, email, address, nid, applied_for, location, rate, status, details)
         VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, 'draft', ?)`,
         [appId, `${req.body.forename || ''} ${req.body.surname || ''}`.trim() || 'Draft',
-         req.body.mobile || '', email, req.body.addr1 || '', req.body.ni || '', 'Site Operative',
+         req.body.mobile || '', email, req.body.addr1 || '', req.body.ni || '', req.body.appliedFor || 'Unspecified',
          '', req.body.rate || 0, JSON.stringify(details)]
       );
     }
@@ -196,17 +195,17 @@ router.post('/', upload.fields(appUploadFields), async (req, res) => {
     await connection.beginTransaction();
 
     const {
-      title, surname, forename, dob, birthSurname, nameChangeDate,
+      appliedFor, title, surname, forename, dob, birthSurname, nameChangeDate,
       mobile, email, addr1, addr2, addr3, town, county, postcode, country, addressFrom,
       birthPlace, nationality, ni, rtw,
       kinForename, kinSurname, kinPhone, kinAddr1, kinAddr2, kinAddr3, kinTown, kinCounty, kinPostcode, kinCountry,
-      hasVisa, visaType, visaExpiry,
+      hasVisa, visaType, visaIssueDate, visaExpiry,
       bankName, accountHolder, sortAccount,
       medical, dietary,
       workedBefore, beforeFrom, beforeTo, beforeReason,
       availability, rate, prefLocations,
       prevAddresses, employers, referees, skills,
-      howHeard, subcontractCompany, passportCountry, passportNumber, passportExpiry,
+      howHeard, subcontractCompany, passportCountry, passportNumber, passportIssueDate, passportExpiry,
       visaNumber, siaBadgeNumber, siaBadgeExpiry,
       passportType, sortCode, accountNumber
     } = req.body;
@@ -241,11 +240,12 @@ router.post('/', upload.fields(appUploadFields), async (req, res) => {
 
     // Build details object
     const details = {
+      appliedFor,
       title, surname, forename, dob, birthSurname, nameChangeDate,
       mobile, email, addr1, addr2, addr3, town, county, postcode, country, addressFrom,
       birthPlace, nationality, ni, rtw,
       kinForename, kinSurname, kinPhone, kinAddr1, kinAddr2, kinAddr3, kinTown, kinCounty, kinPostcode, kinCountry,
-      hasVisa, visaType, visaExpiry,
+      hasVisa, visaType, visaIssueDate, visaExpiry,
       bankName, accountHolder, sortAccount,
       medical, dietary,
       workedBefore, beforeFrom, beforeTo, beforeReason,
@@ -256,7 +256,7 @@ router.post('/', upload.fields(appUploadFields), async (req, res) => {
       skills: parsedSkills,
       docUrls,
       howHeard, subcontractCompany, workerType,
-      passportCountry, passportNumber, passportExpiry,
+      passportCountry, passportNumber, passportIssueDate, passportExpiry,
       visaNumber, siaBadgeNumber, siaBadgeExpiry,
       passportType, sortCode, accountNumber
     };
@@ -268,7 +268,7 @@ router.post('/', upload.fields(appUploadFields), async (req, res) => {
        how_heard, subcontract_company, worker_type, passport_country, passport_number, passport_expiry,
        visa_number, visa_expiry, sia_badge_number, sia_badge_expiry)
       VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [applicationId, `${forename} ${surname}`, mobile, email, address, ni, 'Site Operative',
+      [applicationId, `${forename} ${surname}`, mobile, email, address, ni, appliedFor || 'Unspecified',
        parsedPrefLocations[0] || 'Unassigned', rate || 14.50, JSON.stringify(details),
        howHeard || null,
        workerType === 'Sub-contract' ? (subcontractCompany || null) : null, workerType,
@@ -282,7 +282,7 @@ router.post('/', upload.fields(appUploadFields), async (req, res) => {
         `INSERT INTO worker_previous_addresses 
         (application_id, line1, line2, line3, town, county, postcode, country, from_date, to_date) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [applicationId, addr.line1, addr.line2, addr.line3, addr.town, addr.county, 
+        [applicationId, addr.line1, addr.line2, addr.line3, addr.town, addr.county || '', 
          addr.postcode, addr.country, addr.from, addr.to]
       );
     }
@@ -304,7 +304,7 @@ router.post('/', upload.fields(appUploadFields), async (req, res) => {
         `INSERT INTO worker_referees 
         (application_id, name, phone, email, address, years, relationship) 
         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [applicationId, ref.name, ref.phone, ref.email, ref.address, ref.years, ref.relationship]
+        [applicationId, ref.name || '', ref.phone, ref.email, ref.address, ref.years, ref.relationship]
       );
     }
 

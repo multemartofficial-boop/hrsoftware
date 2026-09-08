@@ -159,11 +159,8 @@ export const blankCompliance = (): Compliance => ({
 });
 
 export const HOW_HEARD_OPTIONS = [
-  "Family",
-  "Friends",
-  "YouTube",
+  "Family / Friends",
   "Social Media",
-  "Facebook",
   "Search Engine",
   "Sub-contract",
   "Other",

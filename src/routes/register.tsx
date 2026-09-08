@@ -25,7 +25,17 @@ export const Route = createFileRoute("/register")({
   component: RegisterPage,
 });
 
-const VACANCY = "Site Operative";
+const APPLIED_FOR_OPTIONS = [
+  "Door Supervisor",
+  "Security Officer",
+  "Steward",
+  "House Keeper",
+  "Kitchen Porter",
+  "Night Porter",
+  "Chefs",
+  "Waiter / Waitress",
+  "Other",
+];
 const titles = ["Mr", "Mrs", "Ms", "Miss", "Dr"];
 const availabilityOptions = ["Full-time", "Part-time", "Weekends only", "Flexible"];
 
@@ -39,9 +49,9 @@ const FILE_HINT = "Max file size: 5MB. Accepted formats: JPG, PNG, PDF";
 type Row = Record<string, string>;
 const g = (r: Row, k: string) => r[k] ?? "";
 
-const blankPrevAddress: Row = { line1: "", line2: "", line3: "", town: "", county: "", postcode: "", country: "", from: "", to: "" };
+const blankPrevAddress: Row = { line1: "", line2: "", line3: "", town: "", postcode: "", country: "", from: "", to: "" };
 const blankEmployer: Row = { name: "", address: "", town: "", postcode: "", phone: "", email: "", role: "", from: "", to: "", reason: "" };
-const blankReferee: Row = { name: "", phone: "", email: "", address: "", years: "", relationship: "" };
+const blankReferee: Row = { phone: "", email: "", address: "", years: "", relationship: "" };
 const blankSkill: Row = { name: "", attained: "", expiry: "", number: "" };
 
 const steps = [
@@ -367,6 +377,7 @@ function RegisterPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const [f, setF] = useState({
+    appliedFor: "",
     title: titles[0]!,
     surname: "",
     forename: "",
@@ -379,7 +390,6 @@ function RegisterPage() {
     addr2: "",
     addr3: "",
     town: "",
-    county: "",
     postcode: "",
     country: "United Kingdom",
     addressFrom: "",
@@ -394,31 +404,30 @@ function RegisterPage() {
     kinAddr2: "",
     kinAddr3: "",
     kinTown: "",
-    kinCounty: "",
     kinPostcode: "",
     kinCountry: "United Kingdom",
     photo: "",
-    idFront: "",
-    idBack: "",
     proofAddress: "",
     passportDoc: "",
-    visaDoc: "",
-    siaDoc: "",
+    eVisa: "",
+    siaDocFront: "",
+    siaDocBack: "",
     hasVisa: "No",
     visaType: "",
+    visaIssueDate: "",
     visaExpiry: "",
+    rtwShareCode: "",
     howHeard: "",
     subcontractCompany: "",
     passportCountry: "United Kingdom",
     passportNumber: "",
+    passportIssueDate: "",
     passportExpiry: "",
-    visaNumber: "",
     siaBadgeNumber: "",
     siaBadgeExpiry: "",
     passportType: "",
     cv: "",
     shareCode: "",
-    addressHistory: "",
     bankName: "",
     accountHolder: "",
     sortCode: "",
@@ -430,7 +439,6 @@ function RegisterPage() {
     beforeTo: "",
     beforeReason: "",
     availability: availabilityOptions[0]!,
-    rate: String(settings?.hourlyRate || 0),
   });
   const [prevAddresses, setPrevAddresses] = useState<Row[]>([]);
   const [employers, setEmployers] = useState<Row[]>([{ ...blankEmployer }]);
@@ -514,7 +522,7 @@ function RegisterPage() {
   const SORT_RE = /^\d{2}-?\d{2}-?\d{2}$/;
   const ACCOUNT_RE = /^\d{8}$/;
 
-  const FILE_KEYS = ["photo", "idFront", "idBack", "proofAddress", "passportDoc", "visaDoc", "siaDoc", "cv", "shareCode", "addressHistory"];
+  const FILE_KEYS = ["photo", "proofAddress", "passportDoc", "eVisa", "siaDocFront", "siaDocBack", "cv", "shareCode", "rtwShareCode"];
 
   /** Latest-state ref so effects/page-leave handlers always build from fresh data. */
   const latestRef = useRef<any>(null);
@@ -670,7 +678,7 @@ function RegisterPage() {
   // answered "Yes" to holding a work permit/visa. Hidden entirely otherwise.
   const visaNeeded = requiresVisa(f.passportCountry);
   const showVisaFields = f.hasVisa === "Yes" || visaNeeded;
-  const visaMissing = visaNeeded && !(f.visaNumber.trim() && f.visaExpiry);
+  const visaMissing = visaNeeded && !(f.visaIssueDate && f.visaExpiry && f.rtwShareCode);
 
   /* ---------------- per-step validation ---------------- */
 
@@ -684,6 +692,7 @@ function RegisterPage() {
   const validateStep = (n: number): Record<string, string> => {
     const e: Record<string, string> = {};
     if (n === 0) {
+      need(e, "appliedFor", "the position you are applying for", f.appliedFor);
       need(e, "surname", "your surname", f.surname);
       need(e, "forename", "your forename", f.forename);
       need(e, "dob", "your date of birth", f.dob);
@@ -693,7 +702,6 @@ function RegisterPage() {
       else if (!EMAIL_RE.test(f.email.trim())) e["email"] = "Please enter a valid email address";
       need(e, "addr1", "the first line of your address", f.addr1);
       need(e, "town", "your town or city", f.town);
-      need(e, "county", "your county / region", f.county);
       need(e, "postcode", "your postcode", f.postcode);
       need(e, "country", "your country", f.country);
       need(e, "addressFrom", "the date you moved to this address", f.addressFrom);
@@ -707,40 +715,39 @@ function RegisterPage() {
       });
       need(e, "birthPlace", "your town / place of birth", f.birthPlace);
       need(e, "nationality", "your nationality", f.nationality);
-      if (!f.ni.trim()) e["ni"] = "Please enter your National Insurance number";
-      else if (!NI_RE.test(f.ni.trim())) e["ni"] = "Please enter a valid NI number (e.g. QQ 12 34 56 C)";
       need(e, "kinForename", "their forename", f.kinForename);
       need(e, "kinSurname", "their surname", f.kinSurname);
       need(e, "kinPhone", "their phone number", f.kinPhone);
       need(e, "kinAddr1", "the first line of their address", f.kinAddr1);
       need(e, "kinTown", "their town or city", f.kinTown);
-      need(e, "kinCounty", "their county / region", f.kinCounty);
       need(e, "kinPostcode", "their postcode", f.kinPostcode);
       need(e, "kinCountry", "their country", f.kinCountry);
-      need(e, "addressHistory", "proof of your 5-year address history", f.addressHistory);
-      if (!f.passportType) e["passportType"] = "Please select your passport type";
-      else if (f.passportType === "British Passport") need(e, "cv", "your CV", f.cv);
-      else if (f.passportType === "Other Passport") need(e, "shareCode", "your UKVI share code document", f.shareCode);
     }
     if (n === 1) {
+      if (!f.ni.trim()) e["ni"] = "Please enter your National Insurance number";
+      else if (!NI_RE.test(f.ni.trim())) e["ni"] = "Please enter a valid NI number (e.g. QQ 12 34 56 C)";
+      need(e, "eVisa", "your eVisa document", f.eVisa);
       need(e, "photo", "a profile photo", f.photo);
-      need(e, "idFront", "the front of your ID document", f.idFront);
-      need(e, "idBack", "the back of your ID document", f.idBack);
       need(e, "proofAddress", "a proof of address document", f.proofAddress);
+      if (!f.passportType) e["passportType"] = "Please select your passport type";
+      else if (f.passportType === "British Passport") need(e, "shareCode", "your UKVI share code", f.shareCode);
+      else if (f.passportType === "Other Passport") need(e, "cv", "your CV including 5 years of address history", f.cv);
       need(e, "passportCountry", "your passport country", f.passportCountry);
       need(e, "passportNumber", "your passport number", f.passportNumber);
+      need(e, "passportIssueDate", "your passport issue date", f.passportIssueDate);
       need(e, "passportExpiry", "your passport expiry date", f.passportExpiry);
       need(e, "passportDoc", "a photo/scan of your passport", f.passportDoc);
       if (showVisaFields) {
         need(e, "visaType", "your visa type", f.visaType);
-        need(e, "visaNumber", "your visa number", f.visaNumber);
+        need(e, "visaIssueDate", "your visa issue date", f.visaIssueDate);
         need(e, "visaExpiry", "your visa expiry date", f.visaExpiry);
-        need(e, "visaDoc", "a photo/scan of your visa document", f.visaDoc);
+        need(e, "rtwShareCode", "your right-to-work share code", f.rtwShareCode);
       }
       if (f.siaBadgeNumber.trim() || f.siaBadgeExpiry) {
         need(e, "siaBadgeNumber", "your SIA badge number", f.siaBadgeNumber);
         need(e, "siaBadgeExpiry", "your SIA badge expiry date", f.siaBadgeExpiry);
-        need(e, "siaDoc", "a photo/scan of your SIA badge", f.siaDoc);
+        need(e, "siaDocFront", "the front of your SIA badge", f.siaDocFront);
+        need(e, "siaDocBack", "the back of your SIA badge", f.siaDocBack);
       }
       need(e, "bankName", "your bank name", f.bankName);
       need(e, "accountHolder", "the account holder name", f.accountHolder);
@@ -764,7 +771,6 @@ function RegisterPage() {
           e[`emp${i}.email`] = "Please enter a valid email address";
       });
       referees.forEach((r, i) => {
-        rowNeed(e, "ref", i, "name", "the referee name", r);
         rowNeed(e, "ref", i, "phone", "the referee phone", r);
         if (!g(r, "email").trim()) e[`ref${i}.email`] = "Please enter the referee email";
         else if (!EMAIL_RE.test(g(r, "email").trim())) e[`ref${i}.email`] = "Please enter a valid email address";
@@ -776,8 +782,6 @@ function RegisterPage() {
       skills.forEach((r, i) => {
         rowNeed(e, "skill", i, "name", "the qualification / certificate name", r);
       });
-      if (!prefLocations.length) e["prefLocations"] = "Please select at least one preferred work location";
-      need(e, "rate", "your expected hourly rate", f.rate);
       need(e, "howHeard", "how you heard about us", f.howHeard);
       if (f.howHeard === "Sub-contract") need(e, "subcontractCompany", "the sub-contract company name", f.subcontractCompany);
     }
@@ -923,8 +927,13 @@ function RegisterPage() {
 
         {step === 0 && (
           <>
-            <Field label="Job / Position applied for">
-              <input readOnly value={VACANCY} className={`${inputCls} bg-secondary text-muted-foreground`} />
+            <Field label="Job / Position applied for *" error={err("appliedFor")}>
+              <select value={f.appliedFor} onChange={set("appliedFor")} className={`${inputCls} ${err("appliedFor") ? "border-danger" : ""}`}>
+                <option value="">Select a position…</option>
+                {APPLIED_FOR_OPTIONS.map((o) => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </select>
             </Field>
 
             <Section title="Personal Details" icon={<User />}>
@@ -990,9 +999,6 @@ function RegisterPage() {
               <Field label="Town *" error={err("town")}>
                 <input value={f.town} onChange={set("town")} className={`${inputCls} ${err("town") ? "border-danger" : ""}`} />
               </Field>
-              <Field label="County / Region *" error={err("county")}>
-                <input value={f.county} onChange={set("county")} className={`${inputCls} ${err("county") ? "border-danger" : ""}`} />
-              </Field>
               <Field label="Postcode *" error={err("postcode")}>
                 <input value={f.postcode} onChange={set("postcode")} className={`${inputCls} ${err("postcode") ? "border-danger" : ""}`} />
               </Field>
@@ -1027,9 +1033,6 @@ function RegisterPage() {
                   <Field label="Town *" error={err(`prev${i}.town`)}>
                     <input value={g(row,"town")} onChange={rowSet(setPrevAddresses, i, "town")} className={`${inputCls} ${err(`prev${i}.town`) ? "border-danger" : ""}`} />
                   </Field>
-                  <Field label="County">
-                    <input value={g(row,"county")} onChange={rowSet(setPrevAddresses, i, "county")} className={inputCls} />
-                  </Field>
                   <Field label="Postcode *" error={err(`prev${i}.postcode`)}>
                     <input value={g(row,"postcode")} onChange={rowSet(setPrevAddresses, i, "postcode")} className={`${inputCls} ${err(`prev${i}.postcode`) ? "border-danger" : ""}`} />
                   </Field>
@@ -1046,19 +1049,6 @@ function RegisterPage() {
               )}
             </Repeat>
 
-            <Section title="Address History Documents" icon={<FileText />} cols={1}>
-              <FileUpload
-                label="Upload proof of 5-year address history"
-                required
-                helper="e.g. utility bills, bank statements, or tenancy agreements covering the last 5 years."
-                fileName={f.addressHistory}
-                preview={docUrls["addressHistory"]}
-                onPick={pickFile("addressHistory")}
-                onClear={() => pickFile("addressHistory")(null)}
-                error={err("addressHistory")}
-              />
-            </Section>
-
             <Section title="Nationality & Right to Work" icon={<Globe />}>
               <Field label="Town / Place of Birth *" error={err("birthPlace")}>
                 <IconInput icon={<MapPin />}>
@@ -1068,40 +1058,6 @@ function RegisterPage() {
               <Field label="Nationality *" error={err("nationality")}>
                 <CountrySelect value={f.nationality} onChange={setVal("nationality")} invalid={!!err("nationality")} placeholder="Select nationality…" />
               </Field>
-              <Field label="N.I Number *" error={err("ni")} hint="Example: AB123456C">
-                <IconInput icon={<Hash />}>
-                  <input value={f.ni} onChange={set("ni")} className={`${inputCls} ${iconCls} ${err("ni") ? "border-danger" : ""}`} placeholder="Insurance Number" />
-                </IconInput>
-              </Field>
-              <Field label="Passport type *" error={err("passportType")}>
-                <select value={f.passportType} onChange={set("passportType")} className={`${inputCls} ${err("passportType") ? "border-danger" : ""}`}>
-                  <option value="">--Select Type--</option>
-                  <option>British Passport</option>
-                  <option>Other Passport</option>
-                </select>
-              </Field>
-              {f.passportType === "British Passport" && (
-                <FileUpload
-                  label="Upload CV"
-                  required
-                  fileName={f.cv}
-                  preview={docUrls["cv"]}
-                  onPick={pickFile("cv")}
-                  onClear={() => pickFile("cv")(null)}
-                  error={err("cv")}
-                />
-              )}
-              {f.passportType === "Other Passport" && (
-                <FileUpload
-                  label="Upload your UKVI share code"
-                  required
-                  fileName={f.shareCode}
-                  preview={docUrls["shareCode"]}
-                  onPick={pickFile("shareCode")}
-                  onClear={() => pickFile("shareCode")(null)}
-                  error={err("shareCode")}
-                />
-              )}
               <Field label="Are you permitted to work in the UK? *">
                 <select value={f.rtw} onChange={set("rtw")} className={inputCls}>
                   <option>Yes</option>
@@ -1141,9 +1097,6 @@ function RegisterPage() {
               <Field label="Town *" error={err("kinTown")}>
                 <input value={f.kinTown} onChange={set("kinTown")} className={`${inputCls} ${err("kinTown") ? "border-danger" : ""}`} />
               </Field>
-              <Field label="County *" error={err("kinCounty")}>
-                <input value={f.kinCounty} onChange={set("kinCounty")} className={`${inputCls} ${err("kinCounty") ? "border-danger" : ""}`} />
-              </Field>
               <Field label="Postcode *" error={err("kinPostcode")}>
                 <input value={f.kinPostcode} onChange={set("kinPostcode")} className={`${inputCls} ${err("kinPostcode") ? "border-danger" : ""}`} />
               </Field>
@@ -1175,33 +1128,66 @@ function RegisterPage() {
                 onClear={() => pickFile("proofAddress")(null)}
                 error={err("proofAddress")}
               />
+            </Section>
+
+            <Section title="Identity & National Insurance" icon={<ShieldCheck />}>
+              <Field label="N.I Number *" error={err("ni")} hint="Example: AB123456C">
+                <IconInput icon={<Hash />}>
+                  <input value={f.ni} onChange={set("ni")} className={`${inputCls} ${iconCls} ${err("ni") ? "border-danger" : ""}`} placeholder="Insurance Number" />
+                </IconInput>
+              </Field>
               <FileUpload
-                label="NID / ID Document — Front"
+                label="Upload eVisa"
                 required
-                fileName={f.idFront}
-                preview={docUrls["idFront"]}
-                onPick={pickFile("idFront")}
-                onClear={() => pickFile("idFront")(null)}
-                error={err("idFront")}
-              />
-              <FileUpload
-                label="NID / ID Document — Back"
-                required
-                fileName={f.idBack}
-                preview={docUrls["idBack"]}
-                onPick={pickFile("idBack")}
-                onClear={() => pickFile("idBack")(null)}
-                error={err("idBack")}
+                fileName={f.eVisa}
+                preview={docUrls["eVisa"]}
+                onPick={pickFile("eVisa")}
+                onClear={() => pickFile("eVisa")(null)}
+                error={err("eVisa")}
               />
             </Section>
 
             <Section title="Passport" icon={<Globe />}>
+              <Field label="Passport type *" error={err("passportType")}>
+                <select value={f.passportType} onChange={set("passportType")} className={`${inputCls} ${err("passportType") ? "border-danger" : ""}`}>
+                  <option value="">--Select Type--</option>
+                  <option>British Passport</option>
+                  <option>Other Passport</option>
+                </select>
+              </Field>
+              {f.passportType === "British Passport" && (
+                <FileUpload
+                  label="Upload your UKVI share code"
+                  required
+                  fileName={f.shareCode}
+                  preview={docUrls["shareCode"]}
+                  onPick={pickFile("shareCode")}
+                  onClear={() => pickFile("shareCode")(null)}
+                  error={err("shareCode")}
+                />
+              )}
+              {f.passportType === "Other Passport" && (
+                <FileUpload
+                  label="Upload your CV including 5 years of address history"
+                  required
+                  fileName={f.cv}
+                  preview={docUrls["cv"]}
+                  onPick={pickFile("cv")}
+                  onClear={() => pickFile("cv")(null)}
+                  error={err("cv")}
+                />
+              )}
               <Field label="Passport Country *" error={err("passportCountry")} hint="Which country's passport do you hold? Type to search.">
                 <CountrySelect value={f.passportCountry} onChange={setVal("passportCountry")} invalid={!!err("passportCountry")} />
               </Field>
               <Field label="Passport Number *" error={err("passportNumber")}>
                 <IconInput icon={<Hash />}>
                   <input value={f.passportNumber} onChange={set("passportNumber")} className={`${inputCls} ${iconCls} ${err("passportNumber") ? "border-danger" : ""}`} />
+                </IconInput>
+              </Field>
+              <Field label="Passport Issue Date *" error={err("passportIssueDate")}>
+                <IconInput icon={<Calendar />}>
+                  <input type="date" value={f.passportIssueDate} onChange={set("passportIssueDate")} className={`${inputCls} ${iconCls} ${err("passportIssueDate") ? "border-danger" : ""}`} />
                 </IconInput>
               </Field>
               <Field label="Passport Expiry Date *" error={err("passportExpiry")}>
@@ -1232,12 +1218,10 @@ function RegisterPage() {
                   <Field label="Visa Type *" error={err("visaType")}>
                     <input value={f.visaType} onChange={set("visaType")} className={`${inputCls} ${err("visaType") ? "border-danger" : ""}`} />
                   </Field>
-                  <Field
-                    label="Visa Number *"
-                    error={err("visaNumber")}
-                    hint={visaNeeded ? "Required for non-UK/Irish passport holders" : undefined}
-                  >
-                    <input value={f.visaNumber} onChange={set("visaNumber")} className={`${inputCls} ${err("visaNumber") ? "border-danger" : ""}`} />
+                  <Field label="Visa Issue Date *" error={err("visaIssueDate")}>
+                    <IconInput icon={<Calendar />}>
+                      <input type="date" value={f.visaIssueDate} onChange={set("visaIssueDate")} className={`${inputCls} ${iconCls} ${err("visaIssueDate") ? "border-danger" : ""}`} />
+                    </IconInput>
                   </Field>
                   <Field label="Visa Expiry Date *" error={err("visaExpiry")}>
                     <IconInput icon={<Calendar />}>
@@ -1245,20 +1229,20 @@ function RegisterPage() {
                     </IconInput>
                   </Field>
                   <FileUpload
-                    label="Visa / Work Permit Document"
+                    label="Upload Share Code to prove your right to work in the UK"
                     required
-                    fileName={f.visaDoc}
-                    preview={docUrls["visaDoc"]}
-                    onPick={pickFile("visaDoc")}
-                    onClear={() => pickFile("visaDoc")(null)}
-                    error={err("visaDoc")}
+                    fileName={f.rtwShareCode}
+                    preview={docUrls["rtwShareCode"]}
+                    onPick={pickFile("rtwShareCode")}
+                    onClear={() => pickFile("rtwShareCode")(null)}
+                    error={err("rtwShareCode")}
                   />
                 </>
               )}
               {visaMissing && (
                 <p className="sm:col-span-2 rounded-lg bg-secondary/60 px-3 py-2 text-xs text-danger">
                   You selected a {f.passportCountry} passport, so visa details are expected. Please add your visa
-                  number, expiry date and document.
+                  issue date, expiry date and share code.
                 </p>
               )}
             </Section>
@@ -1273,15 +1257,26 @@ function RegisterPage() {
                 </IconInput>
               </Field>
               {(f.siaBadgeNumber.trim() || f.siaBadgeExpiry) && (
-                <FileUpload
-                  label="SIA Badge Document"
-                  required
-                  fileName={f.siaDoc}
-                  preview={docUrls["siaDoc"]}
-                  onPick={pickFile("siaDoc")}
-                  onClear={() => pickFile("siaDoc")(null)}
-                  error={err("siaDoc")}
-                />
+                <>
+                  <FileUpload
+                    label="SIA Badge Front"
+                    required
+                    fileName={f.siaDocFront}
+                    preview={docUrls["siaDocFront"]}
+                    onPick={pickFile("siaDocFront")}
+                    onClear={() => pickFile("siaDocFront")(null)}
+                    error={err("siaDocFront")}
+                  />
+                  <FileUpload
+                    label="SIA Badge Back"
+                    required
+                    fileName={f.siaDocBack}
+                    preview={docUrls["siaDocBack"]}
+                    onPick={pickFile("siaDocBack")}
+                    onClear={() => pickFile("siaDocBack")(null)}
+                    error={err("siaDocBack")}
+                  />
+                </>
               )}
             </Section>
 
@@ -1425,11 +1420,6 @@ function RegisterPage() {
             >
               {(row, i) => (
                 <>
-                  <Field label="Referee Name *" error={err(`ref${i}.name`)}>
-                    <IconInput icon={<User />}>
-                      <input value={g(row,"name")} onChange={rowSet(setReferees, i, "name")} className={`${inputCls} ${iconCls} ${err(`ref${i}.name`) ? "border-danger" : ""}`} />
-                    </IconInput>
-                  </Field>
                   <Field label="Referee Phone *" error={err(`ref${i}.phone`)}>
                     <IconInput icon={<Phone />}>
                       <input type="tel" value={g(row,"phone")} onChange={rowSet(setReferees, i, "phone")} className={`${inputCls} ${iconCls} ${err(`ref${i}.phone`) ? "border-danger" : ""}`} />
@@ -1487,63 +1477,6 @@ function RegisterPage() {
             </Repeat>
 
             <Section title="Availability" icon={<Clock />}>
-              <div className="sm:col-span-2">
-                <span className="text-sm font-medium">Preferred Work Location(s) *</span>
-                {(locations || []).length === 0 ? (
-                  loading?.["locations"] ? (
-                    <p className="mt-2 text-sm text-muted-foreground">Loading locations…</p>
-                  ) : (
-                    <>
-                      <p className="mt-1.5 text-xs text-muted-foreground">
-                        No locations are listed yet — type your preferred location below.
-                      </p>
-                      <IconInput icon={<MapPin />}>
-                        <input
-                          value={prefLocations[0] ?? ""}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setPrefLocations(v.trim() ? [v] : []);
-                            setErrors((s) => {
-                              if (!s["prefLocations"]) return s;
-                              const { prefLocations: _d, ...rest } = s;
-                              return rest;
-                            });
-                          }}
-                          className={`${inputCls} ${iconCls} ${err("prefLocations") ? "border-danger" : ""}`}
-                          placeholder="e.g. Camden Site"
-                        />
-                      </IconInput>
-                    </>
-                  )
-                ) : (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {(locations || []).map((l) => {
-                    const on = prefLocations.includes(l.name);
-                    return (
-                      <button
-                        type="button"
-                        key={l.id}
-                        onClick={() => {
-                          setPrefLocations((s) => (on ? s.filter((x) => x !== l.name) : [...s, l.name]));
-                          setErrors((s) => {
-                            if (!s["prefLocations"]) return s;
-                            const { prefLocations: _d, ...rest } = s;
-                            return rest;
-                          });
-                        }}
-                        className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium ${
-                          on ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:bg-secondary"
-                        }`}
-                      >
-                        <MapPin className="size-3" />
-                        {l.name}
-                      </button>
-                    );
-                  })}
-                </div>
-                )}
-                {err("prefLocations") && <span className="mt-1 block text-xs font-medium text-danger">{err("prefLocations")}</span>}
-              </div>
               <Field label="Preferred Working Hours / Availability *">
                 <IconInput icon={<Clock />}>
                   <select value={f.availability} onChange={set("availability")} className={`${inputCls} ${iconCls}`}>
@@ -1552,9 +1485,6 @@ function RegisterPage() {
                     ))}
                   </select>
                 </IconInput>
-              </Field>
-              <Field label="Expected Hourly Rate (£) *" error={err("rate")}>
-                <input type="number" step="0.25" min="0" value={f.rate} onChange={set("rate")} className={`${inputCls} ${err("rate") ? "border-danger" : ""}`} />
               </Field>
               <Field label="How did you hear about us? *" error={err("howHeard")}>
                 <select value={f.howHeard} onChange={set("howHeard")} className={`${inputCls} ${err("howHeard") ? "border-danger" : ""}`}>
@@ -1587,7 +1517,7 @@ function RegisterPage() {
             <Summary
               title="Personal Details"
               items={[
-                ["Position applied for", VACANCY],
+                ["Position applied for", f.appliedFor],
                 ["Title", f.title],
                 ["Surname", f.surname],
                 ["Forename", f.forename],
@@ -1602,7 +1532,6 @@ function RegisterPage() {
               items={[
                 ["Address", [f.addr1, f.addr2, f.addr3].filter(Boolean).join(", ")],
                 ["Town", f.town],
-                ["County", f.county],
                 ["Postcode", f.postcode],
                 ["Country", f.country],
                 ["At address from", f.addressFrom],
@@ -1615,7 +1544,6 @@ function RegisterPage() {
                 items={[
                   ["Address", [g(a,"line1"), g(a,"line2"), g(a,"line3")].filter(Boolean).join(", ")],
                   ["Town", g(a,"town")],
-                  ["County", g(a,"county")],
                   ["Postcode", g(a,"postcode")],
                   ["Country", g(a,"country")],
                   ["From", g(a,"from")],
@@ -1628,7 +1556,6 @@ function RegisterPage() {
               items={[
                 ["Place of Birth", f.birthPlace],
                 ["Nationality", f.nationality],
-                ["National Insurance No", f.ni],
                 ["Permitted to work in UK", f.rtw],
               ]}
             />
@@ -1637,32 +1564,33 @@ function RegisterPage() {
               items={[
                 ["Name", `${f.kinForename} ${f.kinSurname}`.trim()],
                 ["Phone", f.kinPhone],
-                ["Address", [f.kinAddr1, f.kinAddr2, f.kinAddr3, f.kinTown, f.kinCounty, f.kinPostcode, f.kinCountry].filter(Boolean).join(", ")],
+                ["Address", [f.kinAddr1, f.kinAddr2, f.kinAddr3, f.kinTown, f.kinPostcode, f.kinCountry].filter(Boolean).join(", ")],
               ]}
             />
             <Summary
               title="Documents & Eligibility"
               items={[
+                ["N.I Number", f.ni],
+                ["eVisa", f.eVisa],
                 ["Profile Photo", f.photo],
-                ["ID Front", f.idFront],
-                ["ID Back", f.idBack],
                 ["Proof of Address", f.proofAddress],
+                ["Passport type", f.passportType],
                 ["Passport Country", f.passportCountry],
                 ["Passport Number", f.passportNumber],
+                ["Passport Issue Date", f.passportIssueDate],
                 ["Passport Expiry", f.passportExpiry],
                 ["Passport Document", f.passportDoc],
+                ["CV / 5-year address history", f.cv],
+                ["UKVI share code", f.shareCode],
                 ["Work permit / visa", f.hasVisa],
                 ["Visa Type", f.visaType],
-                ["Visa Number", f.visaNumber],
+                ["Visa Issue Date", f.visaIssueDate],
                 ["Visa Expiry", f.visaExpiry],
-                ["Visa Document", f.visaDoc],
+                ["Right-to-work share code", f.rtwShareCode],
                 ["SIA Badge Number", f.siaBadgeNumber],
                 ["SIA Badge Expiry", f.siaBadgeExpiry],
-                ["SIA Badge Document", f.siaDoc],
-                ["Passport type", f.passportType],
-                ["CV", f.cv],
-                ["UKVI share code doc", f.shareCode],
-                ["5-year address history", f.addressHistory],
+                ["SIA Badge Front", f.siaDocFront],
+                ["SIA Badge Back", f.siaDocBack],
                 ["Bank Name", f.bankName],
                 ["Account Holder", f.accountHolder],
                 ["Sort Code", f.sortCode],
@@ -1701,7 +1629,6 @@ function RegisterPage() {
                 key={i}
                 title={`Character Referee ${i + 1}`}
                 items={[
-                  ["Name", g(r,"name")],
                   ["Phone", g(r,"phone")],
                   ["Email", g(r,"email")],
                   ["Address", g(r,"address")],
@@ -1725,9 +1652,7 @@ function RegisterPage() {
             <Summary
               title="Skills & Availability"
               items={[
-                ["Preferred locations", prefLocations.join(", ")],
                 ["Availability", f.availability],
-                ["Expected hourly rate", f.rate ? `£${f.rate}` : ""],
                 ["How did you hear about us", f.howHeard],
                 ...(f.howHeard === "Sub-contract" ? [["Sub-contract company", f.subcontractCompany] as [string, string]] : []),
               ]}
