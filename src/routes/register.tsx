@@ -305,7 +305,7 @@ function FileUpload({
     e.target.value = "";
     if (!file) return;
     if (file.size > MAX_FILE_SIZE) {
-      setLocalErr(`“${file.name}” is ${(file.size / 1024 / 1024).toFixed(1)}MB — over the ${(MAX_FILE_SIZE / 1024 / 1024).toFixed(0)}MB limit.`);
+      setLocalErr(`“${file.name}” is ${(file.size / 1024 / 1024).toFixed(1)}MB — max file size is ${(MAX_FILE_SIZE / 1024 / 1024).toFixed(0)}MB.`);
       return;
     }
     if (!/\.(jpe?g|png|pdf)$/i.test(file.name)) {
