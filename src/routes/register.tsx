@@ -36,7 +36,7 @@ const APPLIED_FOR_OPTIONS = [
   "Waiter / Waitress",
   "Other",
 ];
-const titles = ["Mr", "Mrs", "Ms", "Miss", "Dr"];
+const titles = ["Mr", "Mrs", "Ms", "Miss"];
 const availabilityOptions = ["Full-time", "Part-time", "Weekends only", "Flexible"];
 
 /** inputCls without the top margin — used inside custom wrappers that manage their own spacing. */
