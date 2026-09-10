@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../config/database');
 const { requireAuth, requireWorker } = require('../middleware/auth');
 const { sendEmail } = require('../utils/email');
+const { getHolidayAccrualRate, accrueHolidayHours } = require('../utils/holiday-accrual');
 
 // Helper: Calculate hours between time strings
 const calculateHours = (timeIn, timeOut) => {
@@ -239,13 +240,16 @@ router.post('/checkout', requireAuth, requireWorker, async (req, res) => {
       return res.status(500).json({ error: 'Invalid hours calculation' });
     }
     
-    // Update check-out time and hours
+    // Statutory holiday accrual (12.07% by default) — stored at check-out time
+    const holidayAccrued = accrueHolidayHours(hours, await getHolidayAccrualRate());
+
+    // Update check-out time, hours and accrual
     await pool.query(
-      'UPDATE attendance SET check_out_time = ?, hours_worked = ? WHERE id = ?',
-      [timeOut, hours, record.id]
+      'UPDATE attendance SET check_out_time = ?, hours_worked = ?, holiday_accrued_hours = ? WHERE id = ?',
+      [timeOut, hours, holidayAccrued, record.id]
     );
 
-    res.json({ hours: Math.round(hours * 100) / 100, timeOut, message: 'Checked out successfully' });
+    res.json({ hours: Math.round(hours * 100) / 100, holidayAccruedHours: holidayAccrued, timeOut, message: 'Checked out successfully' });
   } catch (error) {
     console.error('Check out error:', error);
     res.status(500).json({ error: 'Server error' });

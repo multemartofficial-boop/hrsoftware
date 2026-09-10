@@ -34,6 +34,9 @@ type PayrollPreview = {
   holidayHours: number;
   holidayPay: number;
   holidayMultiplier: number;
+  holidayAccruedHours: number;
+  holidayAccrualPay: number;
+  holidayAccrualRate: number;
   gross: number;
   tax: number;
   advance: number;
@@ -187,7 +190,10 @@ function NewPayrollForm({ onClose }: { onClose: () => void }) {
                 ["Regular hours", `${(preview.regularHours ?? preview.hours).toFixed(2)} h`],
                 preview.overtime > 0 ? ["Overtime hours", `${preview.overtime.toFixed(2)} h × ${settings.overtimeMultiplier}`] : null,
                 preview.holidayHours > 0
-                  ? ["Holiday hours", `${preview.holidayHours.toFixed(2)} h × ${preview.holidayMultiplier ?? settings.holidayPayMultiplier} = ${money2(preview.holidayPay)}`]
+                  ? ["Bank holiday hours", `${preview.holidayHours.toFixed(2)} h × ${preview.holidayMultiplier ?? settings.holidayPayMultiplier} = ${money2(preview.holidayPay)}`]
+                  : null,
+                (preview.holidayAccruedHours ?? 0) > 0
+                  ? ["Holiday accrual", `${(preview.holidayAccruedHours ?? 0).toFixed(2)} h (${preview.holidayAccrualRate ?? settings.holidayAccrualRate}%) = ${money2(preview.holidayAccrualPay ?? 0)}`]
                   : null,
                 ["Hourly rate", money2(preview.rate)],
                 ["Gross pay", money2(preview.gross)],
@@ -268,7 +274,10 @@ function Payslip({ p, onClose }: { p: Payroll; onClose: () => void }) {
           {([
             ["Hours worked", `${p.hours.toFixed(2)} h`],
             (p.holidayHours ?? 0) > 0
-              ? [`Holiday hours @ ×${settings.holidayPayMultiplier}`, `${(p.holidayHours ?? 0).toFixed(2)} h = ${money2(p.holidayPay ?? 0)}`]
+              ? [`Bank holiday hours @ ×${settings.holidayPayMultiplier}`, `${(p.holidayHours ?? 0).toFixed(2)} h = ${money2(p.holidayPay ?? 0)}`]
+              : null,
+            (p.holidayAccruedHours ?? 0) > 0
+              ? ["Holiday accrual (statutory)", `${(p.holidayAccruedHours ?? 0).toFixed(2)} h = ${money2(p.holidayAccrualPay ?? 0)}`]
               : null,
             ["Hourly rate", money2(p.rate)],
             ["Gross pay", money2(p.gross)],

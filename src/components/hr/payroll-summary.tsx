@@ -12,6 +12,8 @@ export type SummaryWorker = {
   overtime: number;
   holidayHours: number;
   holidayPay: number;
+  holidayAccruedHours?: number;
+  holidayAccrualPay?: number;
   gross: number;
   tax: number;
   net: number;
@@ -23,6 +25,9 @@ export type SummaryPeriod = {
   hours: number;
   holidayHours: number;
   holidayPay: number;
+  holidayAccruedHours?: number;
+  holidayAccrualPay?: number;
+  holidayAccrualRate?: number;
   gross: number;
   tax: number;
   net: number;
@@ -72,18 +77,19 @@ export function PayrollSummary({ period }: { period: "weekly" | "monthly" | "yea
 
   return (
     <DataTable
-      labels={["Period", "Hours", "Gross Pay", "Tax & NI", "Net Pay"]}
+      labels={["Period", "Hours", "Holiday Accrual", "Gross Pay", "Tax & NI", "Net Pay"]}
       head={
         <>
           <Th>Period</Th>
           <Th>Hours</Th>
+          <Th>Holiday Accrual</Th>
           <Th>Gross Pay</Th>
           <Th>Tax & NI</Th>
           <Th>Net Pay</Th>
         </>
       }
     >
-      {data.length === 0 && <EmptyRow colSpan={5} text="No attendance data yet." />}
+      {data.length === 0 && <EmptyRow colSpan={6} text="No attendance data yet." />}
       {data.map((p) => (
         <Fragment key={p.period}>
           <tr
@@ -96,7 +102,11 @@ export function PayrollSummary({ period }: { period: "weekly" | "monthly" | "yea
                 {p.label}
               </span>
             </Td>
-            <Td>{p.hours.toFixed(2)} h{p.holidayHours > 0 ? ` (${p.holidayHours.toFixed(2)}h holiday)` : ""}</Td>
+            <Td>{p.hours.toFixed(2)} h{p.holidayHours > 0 ? ` (${p.holidayHours.toFixed(2)}h bank hol.)` : ""}</Td>
+            <Td className="text-muted-foreground">
+              {(p.holidayAccruedHours ?? 0).toFixed(2)} h
+              {p.holidayAccrualRate != null ? ` (${p.holidayAccrualRate}%)` : ""} = {money2(p.holidayAccrualPay ?? 0)}
+            </Td>
             <Td>{money2(p.gross)}</Td>
             <Td className="text-muted-foreground">-{money2(p.tax)}</Td>
             <Td className="font-semibold">{money2(p.net)}</Td>
@@ -109,7 +119,10 @@ export function PayrollSummary({ period }: { period: "weekly" | "monthly" | "yea
               <Td className="text-sm">
                 {w.hours.toFixed(2)} h
                 {w.overtime > 0 ? ` (+${w.overtime.toFixed(2)} OT)` : ""}
-                {w.holidayHours > 0 ? ` (${w.holidayHours.toFixed(2)}h holiday)` : ""}
+                {w.holidayHours > 0 ? ` (${w.holidayHours.toFixed(2)}h bank hol.)` : ""}
+              </Td>
+              <Td className="text-sm text-muted-foreground">
+                {(w.holidayAccruedHours ?? 0).toFixed(2)} h = {money2(w.holidayAccrualPay ?? 0)}
               </Td>
               <Td className="text-sm">{money2(w.gross)}</Td>
               <Td className="text-sm text-muted-foreground">-{money2(w.tax)}</Td>

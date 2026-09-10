@@ -184,6 +184,13 @@ function SettingsPage() {
             onChange={(n) => set("holidayPayMultiplier", n)}
             hint={`e.g. 2.0 = double time (${money(draft.hourlyRate * draft.holidayPayMultiplier)}/h at default rate)`}
           />
+          <NumField
+            label="Holiday Accrual Rate (%)"
+            value={draft.holidayAccrualRate}
+            onChange={(n) => set("holidayAccrualRate", n)}
+            step="0.01"
+            hint="UK statutory 12.07% (5.6 ÷ 46.4 weeks). Accrued on every hour worked; stored per entry at check-out."
+          />
           <div className="sm:col-span-2">
             <span className="text-sm font-medium">UK bank holiday dates</span>
             <p className="mt-0.5 mb-2 text-xs text-muted-foreground">

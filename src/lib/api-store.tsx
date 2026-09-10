@@ -241,7 +241,8 @@ function useApiState() {
         locationMismatch: a.location_mismatch === 1 || a.location_mismatch === true,
         assignmentStatus: a.assignment_status || 'none',
         nearestLocation: a.nearest_location ?? null,
-        distanceMeters: a.distance_meters != null ? Number(a.distance_meters) : null
+        distanceMeters: a.distance_meters != null ? Number(a.distance_meters) : null,
+        holidayAccruedHours: Number(a.holiday_accrued_hours ?? 0)
       }));
       setAttendance(normalizedData);
     } catch (err) {
@@ -270,6 +271,8 @@ function useApiState() {
         overtime: Number(p.overtime),
         holidayHours: Number(p.holidayHours ?? 0),
         holidayPay: Number(p.holidayPay ?? 0),
+        holidayAccruedHours: Number(p.holidayAccruedHours ?? 0),
+        holidayAccrualPay: Number(p.holidayAccrualPay ?? 0),
         rate: Number(p.rate),
         gross: Number(p.gross),
         advance: Number(p.advanceDeduction),
@@ -324,7 +327,8 @@ function useApiState() {
         pensionRate: Number(data.pensionRate),
         maxAdvance: Number(data.maxAdvance),
         billingMultiplier: Number(data.billingMultiplier),
-        holidayPayMultiplier: Number(data.holidayPayMultiplier ?? 2)
+        holidayPayMultiplier: Number(data.holidayPayMultiplier ?? 2),
+        holidayAccrualRate: Number(data.holidayAccrualRate ?? 12.07)
       };
       setSettings(normalizedData);
     } catch (err) {
@@ -419,7 +423,8 @@ function useApiState() {
         locationMismatch: a.location_mismatch === 1 || a.location_mismatch === true,
         assignmentStatus: a.assignment_status || 'none',
         nearestLocation: a.nearest_location ?? null,
-        distanceMeters: a.distance_meters != null ? Number(a.distance_meters) : null
+        distanceMeters: a.distance_meters != null ? Number(a.distance_meters) : null,
+        holidayAccruedHours: Number(a.holiday_accrued_hours ?? 0)
       }));
       setAttendance(normalizedData);
     } catch (err) {
@@ -743,7 +748,8 @@ function useApiState() {
         pensionRate: patch.pensionRate !== undefined ? Number(patch.pensionRate) : undefined,
         maxAdvance: patch.maxAdvance !== undefined ? Number(patch.maxAdvance) : undefined,
         billingMultiplier: patch.billingMultiplier !== undefined ? Number(patch.billingMultiplier) : undefined,
-        holidayPayMultiplier: patch.holidayPayMultiplier !== undefined ? Number(patch.holidayPayMultiplier) : undefined
+        holidayPayMultiplier: patch.holidayPayMultiplier !== undefined ? Number(patch.holidayPayMultiplier) : undefined,
+        holidayAccrualRate: patch.holidayAccrualRate !== undefined ? Number(patch.holidayAccrualRate) : undefined
       };
       await apiClient.put('/api/settings', normalizedPatch);
       await loadSettings();

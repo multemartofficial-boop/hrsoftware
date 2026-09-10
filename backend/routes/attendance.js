@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const { requireAuth, requireAdmin, requireWorker } = require('../middleware/auth');
+const { getHolidayAccrualRate, accrueHolidayHours } = require('../utils/holiday-accrual');
 
 // Helper: Calculate hours between time strings
 const calculateHours = (timeIn, timeOut) => {
@@ -93,16 +94,17 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
     
     const finalTimeOut = timeOut || null;
     const hours = calculateHours(timeIn, finalTimeOut);
+    const holidayAccrued = accrueHolidayHours(hours, await getHolidayAccrualRate());
     const attendanceId = generateAttendanceId();
     
     await pool.query(
       `INSERT INTO attendance 
-      (id, worker_id, worker, date, check_in_time, check_out_time, location, hours_worked, source) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Admin')`,
-      [attendanceId, workerId, workers[0].name, date, timeIn, finalTimeOut, location, hours]
+      (id, worker_id, worker, date, check_in_time, check_out_time, location, hours_worked, holiday_accrued_hours, source) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Admin')`,
+      [attendanceId, workerId, workers[0].name, date, timeIn, finalTimeOut, location, hours, holidayAccrued]
     );
 
-    res.status(201).json({ id: attendanceId, hours, message: 'Attendance added successfully' });
+    res.status(201).json({ id: attendanceId, hours, holidayAccruedHours: holidayAccrued, message: 'Attendance added successfully' });
   } catch (error) {
     console.error('Add attendance error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -170,14 +172,15 @@ router.post('/checkout', requireAuth, requireWorker, async (req, res) => {
     
     const record = attendance[0];
     const hours = calculateHours(record.check_in_time, timeOut);
+    const holidayAccrued = accrueHolidayHours(hours, await getHolidayAccrualRate());
     
-    // Update check-out time and hours
+    // Update check-out time, hours and statutory holiday accrual
     await pool.query(
-      'UPDATE attendance SET check_out_time = ?, hours_worked = ? WHERE id = ?',
-      [timeOut, hours, record.id]
+      'UPDATE attendance SET check_out_time = ?, hours_worked = ?, holiday_accrued_hours = ? WHERE id = ?',
+      [timeOut, hours, holidayAccrued, record.id]
     );
 
-    res.json({ hours, timeOut, message: 'Checked out successfully' });
+    res.json({ hours, holidayAccruedHours: holidayAccrued, timeOut, message: 'Checked out successfully' });
   } catch (error) {
     console.error('Check out error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -197,16 +200,18 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     
     const finalTimeOut = timeOut || null;
     const hours = calculateHours(timeIn, finalTimeOut);
+    // Times changed, so the accrual is recomputed at the CURRENT configured rate
+    const holidayAccrued = accrueHolidayHours(hours, await getHolidayAccrualRate());
     
     await pool.query(
       `UPDATE attendance 
       SET worker_id = ?, worker = ?, date = ?, check_in_time = ?, check_out_time = ?, 
-          location = ?, hours_worked = ? 
+          location = ?, hours_worked = ?, holiday_accrued_hours = ? 
       WHERE id = ?`,
-      [workerId, workers[0].name, date, timeIn, finalTimeOut, location, hours, req.params.id]
+      [workerId, workers[0].name, date, timeIn, finalTimeOut, location, hours, holidayAccrued, req.params.id]
     );
 
-    res.json({ hours, message: 'Attendance updated successfully' });
+    res.json({ hours, holidayAccruedHours: holidayAccrued, message: 'Attendance updated successfully' });
   } catch (error) {
     console.error('Update attendance error:', error);
     res.status(500).json({ error: 'Server error' });

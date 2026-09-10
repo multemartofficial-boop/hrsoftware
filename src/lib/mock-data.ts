@@ -483,6 +483,8 @@ export type Attendance = {
   /** Auto-detect: nearest geofenced location + distance (for unmatched check-ins) */
   nearestLocation?: string | null;
   distanceMeters?: number | null;
+  /** Statutory holiday accrued for this entry (hours), stored at check-out time */
+  holidayAccruedHours?: number;
 };
 
 const att = (
@@ -528,6 +530,9 @@ export type Payroll = {
   net: number;
   holidayHours?: number;
   holidayPay?: number;
+  /** Statutory holiday accrual (12.07% default) summed from attendance in the period */
+  holidayAccruedHours?: number;
+  holidayAccrualPay?: number;
   status: "Completed" | "Pending";
   created: string; // ISO
 };
@@ -625,6 +630,8 @@ export type Settings = {
   payrollEmail: string;
   billingMultiplier: number;
   holidayPayMultiplier: number;
+  /** Statutory holiday accrual as % of hours worked (UK default 12.07) */
+  holidayAccrualRate: number;
 };
 
 export const seedSettings: Settings = {
@@ -642,6 +649,7 @@ export const seedSettings: Settings = {
   payrollEmail: "payroll@workhr.co.uk",
   billingMultiplier: 1.45,
   holidayPayMultiplier: 2.0,
+  holidayAccrualRate: 12.07,
 };
 
 export const seedToday = toISO(new Date());

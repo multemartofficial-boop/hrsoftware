@@ -33,7 +33,8 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
         companyName: newSettings[0].company_name,
         payrollEmail: newSettings[0].payroll_email,
         billingMultiplier: newSettings[0].billing_multiplier,
-        holidayPayMultiplier: newSettings[0].holiday_pay_multiplier
+        holidayPayMultiplier: newSettings[0].holiday_pay_multiplier,
+        holidayAccrualRate: newSettings[0].holiday_accrual_rate ?? 12.07
       };
 
       return res.json(transformed);
@@ -54,7 +55,8 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
       companyName: settings[0].company_name,
       payrollEmail: settings[0].payroll_email,
       billingMultiplier: settings[0].billing_multiplier,
-      holidayPayMultiplier: settings[0].holiday_pay_multiplier
+      holidayPayMultiplier: settings[0].holiday_pay_multiplier,
+      holidayAccrualRate: settings[0].holiday_accrual_rate ?? 12.07
     };
 
     res.json(transformed);
@@ -81,21 +83,31 @@ router.put('/', requireAuth, requireAdmin, async (req, res) => {
       companyName,
       payrollEmail,
       billingMultiplier,
-      holidayPayMultiplier
+      holidayPayMultiplier,
+      holidayAccrualRate
     } = req.body;
+
+    const accrualRate = holidayAccrualRate !== undefined && holidayAccrualRate !== null && holidayAccrualRate !== ''
+      ? Number(holidayAccrualRate)
+      : null;
+    if (accrualRate !== null && (!Number.isFinite(accrualRate) || accrualRate < 0 || accrualRate > 100)) {
+      return res.status(400).json({ error: 'Holiday accrual rate must be between 0 and 100 (%)' });
+    }
 
     await pool.query(
       `UPDATE settings
       SET hourly_rate = ?, overtime_multiplier = ?, overtime_threshold = ?, contract_months = ?,
           tax_rate = ?, ni_rate = ?, pension_rate = ?, max_advance = ?,
           first_reminder_days = ?, final_reminder_days = ?, company_name = ?,
-          payroll_email = ?, billing_multiplier = ?, holiday_pay_multiplier = ?
+          payroll_email = ?, billing_multiplier = ?, holiday_pay_multiplier = ?,
+          holiday_accrual_rate = COALESCE(?, holiday_accrual_rate)
       WHERE id = 1`,
       [
         hourlyRate, overtimeMultiplier, overtimeThreshold, contractMonths,
         taxRate, niRate, pensionRate, maxAdvance,
         firstReminderDays, finalReminderDays, companyName,
-        payrollEmail, billingMultiplier, holidayPayMultiplier
+        payrollEmail, billingMultiplier, holidayPayMultiplier,
+        accrualRate
       ]
     );
 

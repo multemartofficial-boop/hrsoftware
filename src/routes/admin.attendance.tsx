@@ -53,8 +53,9 @@ function EntryForm({
   editing: Attendance | null;
   onClose: () => void;
 }) {
-  const { workers, locations, addAttendance, updateAttendance } = useApi();
+  const { workers, locations, addAttendance, updateAttendance, settings } = useApi();
   const [form, setForm] = useState<FormState>(initial);
+  const accrualRate = settings?.holidayAccrualRate ?? 12.07;
   const set = (k: keyof FormState) => (e: { target: { value: string } }) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -123,6 +124,14 @@ function EntryForm({
           <strong className="text-foreground">
             {form.out ? `${hoursBetween(form.in, form.out).toFixed(2)} h` : "— (still active)"}
           </strong>
+          {form.out && (
+            <>
+              {" · "}Holiday accrual ({accrualRate}%):{" "}
+              <strong className="text-foreground">
+                {(hoursBetween(form.in, form.out) * accrualRate / 100).toFixed(2)} h
+              </strong>
+            </>
+          )}
         </p>
         <div className="sm:col-span-2 flex justify-end gap-2">
           <GhostButton type="button" onClick={onClose}>
@@ -254,7 +263,7 @@ function AttendancePage() {
           </div>
 
           <DataTable
-            labels={["Worker", "Date", "Check-In", "Check-Out", "Location", "Total Hours", "Source", "Action"]}
+            labels={["Worker", "Date", "Check-In", "Check-Out", "Location", "Total Hours", "Holiday", "Source", "Action"]}
             head={
               <>
                 <Th>Worker</Th>
@@ -263,12 +272,13 @@ function AttendancePage() {
                 <Th>Check-Out</Th>
                 <Th>Location</Th>
                 <Th>Total Hours</Th>
+                <Th>Holiday</Th>
                 <Th>Source</Th>
                 <Th className="text-right">Action</Th>
               </>
             }
           >
-            {rows.length === 0 && <EmptyRow colSpan={8} text="No attendance records for this filter." />}
+            {rows.length === 0 && <EmptyRow colSpan={9} text="No attendance records for this filter." />}
             {rows.map((a) => (
               <tr key={a.id} className="hover:bg-secondary/40">
                 <Td>
@@ -315,6 +325,11 @@ function AttendancePage() {
                   </div>
                 </Td>
                 <Td className="font-medium">{a.hours.toFixed(2)} h</Td>
+                <Td className="text-muted-foreground">
+                  <span title={`Statutory holiday accrued: ${((a.holidayAccruedHours ?? 0) * 60).toFixed(1)} min`}>
+                    {(a.holidayAccruedHours ?? 0).toFixed(2)} h
+                  </span>
+                </Td>
                 <Td><StatusBadge status={a.source} /></Td>
                 <Td>
                   <div className="flex justify-end gap-1 text-muted-foreground">

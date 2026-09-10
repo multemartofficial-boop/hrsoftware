@@ -45,18 +45,22 @@ const calculatePayroll = async (workerId, from, to, advance, settings, { allowZe
 
   const holidays = await getBankHolidaySet();
 
-  // Get per-day hours so holiday dates can be separated from regular hours
+  // Get per-day hours so holiday dates can be separated from regular hours.
+  // Statutory holiday accrual is summed from the value STORED on each entry at
+  // check-out time (not recalculated), so past entries keep their original figure.
   const [attendance] = await pool.query(
-    'SELECT date, SUM(hours_worked) as day_hours FROM attendance WHERE worker_id = ? AND date >= ? AND date <= ? GROUP BY date',
+    'SELECT date, SUM(hours_worked) as day_hours, SUM(holiday_accrued_hours) as day_accrued FROM attendance WHERE worker_id = ? AND date >= ? AND date <= ? GROUP BY date',
     [workerId, from, to]
   );
 
   let totalHours = 0;
   let holidayHours = 0;
+  let holidayAccruedHours = 0;
   for (const row of attendance) {
     const dateStr = toLocalDateStr(row.date);
     const h = Number(row.day_hours) || 0;
     totalHours += h;
+    holidayAccruedHours += Number(row.day_accrued) || 0;
     if (holidays.has(dateStr)) holidayHours += h;
   }
   const regularHours = totalHours - holidayHours;
@@ -70,6 +74,8 @@ const calculatePayroll = async (workerId, from, to, advance, settings, { allowZe
   const overtimeThreshold = Number(settings.overtime_threshold) || 40;
   const overtimeMultiplier = Number(settings.overtime_multiplier) || 1.5;
   const holidayMultiplier = Number(settings.holiday_pay_multiplier) || 2;
+  const holidayAccrualRate = Number(settings.holiday_accrual_rate);
+  const accrualRate = Number.isFinite(holidayAccrualRate) ? holidayAccrualRate : 12.07;
   const taxRateValue = Number(settings.tax_rate) || 0;
   const niRateValue = Number(settings.ni_rate) || 0;
 
@@ -83,7 +89,10 @@ const calculatePayroll = async (workerId, from, to, advance, settings, { allowZe
   // Calculate amounts
   const regularGross = (normalHours * rate) + (overtimeHours * rate * overtimeMultiplier);
   const holidayPay = holidayHours * rate * holidayMultiplier;
-  const gross = regularGross + holidayPay;
+  // Statutory holiday accrual value: accrued hours × base hourly rate.
+  // Independent of bank-holiday pay — both apply on the same day when relevant.
+  const holidayAccrualPay = holidayAccruedHours * rate;
+  const gross = regularGross + holidayPay + holidayAccrualPay;
   const taxRatePercent = (taxRateValue + niRateValue) / 100;
   const tax = gross * taxRatePercent;
   const net = gross - tax - advance;
@@ -103,6 +112,9 @@ const calculatePayroll = async (workerId, from, to, advance, settings, { allowZe
     holidayHours: Math.round(holidayHours * 100) / 100,
     holidayPay: Math.round(holidayPay * 100) / 100,
     holidayMultiplier,
+    holidayAccruedHours: Math.round(holidayAccruedHours * 100) / 100,
+    holidayAccrualPay: Math.round(holidayAccrualPay * 100) / 100,
+    holidayAccrualRate: accrualRate,
     gross: Math.round(gross * 100) / 100,
     tax: Math.round(tax * 100) / 100,
     advance: Math.round(advance * 100) / 100,
@@ -150,6 +162,8 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
       overtime: Number(p.overtime),
       holidayHours: Number(p.holiday_hours || 0),
       holidayPay: Number(p.holiday_pay || 0),
+      holidayAccruedHours: Number(p.holiday_accrued_hours || 0),
+      holidayAccrualPay: Number(p.holiday_accrual_pay || 0),
       rate: Number(p.rate),
       gross: Number(p.gross),
       advanceDeduction: Number(p.advance_deduction),
@@ -221,10 +235,12 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
     
     await pool.query(
       `INSERT INTO payroll
-      (id, worker_id, worker, period_start, period_end, hours, overtime, holiday_hours, holiday_pay, rate, gross, advance_deduction, tax_ni, net_pay, status, generated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', NOW())`,
+      (id, worker_id, worker, period_start, period_end, hours, overtime, holiday_hours, holiday_pay,
+       holiday_accrued_hours, holiday_accrual_pay, rate, gross, advance_deduction, tax_ni, net_pay, status, generated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', NOW())`,
       [payrollId, calculation.workerId, calculation.worker, calculation.from, calculation.to,
        calculation.hours, calculation.overtime, calculation.holidayHours, calculation.holidayPay,
+       calculation.holidayAccruedHours, calculation.holidayAccrualPay,
        calculation.rate, calculation.gross,
        calculation.advance, calculation.tax, calculation.net]
     );
@@ -292,15 +308,17 @@ router.get('/summary', requireAuth, requireAdmin, async (req, res) => {
     const overtimeThreshold = Number(s.overtime_threshold) || 40;
     const overtimeMultiplier = Number(s.overtime_multiplier) || 1.5;
     const holidayMultiplier = Number(s.holiday_pay_multiplier) || 2;
+    const accrualRateRaw = Number(s.holiday_accrual_rate);
+    const holidayAccrualRate = Number.isFinite(accrualRateRaw) ? accrualRateRaw : 12.07;
     const taxRateValue = Number(s.tax_rate) || 0;
     const niRateValue = Number(s.ni_rate) || 0;
     const taxRatePercent = (taxRateValue + niRateValue) / 100;
     const holidaySet = await getBankHolidaySet();
 
-    // Fetch all attendance joined with worker rates
+    // Fetch all attendance joined with worker rates (incl. stored holiday accrual)
     const [rows] = await pool.query(
       `SELECT a.worker_id, w.name AS worker_name, w.rate,
-              a.date, a.hours_worked
+              a.date, a.hours_worked, a.holiday_accrued_hours
        FROM attendance a
        JOIN workers w ON a.worker_id = w.id
        ORDER BY a.date`
@@ -351,10 +369,12 @@ router.get('/summary', requireAuth, requireAdmin, async (req, res) => {
           rate: Number(row.rate) || 0,
           hours: 0,
           holidayHours: 0,
+          holidayAccruedHours: 0,
         };
       }
       const h = Number(row.hours_worked) || 0;
       groups[pk].workers[row.worker_id].hours += h;
+      groups[pk].workers[row.worker_id].holidayAccruedHours += Number(row.holiday_accrued_hours) || 0;
       if (holidaySet.has(dateStr)) {
         groups[pk].workers[row.worker_id].holidayHours += h;
       }
@@ -376,6 +396,7 @@ router.get('/summary', requireAuth, requireAdmin, async (req, res) => {
       }
 
       let totalHours = 0, totalGross = 0, totalTax = 0, totalNet = 0, totalHolidayHours = 0, totalHolidayPay = 0;
+      let totalAccruedHours = 0, totalAccrualPay = 0;
       const workerBreakdown = Object.values(group.workers).map((w) => {
         // Same holiday/overtime rule as calculatePayroll: holiday hours count
         // toward the threshold but are paid at the holiday rate.
@@ -383,7 +404,8 @@ router.get('/summary', requireAuth, requireAdmin, async (req, res) => {
         const overtimeHours = Math.min(regularHours, Math.max(0, w.hours - overtimeThreshold * weeks));
         const normalHours = regularHours - overtimeHours;
         const holidayPay = w.holidayHours * w.rate * holidayMultiplier;
-        const gross = (normalHours * w.rate) + (overtimeHours * w.rate * overtimeMultiplier) + holidayPay;
+        const holidayAccrualPay = w.holidayAccruedHours * w.rate;
+        const gross = (normalHours * w.rate) + (overtimeHours * w.rate * overtimeMultiplier) + holidayPay + holidayAccrualPay;
         const tax = gross * taxRatePercent;
         const net = gross - tax;
         totalHours += w.hours;
@@ -392,6 +414,8 @@ router.get('/summary', requireAuth, requireAdmin, async (req, res) => {
         totalNet += net;
         totalHolidayHours += w.holidayHours;
         totalHolidayPay += holidayPay;
+        totalAccruedHours += w.holidayAccruedHours;
+        totalAccrualPay += holidayAccrualPay;
         return {
           workerId: w.workerId,
           worker: w.worker,
@@ -400,6 +424,8 @@ router.get('/summary', requireAuth, requireAdmin, async (req, res) => {
           overtime: Math.round(overtimeHours * 100) / 100,
           holidayHours: Math.round(w.holidayHours * 100) / 100,
           holidayPay: Math.round(holidayPay * 100) / 100,
+          holidayAccruedHours: Math.round(w.holidayAccruedHours * 100) / 100,
+          holidayAccrualPay: Math.round(holidayAccrualPay * 100) / 100,
           gross: Math.round(gross * 100) / 100,
           tax: Math.round(tax * 100) / 100,
           net: Math.round(net * 100) / 100,
@@ -412,6 +438,9 @@ router.get('/summary', requireAuth, requireAdmin, async (req, res) => {
         hours: Math.round(totalHours * 100) / 100,
         holidayHours: Math.round(totalHolidayHours * 100) / 100,
         holidayPay: Math.round(totalHolidayPay * 100) / 100,
+        holidayAccruedHours: Math.round(totalAccruedHours * 100) / 100,
+        holidayAccrualPay: Math.round(totalAccrualPay * 100) / 100,
+        holidayAccrualRate,
         gross: Math.round(totalGross * 100) / 100,
         tax: Math.round(totalTax * 100) / 100,
         net: Math.round(totalNet * 100) / 100,

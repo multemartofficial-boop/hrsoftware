@@ -55,6 +55,21 @@ async function ensureSchema() {
     } catch (error) {
       console.log('⚠️ Could not update status enum:', error.message);
     }
+
+    // Statutory holiday accrual (12.07%): configurable rate + stored per-entry accrual
+    const addCol = async (sql, label) => {
+      try {
+        await pool.query(sql);
+        console.log(`✅ ${label} added`);
+      } catch (error) {
+        if (error.code === 'ER_DUP_FIELDNAME') console.log(`✅ ${label} already exists`);
+        else console.log(`⚠️ Could not add ${label}:`, error.message);
+      }
+    };
+    await addCol('ALTER TABLE settings ADD COLUMN holiday_accrual_rate DECIMAL(5,2) NOT NULL DEFAULT 12.07', 'settings.holiday_accrual_rate');
+    await addCol('ALTER TABLE attendance ADD COLUMN holiday_accrued_hours DECIMAL(8,4) NOT NULL DEFAULT 0', 'attendance.holiday_accrued_hours');
+    await addCol('ALTER TABLE payroll ADD COLUMN holiday_accrued_hours DECIMAL(8,2) NOT NULL DEFAULT 0', 'payroll.holiday_accrued_hours');
+    await addCol('ALTER TABLE payroll ADD COLUMN holiday_accrual_pay DECIMAL(10,2) NOT NULL DEFAULT 0', 'payroll.holiday_accrual_pay');
   } catch (error) {
     console.error('Schema setup error:', error);
   }
