@@ -25,26 +25,41 @@ function Detail({
   onBack,
   onApprove,
   onReject,
+  processing,
 }: {
   app: Application;
   onBack: () => void;
   onApprove: () => void;
   onReject: () => void;
+  processing?: boolean;
 }) {
   return (
     <Card>
-      <button onClick={onBack} className="mb-5 flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+      <button
+        type="button"
+        onClick={onBack}
+        className="mb-5 flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+      >
         <ArrowLeft className="size-4" /> Back to applications
       </button>
 
       <ApplicationDetail app={app} />
 
       <div className="mt-6 flex flex-wrap gap-3 border-t border-border pt-5">
-        <button onClick={onApprove} className="flex h-10 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground">
+        <button
+          type="button"
+          onClick={onApprove}
+          className="flex h-10 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground disabled:opacity-50"
+        >
           <Check className="size-4" /> Approve
         </button>
-        <button onClick={onReject} className="flex h-10 items-center gap-2 rounded-lg border border-border px-5 text-sm font-medium text-danger">
-          <X className="size-4" /> Reject
+        <button
+          type="button"
+          onClick={onReject}
+          disabled={processing}
+          className="flex h-10 items-center gap-2 rounded-lg border border-border px-5 text-sm font-medium text-danger disabled:opacity-50"
+        >
+          <X className="size-4" /> {processing ? "Rejecting…" : "Reject"}
         </button>
       </div>
     </Card>
@@ -86,14 +101,20 @@ function RateConfirmModal({
     >
       <form onSubmit={submit} className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          This applicant expects{" "}
-          <strong className="text-foreground">£{expected.toFixed(2)}/hour</strong>. Do you want to continue with
-          this rate, or set a different rate? The confirmed rate becomes the worker&apos;s hourly rate used for all
-          payroll calculations.
+          {expected > 0 ? (
+            <>
+              This applicant expects{" "}
+              <strong className="text-foreground">£{expected.toFixed(2)}/hour</strong>. Do you want to continue with
+              this rate, or set a different rate?
+            </>
+          ) : (
+            <>No expected hourly rate was provided. Please set the worker&apos;s hourly rate below.</>
+          )}{" "}
+          The confirmed rate becomes the worker&apos;s hourly rate used for all payroll calculations.
         </p>
         <Field
           label="Hourly rate (£)"
-          hint={changed ? `Changed from applicant's expected £${expected.toFixed(2)}` : "Applicant's expected rate"}
+          hint={expected > 0 ? (changed ? `Changed from applicant's expected £${expected.toFixed(2)}` : "Applicant's expected rate") : "Enter the worker's hourly rate"}
         >
           <input
             type="number"
@@ -126,6 +147,7 @@ function Approvals() {
   const [flash, setFlash] = useState<string | null>(null);
   const [flashWorkerId, setFlashWorkerId] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [processingId, setProcessingId] = useState<string | null>(null);
   const selected = (applications || []).find((a) => a.id === selectedId) ?? null;
   const confirming = (applications || []).find((a) => a.id === confirmingId) ?? null;
 
@@ -158,7 +180,9 @@ function Approvals() {
   };
 
   const reject = async (id: string, name: string) => {
+    setProcessingId(id);
     await rejectApplication(id);
+    setProcessingId(null);
     setSelectedId(null);
     await loadAllApplications();
     setFlashWorkerId(null);
@@ -173,7 +197,7 @@ function Approvals() {
     }
   };
 
-  if (loading.applications) {
+  if (loading["applications"]) {
     return (
       <AdminShell title="Registration Approvals">
         <div className="flex items-center justify-center h-64">
@@ -245,6 +269,7 @@ function Approvals() {
             onBack={() => setSelectedId(null)}
             onApprove={() => approve(selected.id)}
             onReject={() => reject(selected.id, selected.name)}
+            processing={processingId === selected.id}
           />
         ) : (
           <Card className="p-0">
@@ -276,16 +301,24 @@ function Approvals() {
                   <Td>
                     <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                       <button
-                        onClick={() => approve(a.id)}
-                        className="flex h-8 items-center gap-1.5 rounded-lg bg-success-soft px-3 text-xs font-medium text-success"
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); approve(a.id); }}
+                        disabled={confirmingId === a.id}
+                        className="flex h-8 items-center gap-1.5 rounded-lg bg-success-soft px-3 text-xs font-medium text-success disabled:opacity-50"
                       >
                         <Check className="size-3.5" /> Approve
                       </button>
                       <button
-                        onClick={() => reject(a.id, a.name)}
-                        className="flex h-8 items-center gap-1.5 rounded-lg bg-danger-soft px-3 text-xs font-medium text-danger"
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); reject(a.id, a.name); }}
+                        disabled={processingId === a.id}
+                        className="flex h-8 items-center gap-1.5 rounded-lg bg-danger-soft px-3 text-xs font-medium text-danger disabled:opacity-50"
                       >
-                        <X className="size-3.5" /> Reject
+                        {processingId === a.id ? (
+                          <><RefreshCw className="size-3.5 animate-spin" /> Rejecting…</>
+                        ) : (
+                          <><X className="size-3.5" /> Reject</>
+                        )}
                       </button>
                     </div>
                   </Td>

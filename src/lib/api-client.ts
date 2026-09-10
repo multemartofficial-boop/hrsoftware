@@ -122,11 +122,28 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Upload failed' }));
-      throw new Error(error.error || 'Upload failed');
+      const errorText = await response.text().catch(() => '');
+      let error: { error?: string } = { error: 'Upload failed' };
+      try { error = JSON.parse(errorText); } catch { /* not JSON */ }
+      throw new Error(error.error || `Upload failed: ${response.status} ${response.statusText}`);
     }
 
     return response.json();
+  }
+
+  // Fetch a binary document with auth (used for secure admin document viewing)
+  async getBlob(endpoint: string): Promise<Blob> {
+    this.loadToken();
+    const url = `${this.baseUrl}${endpoint}`;
+    const headers: Record<string, string> = {};
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+    const response = await fetch(url, { headers });
+    if (!response.ok) {
+      throw new Error(`Failed to load document: ${response.status} ${response.statusText}`);
+    }
+    return response.blob();
   }
 }
 

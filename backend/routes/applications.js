@@ -27,7 +27,12 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 3 * 1024 * 1024 }, // 3MB limit
+  limits: {
+    fileSize: 3 * 1024 * 1024, // 3MB per file
+    fieldSize: 10 * 1024 * 1024,
+    files: 20,
+    fields: 100,
+  },
   fileFilter: (req, file, cb) => {
     const allowedTypes = /jpeg|jpg|png|pdf|doc|docx/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
@@ -53,7 +58,7 @@ const blankCompliance = () => ({
   criminalRecordsLevel: '',
 });
 
-// Map a DB application row to the shape the frontend expects (camelCase + parsed compliance)
+// Map a DB application row to the shape the frontend expects (camelCase + parsed JSON fields)
 const transformApplication = (app) => {
   let compliance = blankCompliance();
   if (app.compliance) {
@@ -64,8 +69,17 @@ const transformApplication = (app) => {
       /* keep defaults if the stored JSON is unreadable */
     }
   }
+  let details = {};
+  if (app.details) {
+    try {
+      details = typeof app.details === 'string' ? JSON.parse(app.details) : app.details;
+    } catch {
+      /* keep as empty object if the stored JSON is unreadable */
+    }
+  }
   return {
     ...app,
+    details,
     workerId: app.worker_id,
     // True only when the worker row exists AND password_hash is set —
     // i.e. the worker actually completed password setup.
@@ -79,11 +93,15 @@ const transformApplication = (app) => {
     workerType: app.worker_type || 'Direct',
     passportCountry: app.passport_country,
     passportNumber: app.passport_number,
+    passportIssueDate: app.passport_issue_date,
     passportExpiry: app.passport_expiry,
     visaNumber: app.visa_number,
+    visaIssueDate: app.visa_issue_date,
     visaExpiry: app.visa_expiry,
     siaBadgeNumber: app.sia_badge_number,
     siaBadgeExpiry: app.sia_badge_expiry,
+    hasVisa: app.has_visa,
+    gdprConsent: app.gdpr_consent,
     compliance,
   };
 };
@@ -207,7 +225,7 @@ router.post('/', upload.fields(appUploadFields), async (req, res) => {
       prevAddresses, employers, referees, skills,
       howHeard, subcontractCompany, passportCountry, passportNumber, passportIssueDate, passportExpiry,
       visaNumber, siaBadgeNumber, siaBadgeExpiry,
-      passportType, sortCode, accountNumber
+      passportType, sortCode, accountNumber, gdprConsent
     } = req.body;
 
     // Direct vs Sub-contract: derived from the how-heard answer
@@ -258,7 +276,7 @@ router.post('/', upload.fields(appUploadFields), async (req, res) => {
       howHeard, subcontractCompany, workerType,
       passportCountry, passportNumber, passportIssueDate, passportExpiry,
       visaNumber, siaBadgeNumber, siaBadgeExpiry,
-      passportType, sortCode, accountNumber
+      passportType, sortCode, accountNumber, gdprConsent
     };
 
     // Insert main application
@@ -269,7 +287,7 @@ router.post('/', upload.fields(appUploadFields), async (req, res) => {
        visa_number, visa_expiry, sia_badge_number, sia_badge_expiry)
       VALUES (?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [applicationId, `${forename} ${surname}`, mobile, email, address, ni, appliedFor || 'Unspecified',
-       parsedPrefLocations[0] || 'Unassigned', rate || 14.50, JSON.stringify(details),
+       parsedPrefLocations[0] || 'Unassigned', rate || 0, JSON.stringify(details),
        howHeard || null,
        workerType === 'Sub-contract' ? (subcontractCompany || null) : null, workerType,
        passportCountry || null, passportNumber || null, nullableDate(passportExpiry),
@@ -385,6 +403,63 @@ router.get('/:id', requireAuth, requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Get application error:', error);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Admin: Securely stream an uploaded application document by doc key.
+// The file path is read from the stored details.docUrls map, so only files
+// attached to this application can be requested.
+router.get('/:id/document/:key', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [applications] = await pool.query(
+      'SELECT details FROM registration_applications WHERE id = ?',
+      [req.params.id]
+    );
+    if (applications.length === 0) {
+      return res.status(404).json({ error: 'Application not found' });
+    }
+    const details = typeof applications[0].details === 'string'
+      ? JSON.parse(applications[0].details || '{}')
+      : (applications[0].details || {});
+    const docUrls = details.docUrls || {};
+    const docUrl = docUrls[req.params.key];
+    if (!docUrl) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    let filePath = '';
+    if (docUrl.startsWith('/uploads/documents/')) {
+      const filename = docUrl.replace('/uploads/documents/', '');
+      filePath = process.env.VERCEL
+        ? path.join('/tmp/uploads/documents', filename)
+        : path.join(__dirname, '..', 'uploads', 'documents', filename);
+    } else if (docUrl.startsWith('/uploads/')) {
+      const rest = docUrl.replace('/uploads/', '');
+      filePath = process.env.VERCEL
+        ? path.join('/tmp/uploads', rest)
+        : path.join(__dirname, '..', 'uploads', rest);
+    } else {
+      return res.status(400).json({ error: 'Unsupported document URL' });
+    }
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found on server' });
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType = ext === '.pdf'
+      ? 'application/pdf'
+      : ext === '.png'
+        ? 'image/png'
+        : ext === '.jpg' || ext === '.jpeg'
+          ? 'image/jpeg'
+          : 'application/octet-stream';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${path.basename(filePath)}"`);
+    fs.createReadStream(filePath).pipe(res);
+  } catch (error) {
+    console.error('Document view error:', error);
+    res.status(500).json({ error: 'Server error while loading document' });
   }
 });
 

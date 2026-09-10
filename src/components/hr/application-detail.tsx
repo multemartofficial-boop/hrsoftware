@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from "react";
-import { FileImage, ExternalLink, Check } from "lucide-react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
+import { FileImage, ExternalLink, Check, X, Loader2, FileText } from "lucide-react";
 import {
   avatarUrl,
   blankCompliance,
@@ -8,7 +8,7 @@ import {
   type Application,
   type Compliance,
 } from "@/lib/mock-data";
-import { StatusBadge, inputCls } from "@/components/hr/bits";
+import { StatusBadge, inputCls, Modal } from "@/components/hr/bits";
 import { fmtDate } from "@/lib/hr-utils";
 import { apiClient } from "@/lib/api-client";
 
@@ -78,29 +78,132 @@ function Repeat({
   );
 }
 
-function Doc({ label, name, url }: { label: string; name: string; url?: string | undefined }) {
-  const body = (
-    <>
-      <FileImage className="size-5" />
+function Doc({ label, name, appId, docKey }: { label: string; name: string; appId: string; docKey: string }) {
+  const [open, setOpen] = useState(false);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [viewError, setViewError] = useState<string | null>(null);
+  const blobUrlRef = useRef<string | null>(null);
+
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  const isImage = ['jpg', 'jpeg', 'png'].includes(ext);
+  const isPdf = ext === 'pdf';
+
+  useEffect(() => { blobUrlRef.current = blobUrl; }, [blobUrl]);
+
+  // Load an image thumbnail automatically; PDFs are fetched on demand to save bandwidth.
+  useEffect(() => {
+    let didCancel = false;
+    let objectUrl = '';
+    if (isImage && name) {
+      setLoading(true);
+      apiClient
+        .getBlob(`/api/applications/${appId}/document/${docKey}`)
+        .then((blob) => {
+          objectUrl = URL.createObjectURL(blob);
+          if (!didCancel) {
+            setBlobUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return objectUrl; });
+          }
+        })
+        .catch((err) => { if (!didCancel) setViewError(err instanceof Error ? err.message : 'Failed to load document'); })
+        .finally(() => { if (!didCancel) setLoading(false); });
+    }
+    return () => {
+      didCancel = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appId, docKey, isImage, name]);
+
+  useEffect(() => {
+    return () => { if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current); };
+  }, []);
+
+  const load = async () => {
+    if (blobUrl) {
+      setOpen(true);
+      return;
+    }
+    setOpen(true);
+    setLoading(true);
+    setViewError(null);
+    try {
+      const blob = await apiClient.getBlob(`/api/applications/${appId}/document/${docKey}`);
+      const url = URL.createObjectURL(blob);
+      setBlobUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return url; });
+    } catch (err) {
+      setViewError(err instanceof Error ? err.message : 'Failed to load document');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClick = () => {
+    if (isImage && blobUrl) setOpen(true);
+    else load();
+  };
+
+  const tile = (
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={loading || !name}
+      className="flex h-28 w-full flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border bg-secondary/40 p-3 text-center text-muted-foreground transition-colors hover:bg-secondary disabled:opacity-60"
+    >
+      {loading ? (
+        <Loader2 className="size-5 animate-spin" />
+      ) : isImage && blobUrl ? (
+        <img src={blobUrl} alt={label} className="h-16 w-full object-contain rounded-lg" />
+      ) : isImage ? (
+        <FileImage className="size-5" />
+      ) : (
+        <FileText className="size-5" />
+      )}
       <span className="max-w-full truncate text-xs">{name || `No ${label.toLowerCase()}`}</span>
-      {url && (
+      {name && !loading && (
         <span className="flex items-center gap-1 text-xs font-medium text-primary">
-          Open <ExternalLink className="size-3" />
+          {isImage ? 'View image' : 'View PDF'} <ExternalLink className="size-3" />
         </span>
       )}
-    </>
+    </button>
   );
-  const cls =
-    "flex h-28 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border bg-secondary/40 p-3 text-center text-muted-foreground";
+
   return (
     <div>
       <p className="mb-1.5 text-xs text-muted-foreground">{label}</p>
-      {url ? (
-        <a href={url} target="_blank" rel="noreferrer" className={`${cls} hover:bg-secondary`}>
-          {body}
-        </a>
-      ) : (
-        <div className={cls}>{body}</div>
+      {tile}
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/60 p-4 backdrop-blur-sm">
+          <div className="card-surface flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden p-0">
+            <div className="flex items-center justify-between border-b border-border px-5 py-3">
+              <h3 className="text-sm font-semibold">{label}</h3>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="grid size-8 place-items-center rounded-lg border border-border text-muted-foreground hover:bg-secondary"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              {loading ? (
+                <div className="flex h-64 items-center justify-center text-muted-foreground">
+                  <Loader2 className="mr-2 size-5 animate-spin" /> Loading document…
+                </div>
+              ) : viewError ? (
+                <p className="text-sm text-danger">{viewError}</p>
+              ) : isImage && blobUrl ? (
+                <img src={blobUrl} alt={label} className="w-full rounded-lg" />
+              ) : isPdf && blobUrl ? (
+                <iframe src={blobUrl} title={label} className="h-[70vh] w-full rounded-lg" />
+              ) : blobUrl ? (
+                <a href={blobUrl} download={name} className="text-primary hover:underline">
+                  Download document
+                </a>
+              ) : null}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -190,7 +293,7 @@ function ComplianceChecklist({ app }: { app: Application }) {
   );
 }
 
-/** Read-only, grouped summary of a full 5-step application (Step 5 review layout). */
+/** Read-only, grouped summary of a full 5-step application. */
 export function ApplicationDetail({ app }: { app: Application }) {
   const d = (app.details ?? {}) as Record<string, unknown>;
   const docUrls = (d["docUrls"] ?? {}) as Record<string, string>;
@@ -201,24 +304,20 @@ export function ApplicationDetail({ app }: { app: Application }) {
   const skills = asRows(d["skills"]);
   const prefLocations = asStrings(d["prefLocations"]);
 
-  // Handle both old and new field names for compatibility
   const getDetail = (key: string, fallback?: string) => str(key) || fallback || "";
+  const docName = (key: string) => getDetail(key, docUrls[key]?.split('/').pop() || "");
 
-  // Get full URL for uploaded files
-  const getFileUrl = (path: string | undefined) => {
-    if (!path) return "";
-    if (path.startsWith("http")) return path;
-    return `http://localhost:3001${path}`;
-  };
+  const hasVisa = getDetail("hasVisa", "No");
+  const passportType = getDetail("passportType");
+  const rateValue = Number(getDetail("rate")) || Number(app.rate) || 0;
+  const gdpr = getDetail("gdprConsent", "No");
 
   return (
     <div>
       <div className="flex flex-wrap items-center gap-4">
-        <img
-          src={getFileUrl(docUrls["photo"]) || avatarUrl(app.name)}
-          alt={app.name}
-          className="size-20 rounded-2xl bg-secondary object-cover"
-        />
+        <div className="size-20 overflow-hidden rounded-2xl bg-secondary">
+          <img src={avatarUrl(app.name)} alt={app.name} className="size-full object-cover" />
+        </div>
         <div className="min-w-0">
           <h2 className="text-lg font-semibold tracking-tight">{app.name}</h2>
           <p className="text-sm text-muted-foreground">
@@ -257,7 +356,6 @@ export function ApplicationDetail({ app }: { app: Application }) {
             ["Address Line 2", getDetail("addr2", "")],
             ["Address Line 3", getDetail("addr3", "")],
             ["Town", getDetail("town", "")],
-            ["County", getDetail("county", "")],
             ["Postcode", getDetail("postcode", "")],
             ["Country", getDetail("country", "United Kingdom")],
             ["At Current Address From", getDetail("addressFrom", "")],
@@ -275,7 +373,6 @@ export function ApplicationDetail({ app }: { app: Application }) {
             ["Address Line 2", "line2"],
             ["Address Line 3", "line3"],
             ["Town", "town"],
-            ["County", "county"],
             ["Postcode", "postcode"],
             ["Country", "country"],
             ["At Address From", "from"],
@@ -289,13 +386,12 @@ export function ApplicationDetail({ app }: { app: Application }) {
           items={[
             ["Place of Birth", getDetail("birthPlace", "")],
             ["Nationality", getDetail("nationality", "British")],
-            ["National Insurance No", getDetail("ni", app.nid) || app.nid],
             ["Permitted to work in UK", getDetail("rtw", "Yes")],
           ]}
         />
       </Group>
 
-      <Group title="Next of Kin/Emergency Contact">
+      <Group title="Next of Kin / Emergency Contact">
         <SummaryList
           items={[
             ["Forename", getDetail("kinForename", "")],
@@ -305,7 +401,6 @@ export function ApplicationDetail({ app }: { app: Application }) {
             ["Address Line 2", getDetail("kinAddr2", "")],
             ["Address Line 3", getDetail("kinAddr3", "")],
             ["Town", getDetail("kinTown", "")],
-            ["County", getDetail("kinCounty", "")],
             ["Postcode", getDetail("kinPostcode", "")],
             ["Country", getDetail("kinCountry", "United Kingdom")],
           ]}
@@ -314,23 +409,41 @@ export function ApplicationDetail({ app }: { app: Application }) {
 
       <Group title="Documents & Eligibility">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Doc label="Profile Photo" name={getDetail("photo", "")} url={getFileUrl(docUrls["photo"])} />
-          <Doc label="NID / ID Front" name={getDetail("idFront", "")} url={getFileUrl(docUrls["idFront"])} />
-          <Doc label="NID / ID Back" name={getDetail("idBack", "")} url={getFileUrl(docUrls["idBack"])} />
-          <Doc label="Proof of Address" name={getDetail("proofAddress", "")} url={getFileUrl(docUrls["proofAddress"])} />
+          <Doc label="Profile Photo" name={docName("photo")} appId={app.id} docKey="photo" />
+          <Doc label="Proof of Address" name={docName("proofAddress")} appId={app.id} docKey="proofAddress" />
+          <Doc label="eVisa" name={docName("eVisa")} appId={app.id} docKey="eVisa" />
+          <Doc label="Passport Document" name={docName("passportDoc")} appId={app.id} docKey="passportDoc" />
+          {passportType === "British Passport" ? (
+            <Doc label="UKVI share code" name={docName("shareCode")} appId={app.id} docKey="shareCode" />
+          ) : (
+            <Doc label="CV including 5 years of address history" name={docName("cv")} appId={app.id} docKey="cv" />
+          )}
+          <Doc label="SIA Badge Front" name={docName("siaDocFront")} appId={app.id} docKey="siaDocFront" />
+          <Doc label="SIA Badge Back" name={docName("siaDocBack")} appId={app.id} docKey="siaDocBack" />
+          {hasVisa === "Yes" && (
+            <Doc label="Right-to-work share code" name={docName("rtwShareCode")} appId={app.id} docKey="rtwShareCode" />
+          )}
         </div>
-        <div className="mt-3">
+
+        <div className="mt-4">
           <SummaryList
             items={[
+              ["N.I Number", getDetail("ni")],
+              ["Passport Type", passportType],
               ["Passport Country", app.passportCountry || getDetail("passportCountry", "")],
               ["Passport Number", app.passportNumber || getDetail("passportNumber", "")],
+              ["Passport Issue Date", getDetail("passportIssueDate")],
               ["Passport Expiry", app.passportExpiry ? fmtDate(app.passportExpiry) : getDetail("passportExpiry", "")],
-              ["Holds work permit / visa", getDetail("hasVisa", "No")],
-              ["Visa Type", getDetail("visaType", "")],
-              ["Visa Number", app.visaNumber || getDetail("visaNumber", "")],
-              ["Visa Expiry", app.visaExpiry ? fmtDate(app.visaExpiry) : getDetail("visaExpiry", "")],
               ["SIA Badge Number", app.siaBadgeNumber || getDetail("siaBadgeNumber", "")],
               ["SIA Badge Expiry", app.siaBadgeExpiry ? fmtDate(app.siaBadgeExpiry) : getDetail("siaBadgeExpiry", "")],
+              ["Are you permitted to work in the UK?", hasVisa],
+              ...(hasVisa === "Yes"
+                ? [
+                    ["Visa Type", getDetail("visaType", "")] as [string, string],
+                    ["Visa Issue Date", getDetail("visaIssueDate", "")] as [string, string],
+                    ["Visa Expiry Date", getDetail("visaExpiry", "")] as [string, string],
+                  ]
+                : []),
               ["Bank Name", getDetail("bankName", "")],
               ["Account Holder", getDetail("accountHolder", "")],
               ["Sort Code / Account Number", getDetail("sortAccount", "")],
@@ -372,7 +485,6 @@ export function ApplicationDetail({ app }: { app: Application }) {
           rows={referees}
           emptyLabel="No referees provided."
           fields={[
-            ["Name", "name"],
             ["Phone", "phone"],
             ["Email", "email"],
             ["Address", "address"],
@@ -397,14 +509,15 @@ export function ApplicationDetail({ app }: { app: Application }) {
         <div className="mt-3">
           <SummaryList
             items={[
-              ["Preferred Locations", prefLocations.length ? prefLocations : app.location],
+              ...(prefLocations.length ? [["Preferred Locations", prefLocations.join(", ")] as [string, string]] : []),
               ["Preferred Hours", getDetail("availability", "Full-time")],
-              ["Expected Hourly Rate", `£${(Number(getDetail("rate", String(app.rate))) || app.rate).toFixed(2)} / hour`],
+              ...(rateValue > 0 ? [["Expected Hourly Rate", `£${rateValue.toFixed(2)} / hour`] as [string, string]] : []),
               ["How did you hear about us", app.howHeard || getDetail("howHeard", "")],
               ["Worker type", app.workerType || getDetail("workerType", "Direct")],
               ...(app.workerType === "Sub-contract" || getDetail("workerType", "") === "Sub-contract"
                 ? [["Sub-contract company", app.subcontractCompany || getDetail("subcontractCompany", "")] as [string, string]]
                 : []),
+              ["GDPR consent", gdpr === "Yes" ? "Yes" : "No"],
             ]}
           />
         </div>

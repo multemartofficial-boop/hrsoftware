@@ -375,6 +375,7 @@ function RegisterPage() {
   const [confirmed, setConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [validationSummary, setValidationSummary] = useState<string | null>(null);
 
   const [f, setF] = useState({
     appliedFor: "",
@@ -439,6 +440,7 @@ function RegisterPage() {
     beforeTo: "",
     beforeReason: "",
     availability: availabilityOptions[0]!,
+    gdprConsent: "No",
   });
   const [prevAddresses, setPrevAddresses] = useState<Row[]>([]);
   const [employers, setEmployers] = useState<Row[]>([{ ...blankEmployer }]);
@@ -544,7 +546,11 @@ function RegisterPage() {
     formData.append('prefLocations', JSON.stringify(s.prefLocations));
     formData.append('existingDocs', JSON.stringify(s.existingDocs));
     for (const k of FILE_KEYS) {
-      if (s.fileObjects[k]) formData.append(k, s.fileObjects[k]);
+      const existingName = s.existingDocs[k] ? s.existingDocs[k].split('/').pop() : '';
+      // Only upload a file if it is newly selected or changed from the saved one
+      if (s.fileObjects[k] && s.f[k] !== existingName) {
+        formData.append(k, s.fileObjects[k]);
+      }
     }
     if (extra) for (const [k, v] of Object.entries(extra)) formData.append(k, v);
     return formData;
@@ -560,6 +566,13 @@ function RegisterPage() {
         buildFormData({ lastStep: String(completedStep) }),
       );
       setExistingDocs((prev) => ({ ...prev, ...res.docUrls }));
+      setFileObjects((prev) => {
+        const next = { ...prev };
+        for (const k of FILE_KEYS) {
+          if (res.docUrls[k] && next[k]) delete next[k];
+        }
+        return next;
+      });
       setDraftSavedAt(new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false }));
     } catch (e) {
       console.warn('Draft save failed:', e);
@@ -809,6 +822,7 @@ function RegisterPage() {
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
+    setValidationSummary(null);
     const nxt = Math.min(4, step + 1);
     goTo(nxt);
     void saveDraft(nxt); // autosave progress after every completed step
@@ -817,12 +831,21 @@ function RegisterPage() {
   const submit = async () => {
     const bad = validateAll();
     if (bad) {
+      const stepNames = ["Personal Details", "Documents & Eligibility", "Work History", "Skills & Availability"];
+      const msgs = Object.values(bad.errors);
+      const list = msgs.slice(0, 5).join("; ");
+      const more = msgs.length > 5 ? ` and ${msgs.length - 5} more` : "";
+      setValidationSummary(`${stepNames[bad.step]}: ${list}${more}. Please review the highlighted fields.`);
       setErrors(bad.errors);
       goTo(bad.step);
       return;
     }
-    if (!confirmed) {
-      setErrors({ ["confirmed"]: "Please confirm the information is accurate" });
+    setValidationSummary(null);
+    const newErrors: Record<string, string> = {};
+    if (!confirmed) newErrors["confirmed"] = "Please confirm the information is accurate";
+    if (f.gdprConsent !== "Yes") newErrors["gdprConsent"] = "Please consent to WorkHR storing and processing your personal data";
+    if (Object.keys(newErrors).length) {
+      setErrors(newErrors);
       return;
     }
     setSubmitting(true);
@@ -921,7 +944,7 @@ function RegisterPage() {
         </div>
         {hasErrors && (
           <p className="mb-4 rounded-lg bg-danger-soft px-3 py-2 text-xs font-medium text-danger">
-            Some fields need your attention — please review the highlighted fields below.
+            {validationSummary || "Some fields need your attention — please review the highlighted fields below."}
           </p>
         )}
 
@@ -1207,7 +1230,7 @@ function RegisterPage() {
             </Section>
 
             <Section title="Right to Work" icon={<ShieldCheck />}>
-              <Field label="Do you hold any work permit / visa?">
+              <Field label="Are you permitted to work in the UK?">
                 <select value={f.hasVisa} onChange={set("hasVisa")} className={inputCls}>
                   <option>No</option>
                   <option>Yes</option>
@@ -1582,7 +1605,7 @@ function RegisterPage() {
                 ["Passport Document", f.passportDoc],
                 ["CV / 5-year address history", f.cv],
                 ["UKVI share code", f.shareCode],
-                ["Work permit / visa", f.hasVisa],
+                ["Permitted to work in UK", f.hasVisa],
                 ["Visa Type", f.visaType],
                 ["Visa Issue Date", f.visaIssueDate],
                 ["Visa Expiry", f.visaExpiry],
@@ -1678,6 +1701,27 @@ function RegisterPage() {
               </span>
             </label>
             {err("confirmed") && <p className="mt-1 text-xs font-medium text-danger">{err("confirmed")}</p>}
+
+            <label className={`mt-3 flex items-start gap-3 rounded-xl border p-4 text-sm ${err("gdprConsent") ? "border-danger" : "border-border"}`}>
+              <input
+                type="checkbox"
+                checked={f.gdprConsent === "Yes"}
+                onChange={(e) => {
+                  setF((s) => ({ ...s, gdprConsent: e.target.checked ? "Yes" : "No" }));
+                  setErrors((s) => {
+                    if (!s["gdprConsent"]) return s;
+                    const { gdprConsent: _d, ...rest } = s;
+                    return rest;
+                  });
+                }}
+                className="mt-0.5 size-4 accent-primary"
+              />
+              <span>
+                I consent to WorkHR storing and processing my personal data in accordance with the Privacy Policy and UK GDPR
+                <Req />
+              </span>
+            </label>
+            {err("gdprConsent") && <p className="mt-1 text-xs font-medium text-danger">{err("gdprConsent")}</p>}
             {err("submit") && <p className="mt-2 rounded-lg bg-danger-soft px-3 py-2 text-xs font-medium text-danger">{err("submit")}</p>}
           </>
         )}
