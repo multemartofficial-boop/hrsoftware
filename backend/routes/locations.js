@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { logActionFromReq } = require('../utils/action-log');
 
 // Generate location ID
 const generateLocationId = () => {
@@ -38,6 +39,7 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
        radiusMeters != null && radiusMeters !== '' ? Number(radiusMeters) : 200]
     );
 
+    await logActionFromReq(req, 'added_location', 'location', locationId, { name, address });
     res.status(201).json({ id: locationId, message: 'Location created successfully' });
   } catch (error) {
     console.error('Create location error:', error);
@@ -91,6 +93,10 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     }
     
     await connection.commit();
+    await logActionFromReq(req, 'edited_location', 'location', req.params.id, {
+      before: { name: oldName },
+      after: { name, address },
+    });
     res.json({ message: 'Location updated successfully' });
   } catch (error) {
     await connection.rollback();
@@ -104,7 +110,11 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
 // Admin: Delete location
 router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
+    const [rows] = await pool.query('SELECT name, address FROM locations WHERE id = ?', [req.params.id]);
     await pool.query('DELETE FROM locations WHERE id = ?', [req.params.id]);
+    await logActionFromReq(req, 'deleted_location', 'location', req.params.id, {
+      name: rows[0]?.name, address: rows[0]?.address,
+    });
     res.json({ message: 'Location deleted successfully' });
   } catch (error) {
     console.error('Delete location error:', error);

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { logActionFromReq } = require('../utils/action-log');
 
 // Admin: Get settings
 router.get('/', requireAuth, requireAdmin, async (req, res) => {
@@ -94,6 +95,28 @@ router.put('/', requireAuth, requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Holiday accrual rate must be between 0 and 100 (%)' });
     }
 
+    // Capture previous values so the audit log can show what changed
+    const [prevRows] = await pool.query('SELECT * FROM settings WHERE id = 1');
+    const prev = prevRows[0] || {};
+    const fieldMap = {
+      hourlyRate: 'hourly_rate', overtimeMultiplier: 'overtime_multiplier',
+      overtimeThreshold: 'overtime_threshold', contractMonths: 'contract_months',
+      taxRate: 'tax_rate', niRate: 'ni_rate', pensionRate: 'pension_rate',
+      maxAdvance: 'max_advance', firstReminderDays: 'first_reminder_days',
+      finalReminderDays: 'final_reminder_days', companyName: 'company_name',
+      payrollEmail: 'payroll_email', billingMultiplier: 'billing_multiplier',
+      holidayPayMultiplier: 'holiday_pay_multiplier', holidayAccrualRate: 'holiday_accrual_rate',
+    };
+    const changes = {};
+    for (const [bodyKey, col] of Object.entries(fieldMap)) {
+      const newVal = bodyKey === 'holidayAccrualRate' ? accrualRate : req.body[bodyKey];
+      if (newVal === undefined || newVal === null) continue;
+      const oldVal = prev[col];
+      if (String(oldVal) !== String(newVal)) {
+        changes[bodyKey] = { from: oldVal ?? null, to: newVal };
+      }
+    }
+
     await pool.query(
       `UPDATE settings
       SET hourly_rate = ?, overtime_multiplier = ?, overtime_threshold = ?, contract_months = ?,
@@ -111,6 +134,7 @@ router.put('/', requireAuth, requireAdmin, async (req, res) => {
       ]
     );
 
+    await logActionFromReq(req, 'changed_settings', 'settings', '1', { changes });
     res.json({ message: 'Settings updated successfully' });
   } catch (error) {
     console.error('Update settings error:', error);
@@ -153,6 +177,7 @@ router.post('/bank-holidays', requireAuth, requireAdmin, async (req, res) => {
     const fmtD = (v) => v instanceof Date
       ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`
       : String(v).slice(0, 10);
+    await logActionFromReq(req, 'added_bank_holiday', 'bank_holiday', date, { date, name: (name && String(name).trim()) || 'Bank Holiday' });
     res.status(201).json(rows.map(r => ({ id: r.id, date: fmtD(r.holiday_date), name: r.name })));
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
@@ -174,6 +199,7 @@ router.put('/bank-holidays/:id', requireAuth, requireAdmin, async (req, res) => 
       'UPDATE bank_holidays SET holiday_date = COALESCE(?, holiday_date), name = COALESCE(?, name) WHERE id = ?',
       [date || null, name ? String(name).trim() : null, req.params.id]
     );
+    await logActionFromReq(req, 'updated_bank_holiday', 'bank_holiday', req.params.id, { date, name });
     res.json({ message: 'Bank holiday updated' });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
@@ -187,7 +213,11 @@ router.put('/bank-holidays/:id', requireAuth, requireAdmin, async (req, res) => 
 // Admin: Delete a bank holiday
 router.delete('/bank-holidays/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
+    const [rows] = await pool.query('SELECT holiday_date, name FROM bank_holidays WHERE id = ?', [req.params.id]);
     await pool.query('DELETE FROM bank_holidays WHERE id = ?', [req.params.id]);
+    await logActionFromReq(req, 'deleted_bank_holiday', 'bank_holiday', req.params.id, {
+      date: rows[0]?.holiday_date, name: rows[0]?.name,
+    });
     res.json({ message: 'Bank holiday removed' });
   } catch (error) {
     console.error('Delete bank holiday error:', error);

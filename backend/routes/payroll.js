@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { logActionFromReq } = require('../utils/action-log');
 
 // Generate payroll ID
 const generatePayrollId = () => {
@@ -251,6 +252,13 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
       [`N-${Date.now()}`, calculation.worker, calculation.workerId, `Payroll ${payrollId} generated`]
     );
 
+    await logActionFromReq(req, 'generated_payroll', 'payroll', payrollId, {
+      workerId: calculation.workerId,
+      worker: calculation.worker,
+      period: `${calculation.from} → ${calculation.to}`,
+      gross: calculation.gross,
+      net: calculation.net,
+    });
     res.status(201).json({ id: payrollId, ...calculation, message: 'Payroll generated successfully' });
   } catch (error) {
     console.error('Generate payroll error:', error);
@@ -272,6 +280,7 @@ router.patch('/:id/status', requireAuth, requireAdmin, async (req, res) => {
       [status, req.params.id]
     );
 
+    await logActionFromReq(req, 'updated_payroll_status', 'payroll', req.params.id, { status });
     res.json({ message: 'Payroll status updated successfully' });
   } catch (error) {
     console.error('Update payroll status error:', error);
@@ -282,7 +291,13 @@ router.patch('/:id/status', requireAuth, requireAdmin, async (req, res) => {
 // Admin: Delete payroll
 router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
+    const [rows] = await pool.query('SELECT worker_id, worker, period_start, period_end FROM payroll WHERE id = ?', [req.params.id]);
     await pool.query('DELETE FROM payroll WHERE id = ?', [req.params.id]);
+    await logActionFromReq(req, 'deleted_payroll', 'payroll', req.params.id, {
+      workerId: rows[0]?.worker_id,
+      worker: rows[0]?.worker,
+      period: rows[0] ? `${toLocalDateStr(rows[0].period_start)} → ${toLocalDateStr(rows[0].period_end)}` : undefined,
+    });
     res.json({ message: 'Payroll deleted successfully' });
   } catch (error) {
     console.error('Delete payroll error:', error);

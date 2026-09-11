@@ -3,6 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const pool = require('../config/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { logActionFromReq } = require('../utils/action-log');
 
 // Generate unique worker code
 const generateWorkerCode = async () => {
@@ -165,6 +166,7 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
       [workerId, name, phone, email, location, role, rate, joined, expiry, address, nid]
     );
 
+    await logActionFromReq(req, 'created_worker', 'worker', workerId, { name, email, location, role, rate });
     res.status(201).json({ id: workerId, message: 'Worker created successfully' });
   } catch (error) {
     console.error('Create worker error:', error);
@@ -185,6 +187,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       [name, phone, email, location, role, rate, address, nid, on_leave, req.params.id]
     );
 
+    await logActionFromReq(req, 'updated_worker', 'worker', req.params.id, { name, email, location, role, rate });
     res.json({ message: 'Worker updated successfully' });
   } catch (error) {
     console.error('Update worker error:', error);
@@ -211,6 +214,11 @@ router.post('/:id/reactivate', requireAuth, requireAdmin, async (req, res) => {
         'INSERT INTO notifications (id, worker, worker_id, message, urgency, occurred_at) VALUES (?, ?, ?, ?, "info", "Just now")',
         [`N-${Date.now()}`, workers[0].name, req.params.id, 'Contract reactivated for another 3 months']
       );
+
+      await logActionFromReq(req, 'reactivated_worker', 'worker', req.params.id, {
+        name: workers[0].name,
+        newExpiry: expiry.toISOString().split('T')[0],
+      });
     }
 
     res.json({ message: 'Worker reactivated successfully' });
@@ -223,7 +231,11 @@ router.post('/:id/reactivate', requireAuth, requireAdmin, async (req, res) => {
 // Admin: Delete worker
 router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
+    const [rows] = await pool.query('SELECT name, email FROM workers WHERE id = ?', [req.params.id]);
     await pool.query('DELETE FROM workers WHERE id = ?', [req.params.id]);
+    await logActionFromReq(req, 'deleted_worker', 'worker', req.params.id, {
+      name: rows[0]?.name, email: rows[0]?.email,
+    });
     res.json({ message: 'Worker deleted successfully' });
   } catch (error) {
     console.error('Delete worker error:', error);
@@ -246,7 +258,8 @@ router.post('/:id/reset-password', requireAuth, requireAdmin, async (req, res) =
       'UPDATE workers SET password_hash = ? WHERE id = ?',
       [passwordHash, req.params.id]
     );
-    
+
+    await logActionFromReq(req, 'reset_worker_password', 'worker', req.params.id);
     res.json({ message: 'Worker password reset successfully' });
   } catch (error) {
     console.error('Reset worker password error:', error);
@@ -366,6 +379,10 @@ router.put('/:id/compliance', requireAuth, requireAdmin, async (req, res) => {
       };
     });
 
+    await logActionFromReq(req, 'updated_worker_compliance', 'worker', req.params.id, {
+      complete: checks.filter((c) => c.status === 'complete').length,
+      total: COMPLIANCE_KEYS.length,
+    });
     res.json({
       workerId: req.params.id,
       checks,

@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const pool = require('../config/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { sendEmail } = require('../utils/email');
+const { logActionFromReq } = require('../utils/action-log');
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -609,6 +610,12 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
     // Will be added after password setup
 
     await connection.commit();
+    await logActionFromReq(req, 'approved_application', 'application', req.params.id, {
+      applicant: application.name,
+      email: application.email,
+      workerId,
+      rate: confirmedRate,
+    });
     res.json({
       id: workerId,
       expiry: expiry.toISOString().split('T')[0],
@@ -650,6 +657,10 @@ router.post('/:id/reject', requireAuth, requireAdmin, async (req, res) => {
       [req.params.id]
     );
 
+    await logActionFromReq(req, 'rejected_application', 'application', req.params.id, {
+      applicant: applications[0].name,
+      email: applications[0].email,
+    });
     res.json({ message: 'Application rejected successfully' });
   } catch (error) {
     console.error('Reject application error:', error);
@@ -740,6 +751,11 @@ router.post('/:id/resend-setup', requireAuth, requireAdmin, async (req, res) => 
     });
 
     await connection.commit();
+    await logActionFromReq(req, 'resent_setup_link', 'application', req.params.id, {
+      applicant: application.name,
+      email: application.email,
+      workerId: application.worker_id,
+    });
     res.json({
       message: 'Setup link resent successfully',
       setupLink: setupLink // Include for testing

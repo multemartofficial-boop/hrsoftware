@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../config/database');
 const { requireAuth, requireAdmin, requireWorker } = require('../middleware/auth');
 const { getHolidayAccrualRate, accrueHolidayHours } = require('../utils/holiday-accrual');
+const { logActionFromReq } = require('../utils/action-log');
 
 // Helper: Calculate hours between time strings
 const calculateHours = (timeIn, timeOut) => {
@@ -104,6 +105,9 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
       [attendanceId, workerId, workers[0].name, date, timeIn, finalTimeOut, location, hours, holidayAccrued]
     );
 
+    await logActionFromReq(req, 'added_attendance', 'attendance', attendanceId, {
+      workerId, worker: workers[0].name, date, in: timeIn, out: finalTimeOut, location, hours,
+    });
     res.status(201).json({ id: attendanceId, hours, holidayAccruedHours: holidayAccrued, message: 'Attendance added successfully' });
   } catch (error) {
     console.error('Add attendance error:', error);
@@ -191,7 +195,9 @@ router.post('/checkout', requireAuth, requireWorker, async (req, res) => {
 router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { workerId, date, in: timeIn, out: timeOut, location } = req.body;
-    
+
+    const [oldRows] = await pool.query('SELECT * FROM attendance WHERE id = ?', [req.params.id]);
+
     // Get worker name if workerId changed
     const [workers] = await pool.query('SELECT name FROM workers WHERE id = ?', [workerId]);
     if (workers.length === 0) {
@@ -211,6 +217,15 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       [workerId, workers[0].name, date, timeIn, finalTimeOut, location, hours, holidayAccrued, req.params.id]
     );
 
+    const prev = oldRows[0];
+    await logActionFromReq(req, 'edited_attendance', 'attendance', req.params.id, {
+      workerId, worker: workers[0].name,
+      before: prev ? {
+        date: prev.date, in: prev.check_in_time, out: prev.check_out_time,
+        location: prev.location, hours: prev.hours_worked,
+      } : undefined,
+      after: { date, in: timeIn, out: finalTimeOut, location, hours },
+    });
     res.json({ hours, holidayAccruedHours: holidayAccrued, message: 'Attendance updated successfully' });
   } catch (error) {
     console.error('Update attendance error:', error);
@@ -221,7 +236,12 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
 // Admin: Delete attendance
 router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
+    const [rows] = await pool.query('SELECT worker_id, worker, date, location, hours_worked FROM attendance WHERE id = ?', [req.params.id]);
     await pool.query('DELETE FROM attendance WHERE id = ?', [req.params.id]);
+    await logActionFromReq(req, 'deleted_attendance', 'attendance', req.params.id, {
+      workerId: rows[0]?.worker_id, worker: rows[0]?.worker,
+      date: rows[0]?.date, location: rows[0]?.location, hours: rows[0]?.hours_worked,
+    });
     res.json({ message: 'Attendance deleted successfully' });
   } catch (error) {
     console.error('Delete attendance error:', error);

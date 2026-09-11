@@ -16,6 +16,7 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as SetupPasswordRouteImport } from './routes/setup-password'
 import { Route as WorkerRouteImport } from './routes/worker'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
+import { Route as AdminActionHistoryRouteImport } from './routes/admin.action-history'
 import { Route as AdminApprovalsRouteImport } from './routes/admin.approvals'
 import { Route as AdminAssignmentsRouteImport } from './routes/admin.assignments'
 import { Route as AdminAttendanceRouteImport } from './routes/admin.attendance'
@@ -65,6 +66,11 @@ const WorkerRoute = WorkerRouteImport.update({
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/admin/',
   path: '/admin/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminActionHistoryRoute = AdminActionHistoryRouteImport.update({
+  id: '/admin/action-history',
+  path: '/admin/action-history',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminApprovalsRoute = AdminApprovalsRouteImport.update({
@@ -150,6 +156,7 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/setup-password': typeof SetupPasswordRoute
   '/worker': typeof WorkerRouteWithChildren
+  '/admin/action-history': typeof AdminActionHistoryRoute
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/assignments': typeof AdminAssignmentsRoute
   '/admin/attendance': typeof AdminAttendanceRoute
@@ -174,6 +181,7 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/setup-password': typeof SetupPasswordRoute
   '/worker': typeof WorkerRouteWithChildren
+  '/admin/action-history': typeof AdminActionHistoryRoute
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/assignments': typeof AdminAssignmentsRoute
   '/admin/attendance': typeof AdminAttendanceRoute
@@ -199,6 +207,7 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/setup-password': typeof SetupPasswordRoute
   '/worker': typeof WorkerRouteWithChildren
+  '/admin/action-history': typeof AdminActionHistoryRoute
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/assignments': typeof AdminAssignmentsRoute
   '/admin/attendance': typeof AdminAttendanceRoute
@@ -225,6 +234,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/setup-password'
     | '/worker'
+    | '/admin/action-history'
     | '/admin/approvals'
     | '/admin/assignments'
     | '/admin/attendance'
@@ -249,6 +259,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/setup-password'
     | '/worker'
+    | '/admin/action-history'
     | '/admin/approvals'
     | '/admin/assignments'
     | '/admin/attendance'
@@ -273,6 +284,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/setup-password'
     | '/worker'
+    | '/admin/action-history'
     | '/admin/approvals'
     | '/admin/assignments'
     | '/admin/attendance'
@@ -298,6 +310,7 @@ export interface RootRouteChildren {
   ResetPasswordRoute: typeof ResetPasswordRoute
   SetupPasswordRoute: typeof SetupPasswordRoute
   WorkerRoute: typeof WorkerRouteWithChildren
+  AdminActionHistoryRoute: typeof AdminActionHistoryRoute
   AdminApprovalsRoute: typeof AdminApprovalsRoute
   AdminAssignmentsRoute: typeof AdminAssignmentsRoute
   AdminAttendanceRoute: typeof AdminAttendanceRoute
@@ -364,6 +377,13 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin/'
       preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/action-history': {
+      id: '/admin/action-history'
+      path: '/admin/action-history'
+      fullPath: '/admin/action-history'
+      preLoaderRoute: typeof AdminActionHistoryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/approvals': {
@@ -492,6 +512,7 @@ const rootRouteChildren: RootRouteChildren = {
   ResetPasswordRoute: ResetPasswordRoute,
   SetupPasswordRoute: SetupPasswordRoute,
   WorkerRoute: WorkerRouteWithChildren,
+  AdminActionHistoryRoute: AdminActionHistoryRoute,
   AdminApprovalsRoute: AdminApprovalsRoute,
   AdminAssignmentsRoute: AdminAssignmentsRoute,
   AdminAttendanceRoute: AdminAttendanceRoute,

@@ -70,6 +70,29 @@ async function ensureSchema() {
     await addCol('ALTER TABLE attendance ADD COLUMN holiday_accrued_hours DECIMAL(8,4) NOT NULL DEFAULT 0', 'attendance.holiday_accrued_hours');
     await addCol('ALTER TABLE payroll ADD COLUMN holiday_accrued_hours DECIMAL(8,2) NOT NULL DEFAULT 0', 'payroll.holiday_accrued_hours');
     await addCol('ALTER TABLE payroll ADD COLUMN holiday_accrual_pay DECIMAL(10,2) NOT NULL DEFAULT 0', 'payroll.holiday_accrual_pay');
+
+    // Action History audit log
+    try {
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS action_logs (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          actor_type ENUM('admin', 'worker', 'system') NOT NULL DEFAULT 'system',
+          actor_id VARCHAR(64) NULL,
+          actor_name VARCHAR(255) NULL,
+          action VARCHAR(100) NOT NULL,
+          target_type VARCHAR(50) NULL,
+          target_id VARCHAR(64) NULL,
+          details JSON NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_action_logs_created (created_at),
+          INDEX idx_action_logs_action (action),
+          INDEX idx_action_logs_actor (actor_type, actor_id)
+        )`
+      );
+      console.log('✅ action_logs table ready');
+    } catch (error) {
+      console.log('⚠️ Could not create action_logs table:', error.message);
+    }
   } catch (error) {
     console.error('Schema setup error:', error);
   }
@@ -115,6 +138,7 @@ app.use('/api/settings', require('./routes/settings'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/expiry', require('./routes/expiry'));
+app.use('/api/action-logs', require('./routes/action-logs'));
 
 // Health check
 app.get('/api/health', (req, res) => {

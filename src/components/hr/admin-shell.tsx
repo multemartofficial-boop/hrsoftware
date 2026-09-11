@@ -15,6 +15,7 @@ import {
   FileText,
   BarChart3,
   Scale,
+  History,
   Search,
 
   Sparkles,
@@ -44,6 +45,10 @@ const teamMenu = [
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
 ] as const;
 
+const systemMenu = [
+  { to: "/admin/action-history", label: "Action History", icon: History },
+] as const;
+
 /* pinned to the very bottom of the sidebar */
 const bottomMenu = [
   { to: "/admin/notifications", label: "Notifications", icon: Bell },
@@ -68,6 +73,7 @@ const moreMenu = [
   { to: "/admin/assignments", label: "Daily Assignments", icon: CalendarCheck },
   { to: "/admin/documents", label: "Documents", icon: FileText },
   { to: "/admin/finance", label: "Buyer & Profit/Loss", icon: Scale },
+  { to: "/admin/action-history", label: "Action History", icon: History },
   { to: "/admin/settings", label: "Settings", icon: Settings },
   { to: "/admin/help", label: "Help & Center", icon: LifeBuoy },
 ] as const;
@@ -243,6 +249,15 @@ function AdminShellInner({
         </p>
         <nav className="flex flex-col gap-1">
           {teamMenu.map((i) => (
+            <NavItem key={i.to} {...i} />
+          ))}
+        </nav>
+
+        <p className="px-3 pt-6 pb-2 text-[11px] font-semibold tracking-widest text-muted-foreground/70">
+          SYSTEM
+        </p>
+        <nav className="flex flex-col gap-1">
+          {systemMenu.map((i) => (
             <NavItem key={i.to} {...i} />
           ))}
         </nav>
