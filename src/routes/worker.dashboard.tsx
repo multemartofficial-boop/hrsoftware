@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useApi } from "@/lib/api-store";
 import { apiClient } from "@/lib/api-client";
-import { LogOut, Clock, LogIn, Calendar, MapPin, Navigation, FileSignature, Eraser } from "lucide-react";
+import { LogOut, Clock, LogIn, Calendar, MapPin, Navigation, FileSignature, Eraser, TriangleAlert, Paperclip } from "lucide-react";
 
 export const Route = createFileRoute("/worker/dashboard")({
   head: () => ({
@@ -24,12 +24,23 @@ function WorkerDashboard() {
   // Phase G Part 2: pending signature requests
   const [pendingDocs, setPendingDocs] = useState<any[]>([]);
   const [signing, setSigning] = useState<any | null>(null);
+  // Phase 2: incident reporting
+  const [todayRecord, setTodayRecord] = useState<any | null>(null);
+  const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
+  const [myIncidents, setMyIncidents] = useState<any[]>([]);
+  const [reportOpen, setReportOpen] = useState(false);
 
   const loadMyDocs = async () => {
     try {
       const rows = await apiClient.get<any[]>('/api/documents/requests/mine');
       setPendingDocs((rows || []).filter((r) => r.status === 'pending'));
     } catch (e) { console.error('Load my documents failed:', e); }
+  };
+
+  const loadMyIncidents = async () => {
+    try {
+      setMyIncidents(await apiClient.get<any[]>('/api/incidents/mine'));
+    } catch (e) { console.error('Load my incidents failed:', e); }
   };
   // Phase E: GPS must be captured before check-in is allowed
   const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -51,8 +62,13 @@ function WorkerDashboard() {
     }
     // Load worker-specific data only (check-in location is auto-detected by GPS)
     loadMyDocs();
+    loadMyIncidents();
+    apiClient.get<{ id: string; name: string }[]>('/api/locations')
+      .then(setLocations)
+      .catch(() => setLocations([]));
     loadTodayAttendance().then((todayData) => {
       setCheckedIn(todayData.checkedIn);
+      setTodayRecord(todayData.record);
       setVisaExpired(Boolean(todayData.visaExpired));
       setLoading(false);
     }).catch(err => {
@@ -252,6 +268,47 @@ function WorkerDashboard() {
           </div>
         )}
 
+        {/* Report an Incident */}
+        <div className="bg-card rounded-xl p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <TriangleAlert className="size-5" />
+              Incident Reports
+            </h2>
+            <button
+              onClick={() => setReportOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+            >
+              <TriangleAlert className="size-4" />
+              Report an Incident
+            </button>
+          </div>
+          {myIncidents.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No incidents reported. Use the button above if something happens on site.</p>
+          ) : (
+            <div className="divide-y divide-border">
+              {myIncidents.map((inc) => (
+                <div key={inc.id} className="flex flex-wrap items-center gap-3 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">{inc.category}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {inc.locationName || 'No location'} · {new Date(inc.createdAt).toLocaleString('en-GB', { hour12: false })}
+                    </p>
+                  </div>
+                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                    inc.status === 'Open' ? 'bg-warning-soft text-warning'
+                    : inc.status === 'Under Review' ? 'bg-primary-soft text-primary'
+                    : inc.status === 'Resolved' ? 'bg-success-soft text-success'
+                    : 'bg-secondary text-muted-foreground'
+                  }`}>
+                    {inc.status}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Attendance History */}
         <div className="bg-card rounded-xl p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
@@ -310,6 +367,153 @@ function WorkerDashboard() {
           onDone={() => { setSigning(null); loadMyDocs(); }}
         />
       )}
+
+      {reportOpen && (
+        <ReportIncidentModal
+          locations={locations}
+          checkedInLocation={checkedIn ? todayRecord?.location : null}
+          onClose={() => setReportOpen(false)}
+          onDone={() => { setReportOpen(false); loadMyIncidents(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ---------- Report an Incident (Phase 2) ---------- */
+const INCIDENT_CATEGORIES = ['Theft', 'Injury', 'Property Damage', 'Altercation', 'Safety Hazard', 'Other'];
+const MAX_ATTACHMENT = 3 * 1024 * 1024;
+
+function ReportIncidentModal({
+  locations,
+  checkedInLocation,
+  onClose,
+  onDone,
+}: {
+  locations: { id: string; name: string }[];
+  checkedInLocation: string | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [category, setCategory] = useState('');
+  const [locationId, setLocationId] = useState(
+    () => locations.find((l) => l.name === checkedInLocation)?.id ?? ''
+  );
+  const [description, setDescription] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const onFile = (f: File | null) => {
+    setErr(null);
+    if (f && f.size > MAX_ATTACHMENT) {
+      setErr('Attachment must be 3 MB or smaller.');
+      setFile(null);
+      return;
+    }
+    setFile(f);
+  };
+
+  const submit = async () => {
+    if (!category) { setErr('Please choose a category.'); return; }
+    if (!description.trim()) { setErr('Please describe what happened.'); return; }
+    setBusy(true);
+    setErr(null);
+    try {
+      const fd = new FormData();
+      fd.append('category', category);
+      if (locationId) fd.append('locationId', locationId);
+      fd.append('description', description.trim());
+      if (file) fd.append('attachments', file);
+      await apiClient.uploadFile('/incidents', fd);
+      onDone();
+    } catch (e: any) {
+      setErr(e.message || 'Failed to submit report');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const field = 'mt-1.5 h-10 w-full rounded-lg border border-border bg-card px-3 text-sm outline-none focus:border-primary';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 backdrop-blur-sm p-4">
+      <div className="bg-card rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
+        <h3 className="text-lg font-semibold flex items-center gap-2">
+          <TriangleAlert className="size-5" /> Report an Incident
+        </h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Tell us what happened. Your report goes straight to the admin team.
+        </p>
+
+        <div className="mt-5 space-y-4">
+          <label className="block">
+            <span className="text-sm font-medium">Category *</span>
+            <select value={category} onChange={(e) => setCategory(e.target.value)} className={field}>
+              <option value="">Select a category…</option>
+              {INCIDENT_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-medium">Location</span>
+            <select value={locationId} onChange={(e) => setLocationId(e.target.value)} className={field}>
+              <option value="">Not at a listed site</option>
+              {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+            {checkedInLocation && (
+              <span className="mt-1 block text-xs text-muted-foreground">
+                You are checked in at {checkedInLocation} — pre-selected above.
+              </span>
+            )}
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-medium">What happened? *</span>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={4}
+              placeholder="Describe the incident, who was involved, and when it happened…"
+              className="mt-1.5 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary"
+            />
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-medium">Photo / document (optional, max 3 MB)</span>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,application/pdf,.doc,.docx"
+              onChange={(e) => onFile(e.target.files?.[0] ?? null)}
+              className="mt-1.5 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm"
+            />
+            {file && (
+              <span className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Paperclip className="size-3" /> {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
+              </span>
+            )}
+          </label>
+
+          {err && <p className="text-sm text-danger">{err}</p>}
+        </div>
+
+        <div className="mt-6 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            disabled={busy}
+            className="px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-secondary disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={submit}
+            disabled={busy}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+          >
+            {busy ? 'Submitting…' : 'Submit Report'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

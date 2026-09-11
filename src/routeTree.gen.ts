@@ -23,6 +23,7 @@ import { Route as AdminAttendanceRouteImport } from './routes/admin.attendance'
 import { Route as AdminDocumentsRouteImport } from './routes/admin.documents'
 import { Route as AdminFinanceRouteImport } from './routes/admin.finance'
 import { Route as AdminHelpRouteImport } from './routes/admin.help'
+import { Route as AdminIncidentsRouteImport } from './routes/admin.incidents'
 import { Route as AdminLiveMapRouteImport } from './routes/admin.live-map'
 import { Route as AdminLocationsRouteImport } from './routes/admin.locations'
 import { Route as AdminNotificationsRouteImport } from './routes/admin.notifications'
@@ -103,6 +104,11 @@ const AdminHelpRoute = AdminHelpRouteImport.update({
   path: '/admin/help',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminIncidentsRoute = AdminIncidentsRouteImport.update({
+  id: '/admin/incidents',
+  path: '/admin/incidents',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminLiveMapRoute = AdminLiveMapRouteImport.update({
   id: '/admin/live-map',
   path: '/admin/live-map',
@@ -163,6 +169,7 @@ export interface FileRoutesByFullPath {
   '/admin/documents': typeof AdminDocumentsRoute
   '/admin/finance': typeof AdminFinanceRoute
   '/admin/help': typeof AdminHelpRoute
+  '/admin/incidents': typeof AdminIncidentsRoute
   '/admin/live-map': typeof AdminLiveMapRoute
   '/admin/locations': typeof AdminLocationsRoute
   '/admin/notifications': typeof AdminNotificationsRoute
@@ -188,6 +195,7 @@ export interface FileRoutesByTo {
   '/admin/documents': typeof AdminDocumentsRoute
   '/admin/finance': typeof AdminFinanceRoute
   '/admin/help': typeof AdminHelpRoute
+  '/admin/incidents': typeof AdminIncidentsRoute
   '/admin/live-map': typeof AdminLiveMapRoute
   '/admin/locations': typeof AdminLocationsRoute
   '/admin/notifications': typeof AdminNotificationsRoute
@@ -214,6 +222,7 @@ export interface FileRoutesById {
   '/admin/documents': typeof AdminDocumentsRoute
   '/admin/finance': typeof AdminFinanceRoute
   '/admin/help': typeof AdminHelpRoute
+  '/admin/incidents': typeof AdminIncidentsRoute
   '/admin/live-map': typeof AdminLiveMapRoute
   '/admin/locations': typeof AdminLocationsRoute
   '/admin/notifications': typeof AdminNotificationsRoute
@@ -241,6 +250,7 @@ export interface FileRouteTypes {
     | '/admin/documents'
     | '/admin/finance'
     | '/admin/help'
+    | '/admin/incidents'
     | '/admin/live-map'
     | '/admin/locations'
     | '/admin/notifications'
@@ -266,6 +276,7 @@ export interface FileRouteTypes {
     | '/admin/documents'
     | '/admin/finance'
     | '/admin/help'
+    | '/admin/incidents'
     | '/admin/live-map'
     | '/admin/locations'
     | '/admin/notifications'
@@ -291,6 +302,7 @@ export interface FileRouteTypes {
     | '/admin/documents'
     | '/admin/finance'
     | '/admin/help'
+    | '/admin/incidents'
     | '/admin/live-map'
     | '/admin/locations'
     | '/admin/notifications'
@@ -317,6 +329,7 @@ export interface RootRouteChildren {
   AdminDocumentsRoute: typeof AdminDocumentsRoute
   AdminFinanceRoute: typeof AdminFinanceRoute
   AdminHelpRoute: typeof AdminHelpRoute
+  AdminIncidentsRoute: typeof AdminIncidentsRoute
   AdminLiveMapRoute: typeof AdminLiveMapRoute
   AdminLocationsRoute: typeof AdminLocationsRoute
   AdminNotificationsRoute: typeof AdminNotificationsRoute
@@ -428,6 +441,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminHelpRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/incidents': {
+      id: '/admin/incidents'
+      path: '/admin/incidents'
+      fullPath: '/admin/incidents'
+      preLoaderRoute: typeof AdminIncidentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/live-map': {
       id: '/admin/live-map'
       path: '/admin/live-map'
@@ -519,6 +539,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminDocumentsRoute: AdminDocumentsRoute,
   AdminFinanceRoute: AdminFinanceRoute,
   AdminHelpRoute: AdminHelpRoute,
+  AdminIncidentsRoute: AdminIncidentsRoute,
   AdminLiveMapRoute: AdminLiveMapRoute,
   AdminLocationsRoute: AdminLocationsRoute,
   AdminNotificationsRoute: AdminNotificationsRoute,

@@ -16,6 +16,7 @@ import {
   BarChart3,
   Scale,
   History,
+  TriangleAlert,
   Search,
 
   Sparkles,
@@ -43,6 +44,7 @@ const teamMenu = [
   { to: "/admin/documents", label: "Documents", icon: FileText },
   { to: "/admin/finance", label: "Buyer & Profit/Loss", icon: Scale },
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
+  { to: "/admin/incidents", label: "Incidents", icon: TriangleAlert },
 ] as const;
 
 const systemMenu = [
@@ -73,6 +75,7 @@ const moreMenu = [
   { to: "/admin/assignments", label: "Daily Assignments", icon: CalendarCheck },
   { to: "/admin/documents", label: "Documents", icon: FileText },
   { to: "/admin/finance", label: "Buyer & Profit/Loss", icon: Scale },
+  { to: "/admin/incidents", label: "Incidents", icon: TriangleAlert },
   { to: "/admin/action-history", label: "Action History", icon: History },
   { to: "/admin/settings", label: "Settings", icon: Settings },
   { to: "/admin/help", label: "Help & Center", icon: LifeBuoy },
