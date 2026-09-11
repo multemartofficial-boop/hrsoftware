@@ -456,7 +456,7 @@ function IncidentsPage() {
         </div>
       </Card>
 
-      <Card className="p-0">
+      <Card>
         <DataTable
           labels={["Reported", "Reporter", "Location", "Category", "Severity", "Status", ""]}
           head={

@@ -17,6 +17,7 @@ import {
   Scale,
   History,
   TriangleAlert,
+  Building2,
   Search,
 
   Sparkles,
@@ -41,6 +42,7 @@ const teamMenu = [
   { to: "/admin/locations", label: "Locations", icon: MapPin },
   { to: "/admin/live-map", label: "Live Map", icon: MapPinned },
   { to: "/admin/assignments", label: "Daily Assignments", icon: CalendarCheck },
+  { to: "/admin/clients", label: "Clients", icon: Building2 },
   { to: "/admin/documents", label: "Documents", icon: FileText },
   { to: "/admin/finance", label: "Buyer & Profit/Loss", icon: Scale },
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
@@ -76,6 +78,7 @@ const moreMenu = [
   { to: "/admin/documents", label: "Documents", icon: FileText },
   { to: "/admin/finance", label: "Buyer & Profit/Loss", icon: Scale },
   { to: "/admin/incidents", label: "Incidents", icon: TriangleAlert },
+  { to: "/admin/clients", label: "Clients", icon: Building2 },
   { to: "/admin/action-history", label: "Action History", icon: History },
   { to: "/admin/settings", label: "Settings", icon: Settings },
   { to: "/admin/help", label: "Help & Center", icon: LifeBuoy },

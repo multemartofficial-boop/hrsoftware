@@ -122,6 +122,41 @@ async function ensureSchema() {
     } catch (error) {
       console.log('⚠️ Could not create incidents table:', error.message);
     }
+
+    // Client portal (Phase 4): 'client' user role + clients/client_locations tables
+    try {
+      await pool.query(
+        "ALTER TABLE users MODIFY COLUMN role ENUM('admin', 'worker', 'client') NOT NULL"
+      );
+      console.log('✅ users.role supports client');
+    } catch (error) {
+      console.log('⚠️ Could not extend users.role enum:', error.message);
+    }
+    try {
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS clients (
+          id VARCHAR(50) NOT NULL PRIMARY KEY,
+          user_id INT NOT NULL,
+          name VARCHAR(255) NOT NULL,
+          company VARCHAR(255) NOT NULL,
+          email VARCHAR(255) NOT NULL,
+          buyer_name VARCHAR(255) NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uq_clients_user (user_id),
+          INDEX idx_clients_buyer (buyer_name)
+        )`
+      );
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS client_locations (
+          client_id VARCHAR(50) NOT NULL,
+          location_id VARCHAR(50) NOT NULL,
+          UNIQUE KEY uq_client_location (client_id, location_id)
+        )`
+      );
+      console.log('✅ clients + client_locations tables ready');
+    } catch (error) {
+      console.log('⚠️ Could not create client tables:', error.message);
+    }
   } catch (error) {
     console.error('Schema setup error:', error);
   }
@@ -169,6 +204,8 @@ app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/expiry', require('./routes/expiry'));
 app.use('/api/action-logs', require('./routes/action-logs'));
 app.use('/api/incidents', require('./routes/incidents'));
+app.use('/api/clients', require('./routes/clients'));
+app.use('/api/client', require('./routes/client'));
 
 // Health check
 app.get('/api/health', (req, res) => {

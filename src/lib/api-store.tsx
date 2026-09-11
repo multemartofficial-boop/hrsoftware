@@ -27,8 +27,8 @@ import {
   money2,
 } from "./hr-utils";
 
-export type Role = "admin" | "worker";
-export type Session = { email: string; name: string; role: Role; workerId?: string | undefined };
+export type Role = "admin" | "worker" | "client";
+export type Session = { email: string; name: string; role: Role; workerId?: string | undefined; clientId?: string | undefined; company?: string | undefined };
 
 const SESSION_KEY = "workhr.session";
 
@@ -122,6 +122,37 @@ function useApiState() {
       const next = response.user;
       setSession(next);
       if (next.workerId) setCurrentWorkerId(next.workerId);
+
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+        }
+      } catch {
+        /* ignore */
+      }
+
+      return next;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed');
+      return null;
+    } finally {
+      setLoading({ ...loading, login: false });
+    }
+  };
+
+  const clientLogin = async (email: string, password: string): Promise<Session | null> => {
+    setLoading({ ...loading, login: true });
+    setError(null);
+
+    try {
+      const response = await apiClient.post<{ token: string; user: Session }>('/api/auth/client/login', {
+        email,
+        password,
+      });
+
+      apiClient.setToken(response.token);
+      const next = response.user;
+      setSession(next);
 
       try {
         if (typeof window !== 'undefined' && window.localStorage) {

@@ -37,4 +37,11 @@ const requireWorker = (req, res, next) => {
   next();
 };
 
-module.exports = { requireAuth, requireAdmin, requireWorker };
+const requireClient = (req, res, next) => {
+  if (req.user.role !== 'client') {
+    return res.status(403).json({ error: 'Client access required' });
+  }
+  next();
+};
+
+module.exports = { requireAuth, requireAdmin, requireWorker, requireClient };

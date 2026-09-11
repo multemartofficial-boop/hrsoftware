@@ -24,36 +24,41 @@ export const Route = createFileRoute("/")({
 });
 
 function LoginPage() {
-  const { login, workerLogin, session, authReady, loading, error: apiError } = useApi();
+  const { login, workerLogin, clientLogin, session, authReady, loading, error: apiError } = useApi();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [loginType, setLoginType] = useState<'email' | 'worker'>('email');
+  const [loginType, setLoginType] = useState<'email' | 'worker' | 'client'>('email');
+
+  const homeFor = (role?: string) =>
+    role === "admin" ? "/admin" : role === "client" ? "/client/dashboard" : "/worker/dashboard";
 
   useEffect(() => {
     if (authReady && session) {
-      void navigate({ to: session.role === "admin" ? "/admin" : "/worker/dashboard", replace: true });
+      void navigate({ to: homeFor(session.role), replace: true });
     }
   }, [authReady, session, navigate]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    
+
     let s;
     if (loginType === 'email') {
       s = await login(email, password);
+    } else if (loginType === 'client') {
+      s = await clientLogin(email, password);
     } else {
       s = await workerLogin(email, password); // email field contains worker code
     }
-    
+
     if (!s) {
       setError(apiError || "Invalid credentials.");
       return;
     }
     setError(null);
-    void navigate({ to: s.role === "admin" ? "/admin" : "/worker/dashboard", replace: true });
+    void navigate({ to: homeFor(s.role), replace: true });
   };
 
   return (
@@ -76,31 +81,38 @@ function LoginPage() {
               onClick={() => { setLoginType('email'); setEmail(''); }}
               className={`flex-1 py-2 text-sm rounded-lg ${loginType === 'email' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}
             >
-              Admin (Email)
+              Admin
             </button>
             <button
               type="button"
               onClick={() => { setLoginType('worker'); setEmail(''); }}
               className={`flex-1 py-2 text-sm rounded-lg ${loginType === 'worker' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}
             >
-              Worker (Code)
+              Worker
+            </button>
+            <button
+              type="button"
+              onClick={() => { setLoginType('client'); setEmail(''); }}
+              className={`flex-1 py-2 text-sm rounded-lg ${loginType === 'client' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}
+            >
+              Client
             </button>
           </div>
 
           <div>
             <label htmlFor="email" className="text-sm font-medium">
-              {loginType === 'email' ? 'Email' : 'Worker Code'}
+              {loginType === 'worker' ? 'Worker Code' : 'Email'}
             </label>
             <div className="relative mt-1.5">
               <Mail className="absolute top-3 left-3 size-4 text-muted-foreground" />
               <input
                 id="email"
-                type={loginType === 'email' ? 'email' : 'text'}
-                autoComplete={loginType === 'email' ? 'email' : 'off'}
+                type={loginType === 'worker' ? 'text' : 'email'}
+                autoComplete={loginType === 'worker' ? 'off' : 'email'}
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder={loginType === 'email' ? 'you@workhr.com' : 'WKR-2026-XXXX'}
+                placeholder={loginType === 'worker' ? 'WKR-2026-XXXX' : loginType === 'client' ? 'you@company.com' : 'you@workhr.com'}
                 className={`${inputCls} pl-9`}
               />
             </div>

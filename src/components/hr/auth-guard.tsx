@@ -24,7 +24,9 @@ export function RequireRole({ role, children }: { role: Role; children: ReactNod
   }
 
   if (session.role !== role) {
-    const home = session.role === "admin" ? "/admin" : "/worker/dashboard";
+    const home = session.role === "admin" ? "/admin"
+      : session.role === "client" ? "/client/dashboard"
+      : "/worker/dashboard";
     return (
       <div className="grid min-h-screen place-items-center bg-background px-6">
         <div className="card-surface max-w-md p-8 text-center">
