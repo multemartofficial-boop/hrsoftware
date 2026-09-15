@@ -172,3 +172,30 @@
   border: 1px solid oklch(0.92 0.008 285);
   box-shadow: var(--shadow-card);
 }
+
+/* Slim, unobtrusive scrollbar for scrollable menus/panels —
+   invisible until hovered so it doesn't eat into the layout. */
+@utility nice-scrollbar {
+  scrollbar-width: thin;               /* Firefox */
+  scrollbar-color: transparent transparent;
+  scrollbar-gutter: stable;
+
+  &:hover {
+    scrollbar-color: oklch(0.85 0.01 285) transparent;
+  }
+
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 9999px;
+  }
+  &:hover::-webkit-scrollbar-thumb {
+    background: oklch(0.85 0.01 285);
+  }
+}

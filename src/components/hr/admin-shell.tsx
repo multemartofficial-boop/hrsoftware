@@ -128,7 +128,7 @@ function MobileNav({ onLogout }: { onLogout: () => void }) {
                 <X className="size-4" />
               </button>
             </div>
-            <nav className="flex flex-col gap-1 overflow-y-auto overscroll-contain">
+            <nav className="nice-scrollbar flex flex-col gap-1 overflow-y-auto overscroll-contain">
               {moreMenu.map((i) => (
                 <Link
                   key={i.to}
@@ -243,7 +243,7 @@ function AdminShellInner({
 
         {/* Scrollable middle — the menus have outgrown short screens, so the
             sections scroll while the logo and bottom menu stay pinned. */}
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="nice-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <p className="px-3 pb-2 text-[11px] font-semibold tracking-widest text-muted-foreground/70">
             MAIN MENU
           </p>
