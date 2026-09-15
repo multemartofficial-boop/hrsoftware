@@ -61,12 +61,27 @@ function useApiState() {
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
         const raw = localStorage.getItem(SESSION_KEY);
-        if (raw) {
+        const token = localStorage.getItem('auth_token');
+        // Decode the JWT's exp — a session whose token is already dead is useless
+        // and produces a wall of 401s; drop it so the user lands on the login page.
+        const tokenAlive = (() => {
+          if (!token) return false;
+          try {
+            const payload = JSON.parse(atob(token.split('.')[1] || ''));
+            return typeof payload.exp === 'number' && payload.exp * 1000 > Date.now();
+          } catch {
+            return false;
+          }
+        })();
+        if (raw && tokenAlive) {
           const parsed = JSON.parse(raw) as Session;
           if (parsed?.role) {
             setSession(parsed);
             if (parsed.workerId) setCurrentWorkerId(parsed.workerId);
           }
+        } else if (raw) {
+          localStorage.removeItem(SESSION_KEY);
+          localStorage.removeItem('auth_token');
         }
       }
     } catch {
