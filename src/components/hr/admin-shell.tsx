@@ -117,8 +117,8 @@ function MobileNav({ onLogout }: { onLogout: () => void }) {
       {more && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end bg-foreground/40 backdrop-blur-sm lg:hidden">
           <button className="flex-1" aria-label="Close menu" onClick={() => setMore(false)} />
-          <div className="card-surface rounded-b-none p-4 pb-6">
-            <div className="mb-3 flex items-center justify-between">
+          <div className="card-surface flex max-h-[85vh] flex-col rounded-b-none p-4 pb-[max(env(safe-area-inset-bottom),1.5rem)]">
+            <div className="mb-3 flex shrink-0 items-center justify-between">
               <p className="text-sm font-semibold">More</p>
               <button
                 onClick={() => setMore(false)}
@@ -128,7 +128,7 @@ function MobileNav({ onLogout }: { onLogout: () => void }) {
                 <X className="size-4" />
               </button>
             </div>
-            <nav className="flex flex-col gap-1">
+            <nav className="flex flex-col gap-1 overflow-y-auto overscroll-contain">
               {moreMenu.map((i) => (
                 <Link
                   key={i.to}
@@ -241,34 +241,38 @@ function AdminShellInner({
           <span className="text-lg font-bold tracking-tight">WorkHR</span>
         </Link>
 
-        <p className="px-3 pb-2 text-[11px] font-semibold tracking-widest text-muted-foreground/70">
-          MAIN MENU
-        </p>
-        <nav className="flex flex-col gap-1">
-          {mainMenu.map((i) => (
-            <NavItem key={i.to} {...i} />
-          ))}
-        </nav>
+        {/* Scrollable middle — the menus have outgrown short screens, so the
+            sections scroll while the logo and bottom menu stay pinned. */}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <p className="px-3 pb-2 text-[11px] font-semibold tracking-widest text-muted-foreground/70">
+            MAIN MENU
+          </p>
+          <nav className="flex flex-col gap-1">
+            {mainMenu.map((i) => (
+              <NavItem key={i.to} {...i} />
+            ))}
+          </nav>
 
-        <p className="px-3 pt-6 pb-2 text-[11px] font-semibold tracking-widest text-muted-foreground/70">
-          TEAM MANAGEMENT
-        </p>
-        <nav className="flex flex-col gap-1">
-          {teamMenu.map((i) => (
-            <NavItem key={i.to} {...i} />
-          ))}
-        </nav>
+          <p className="px-3 pt-6 pb-2 text-[11px] font-semibold tracking-widest text-muted-foreground/70">
+            TEAM MANAGEMENT
+          </p>
+          <nav className="flex flex-col gap-1">
+            {teamMenu.map((i) => (
+              <NavItem key={i.to} {...i} />
+            ))}
+          </nav>
 
-        <p className="px-3 pt-6 pb-2 text-[11px] font-semibold tracking-widest text-muted-foreground/70">
-          SYSTEM
-        </p>
-        <nav className="flex flex-col gap-1">
-          {systemMenu.map((i) => (
-            <NavItem key={i.to} {...i} />
-          ))}
-        </nav>
+          <p className="px-3 pt-6 pb-2 text-[11px] font-semibold tracking-widest text-muted-foreground/70">
+            SYSTEM
+          </p>
+          <nav className="flex flex-col gap-1">
+            {systemMenu.map((i) => (
+              <NavItem key={i.to} {...i} />
+            ))}
+          </nav>
+        </div>
 
-        <nav className="mt-auto flex flex-col gap-1 border-t border-border pt-3">
+        <nav className="mt-3 flex shrink-0 flex-col gap-1 border-t border-border pt-3">
           {bottomMenu.map((i) => (
             <NavItem key={i.to} {...i} />
           ))}
