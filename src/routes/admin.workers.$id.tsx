@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
-import { ArrowLeft, Copy, Check, RotateCcw, FileImage, Trash2, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Copy, Check, RotateCcw, FileImage, FileText, ExternalLink, Loader2, X, Trash2, ShieldCheck } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, DataTable, EmptyRow, StatusBadge, Td, Th, inputCls } from "@/components/hr/bits";
 import {
@@ -144,6 +144,125 @@ function ComplianceSection({ workerId, onSaved }: { workerId: string; onSaved: (
   );
 }
 
+/* ---------- Registration documents (streamed via the secure application doc route) ---------- */
+type WorkerDoc = { key: string; label: string; name: string };
+
+function DocTile({ appId, doc }: { appId: string; doc: WorkerDoc }) {
+  const [open, setOpen] = useState(false);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [loadingD, setLoadingD] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const blobRef = useRef<string | null>(null);
+
+  const ext = (doc.name.split(".").pop() || "").toLowerCase();
+  const isImage = ["jpg", "jpeg", "png"].includes(ext);
+  const isPdf = ext === "pdf";
+
+  useEffect(() => { blobRef.current = blobUrl; }, [blobUrl]);
+  useEffect(() => () => { if (blobRef.current) URL.revokeObjectURL(blobRef.current); }, []);
+
+  const load = async () => {
+    setOpen(true);
+    if (blobUrl) return;
+    setLoadingD(true);
+    setErr(null);
+    try {
+      const blob = await apiClient.getBlob(`/api/applications/${appId}/document/${doc.key}`);
+      setBlobUrl(URL.createObjectURL(blob));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to load document");
+    } finally {
+      setLoadingD(false);
+    }
+  };
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={load}
+        disabled={loadingD}
+        className="flex h-28 w-full flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border bg-secondary/40 p-3 text-center text-muted-foreground transition-colors hover:bg-secondary disabled:opacity-60"
+      >
+        {loadingD ? <Loader2 className="size-5 animate-spin" /> : isImage ? <FileImage className="size-5" /> : <FileText className="size-5" />}
+        <span className="max-w-full truncate text-xs font-medium text-foreground">{doc.label}</span>
+        <span className="flex items-center gap-1 text-xs font-medium text-primary">
+          {isImage ? "View image" : isPdf ? "View PDF" : "View"} <ExternalLink className="size-3" />
+        </span>
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/60 p-4 backdrop-blur-sm">
+          <div className="card-surface flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden p-0">
+            <div className="flex items-center justify-between border-b border-border px-5 py-3">
+              <h3 className="text-sm font-semibold">{doc.label}</h3>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="grid size-8 place-items-center rounded-lg border border-border text-muted-foreground hover:bg-secondary"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              {loadingD ? (
+                <div className="flex h-64 items-center justify-center text-muted-foreground">
+                  <Loader2 className="mr-2 size-5 animate-spin" /> Loading document…
+                </div>
+              ) : err ? (
+                <p className="text-sm text-danger">{err}</p>
+              ) : isImage && blobUrl ? (
+                <img src={blobUrl} alt={doc.label} className="w-full rounded-lg" />
+              ) : isPdf && blobUrl ? (
+                <iframe src={blobUrl} title={doc.label} className="h-[70vh] w-full rounded-lg" />
+              ) : blobUrl ? (
+                <a href={blobUrl} download={doc.name} className="text-primary hover:underline">
+                  Download document
+                </a>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WorkerDocuments({ workerId }: { workerId: string }) {
+  const [appId, setAppId] = useState<string | null>(null);
+  const [docs, setDocs] = useState<WorkerDoc[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingDocs(true);
+    apiClient
+      .get<{ applicationId: string | null; documents: WorkerDoc[] }>(`/api/workers/${workerId}/documents`)
+      .then((r) => { if (!cancelled) { setAppId(r.applicationId); setDocs(r.documents); } })
+      .catch((e) => console.error("Load worker documents failed:", e))
+      .finally(() => { if (!cancelled) setLoadingDocs(false); });
+    return () => { cancelled = true; };
+  }, [workerId]);
+
+  if (loadingDocs) {
+    return <p className="text-sm text-muted-foreground">Loading documents…</p>;
+  }
+  if (!appId || docs.length === 0) {
+    return (
+      <p className="rounded-xl border border-dashed border-border bg-secondary/40 p-4 text-sm text-muted-foreground">
+        No registration documents on file — this worker was added manually or applied before document uploads.
+      </p>
+    );
+  }
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {docs.map((d) => (
+        <DocTile key={d.key} appId={appId} doc={d} />
+      ))}
+    </div>
+  );
+}
+
 function WorkerDetails() {
   const { id } = useParams({ from: "/admin/workers/$id" });
   const { workers, attendance, payrolls, workerStatus, reactivateWorker, deleteWorker, loading, loadWorkers } = useApi();
@@ -242,7 +361,7 @@ function WorkerDetails() {
                   ["Phone", worker.phone],
                   ["Email", worker.email],
                   ["Address", worker.address ?? "—"],
-                  ["NID Number", worker.nid ?? "—"],
+                  ["N.I. Number", worker.nid ?? "—"],
                   ["Location", worker.location],
                   ["Hourly rate", money2(worker.rate)],
                   ["Joining date", fmtDate(worker.joined)],
@@ -280,18 +399,8 @@ function WorkerDetails() {
                 ))}
               </div>
 
-              <p className="mt-6 mb-2 text-sm font-semibold">NID documents</p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {["NID Front", "NID Back"].map((d) => (
-                  <div
-                    key={d}
-                    className="flex h-28 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-secondary/40 text-muted-foreground"
-                  >
-                    <FileImage className="size-6" />
-                    <span className="text-xs">{d} preview</span>
-                  </div>
-                ))}
-              </div>
+              <p className="mt-6 mb-2 text-sm font-semibold">Registration documents</p>
+              <WorkerDocuments workerId={worker.id} />
 
               <div className="mt-6 flex flex-wrap gap-3">
                 {(status === "Expiring Soon" || status === "Expired") && (

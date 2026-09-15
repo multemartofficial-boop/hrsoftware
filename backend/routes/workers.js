@@ -233,6 +233,10 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT name, email FROM workers WHERE id = ?', [req.params.id]);
     await pool.query('DELETE FROM workers WHERE id = ?', [req.params.id]);
+    // Also remove the login account and future assignments — leaving the users
+    // row orphaned blocks the same email from ever registering again.
+    await pool.query('DELETE FROM users WHERE worker_id = ?', [req.params.id]);
+    await pool.query('DELETE FROM worker_location_assignments WHERE worker_id = ?', [req.params.id]);
     await logActionFromReq(req, 'deleted_worker', 'worker', req.params.id, {
       name: rows[0]?.name, email: rows[0]?.email,
     });
@@ -240,6 +244,47 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Delete worker error:', error);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Admin: registration documents for a worker (from their approved application).
+// Returns the application id + available doc keys so the frontend can stream
+// each file through the existing secure /api/applications/:id/document/:key route.
+router.get('/:id/documents', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [apps] = await pool.query(
+      'SELECT id, details FROM registration_applications WHERE worker_id = ? ORDER BY submitted DESC LIMIT 1',
+      [req.params.id]
+    );
+    if (apps.length === 0) {
+      return res.json({ applicationId: null, documents: [] });
+    }
+    const details = typeof apps[0].details === 'string'
+      ? JSON.parse(apps[0].details || '{}')
+      : (apps[0].details || {});
+    const docUrls = details.docUrls || {};
+    const LABELS = {
+      photo: 'Profile Photo',
+      proofAddress: 'Proof of Address',
+      eVisa: 'eVisa',
+      passportDoc: 'Passport Document',
+      shareCode: 'UKVI Share Code',
+      cv: 'CV (incl. 5 years address history)',
+      siaDocFront: 'SIA Badge Front',
+      siaDocBack: 'SIA Badge Back',
+      rtwShareCode: 'Right-to-work Share Code',
+    };
+    const documents = Object.entries(docUrls)
+      .filter(([, url]) => Boolean(url))
+      .map(([key, url]) => ({
+        key,
+        label: LABELS[key] || key,
+        name: String(url).split('/').pop() || key,
+      }));
+    res.json({ applicationId: apps[0].id, documents });
+  } catch (error) {
+    console.error('Worker documents error:', error);
+    res.status(500).json({ error: 'Failed to load worker documents' });
   }
 });
 
