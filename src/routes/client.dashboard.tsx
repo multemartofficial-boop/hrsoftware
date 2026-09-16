@@ -113,7 +113,7 @@ function ClientDashboard() {
       <div className="border-b bg-card">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <h1 className="text-xl font-bold">WorkHR</h1>
+            <img src="/site-logo.png" alt="Sinha Security Services Limited" className="h-9 w-auto" />
             <span className="text-muted-foreground">|</span>
             <span className="text-sm">Client Portal</span>
           </div>

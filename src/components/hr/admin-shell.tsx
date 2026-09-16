@@ -9,6 +9,7 @@ import {
   Settings,
   LifeBuoy,
   Users,
+  UserCog,
   UserCheck,
   MapPin,
   MapPinned,
@@ -20,7 +21,6 @@ import {
   Building2,
   Search,
 
-  Sparkles,
   MoreHorizontal,
   X,
   LogOut,
@@ -47,6 +47,7 @@ const teamMenu = [
   { to: "/admin/finance", label: "Buyer & Profit/Loss", icon: Scale },
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
   { to: "/admin/incidents", label: "Incidents", icon: TriangleAlert },
+  { to: "/admin/team", label: "Team", icon: UserCog },
 ] as const;
 
 const systemMenu = [
@@ -79,6 +80,7 @@ const moreMenu = [
   { to: "/admin/finance", label: "Buyer & Profit/Loss", icon: Scale },
   { to: "/admin/incidents", label: "Incidents", icon: TriangleAlert },
   { to: "/admin/clients", label: "Clients", icon: Building2 },
+  { to: "/admin/team", label: "Team", icon: UserCog },
   { to: "/admin/action-history", label: "Action History", icon: History },
   { to: "/admin/settings", label: "Settings", icon: Settings },
   { to: "/admin/help", label: "Help & Center", icon: LifeBuoy },
@@ -234,11 +236,8 @@ function AdminShellInner({
   return (
     <div className="flex min-h-screen gap-3 bg-background p-3">
       <aside className="card-surface sticky top-3 hidden h-[calc(100vh-1.5rem)] w-64 shrink-0 flex-col p-4 lg:flex">
-        <Link to="/admin" className="mb-6 flex items-center gap-2.5 px-1">
-          <span className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground">
-            <Sparkles className="size-4" />
-          </span>
-          <span className="text-lg font-bold tracking-tight">WorkHR</span>
+        <Link to="/admin" className="mb-6 flex items-center px-1">
+          <img src="/site-logo.png" alt="Sinha Security Services Limited" className="h-12 w-auto" />
         </Link>
 
         {/* Scrollable middle — the menus have outgrown short screens, so the
@@ -295,11 +294,8 @@ function AdminShellInner({
             </>
           ) : (
             <>
-              <Link to="/admin" className="flex min-w-0 items-center gap-2">
-                <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
-                  <Sparkles className="size-4" />
-                </span>
-                <span className="truncate text-base font-bold tracking-tight">WorkHR</span>
+              <Link to="/admin" className="flex min-w-0 items-center">
+                <img src="/site-logo.png" alt="Sinha Security Services Limited" className="h-9 w-auto" />
               </Link>
               <button
                 onClick={() => setSearchOpen(true)}

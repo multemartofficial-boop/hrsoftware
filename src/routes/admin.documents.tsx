@@ -35,6 +35,18 @@ type SigRequest = {
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
+// Must match the multer limits on the backend (routes/documents.js)
+const MAX_PDF_SIZE = 3 * 1024 * 1024;
+const validatePdf = (file: File): string | null => {
+  if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") {
+    return "Only PDF files are allowed.";
+  }
+  if (file.size > MAX_PDF_SIZE) {
+    return `"${file.name}" is ${(file.size / 1024 / 1024).toFixed(1)}MB — maximum size is 3MB.`;
+  }
+  return null;
+};
+
 function UploadModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -45,6 +57,8 @@ function UploadModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!file) { setErr("Choose a PDF file"); return; }
+    const invalid = validatePdf(file);
+    if (invalid) { setErr(invalid); return; }
     setBusy(true);
     setErr(null);
     try {
@@ -153,6 +167,10 @@ function EditPdfModal({ doc, onClose, onSaved }: { doc: Doc; onClose: () => void
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (file) {
+      const invalid = validatePdf(file);
+      if (invalid) { setErr(invalid); return; }
+    }
     setBusy(true);
     setErr(null);
     try {

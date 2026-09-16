@@ -137,7 +137,7 @@ class ApiClient {
     if (!response.ok) {
       if (response.status === 401) this.handleUnauthorized(endpoint);
       const errorText = await response.text().catch(() => '');
-      let error: { error?: string } = { error: 'Upload failed' };
+      let error: { error?: string } = {};
       try { error = JSON.parse(errorText); } catch { /* not JSON */ }
       throw new Error(error.error || `Upload failed: ${response.status} ${response.statusText}`);
     }

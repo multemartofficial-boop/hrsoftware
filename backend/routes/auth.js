@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const pool = require('../config/database');
 const { requireAuth } = require('../middleware/auth');
 const { sendEmail } = require('../utils/email');
+const { appBaseUrl } = require('../utils/app-url');
 
 // Worker login (by worker code)
 router.post('/worker/login', async (req, res) => {
@@ -245,6 +246,19 @@ router.get('/validate-setup-token/:token', async (req, res) => {
     );
 
     if (applications.length === 0) {
+      // No worker application — check for a pending admin invite
+      const [adminUsers] = await pool.query(
+        'SELECT name, email FROM users WHERE email = ? AND role = "admin" AND password_hash = ""',
+        [tokenData.email]
+      );
+      if (adminUsers.length > 0) {
+        return res.json({
+          valid: true,
+          email: adminUsers[0].email,
+          name: adminUsers[0].name,
+          accountType: 'admin'
+        });
+      }
       return res.status(400).json({ valid: false, error: 'Invalid application or token' });
     }
 
@@ -311,8 +325,59 @@ router.post('/setup-password', async (req, res) => {
     );
 
     if (applications.length === 0) {
-      await connection.rollback();
-      return res.status(400).json({ error: 'Invalid application or token' });
+      // No worker application — this token may belong to an admin invite.
+      const [adminUsers] = await connection.query(
+        'SELECT * FROM users WHERE email = ? AND role = "admin" AND password_hash = ""',
+        [tokenData.email]
+      );
+
+      if (adminUsers.length === 0) {
+        await connection.rollback();
+        return res.status(400).json({ error: 'Invalid application or token' });
+      }
+
+      const invitedAdmin = adminUsers[0];
+      const passwordHash = await bcrypt.hash(password, 10);
+      await connection.query('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, invitedAdmin.id]);
+      await connection.query('UPDATE password_reset_tokens SET used_at = NOW() WHERE id = ?', [tokenData.id]);
+      await connection.commit();
+
+      // Emails outside the transaction — a mail failure must not undo the setup
+      try {
+        const loginLink = `${appBaseUrl(req)}/`;
+        await sendEmail({
+          to: invitedAdmin.email,
+          subject: 'Your WorkHR admin account is ready',
+          html: `
+            <h2>Admin account activated!</h2>
+            <p>Hi ${invitedAdmin.name},</p>
+            <p>Your password has been set and your WorkHR admin account is now active.</p>
+            <p>You can now log in using your email and password:</p>
+            <p><a href="${loginLink}" style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Log In</a></p>
+          `,
+          text: `Your WorkHR admin account is now active. Log in at: ${loginLink}`
+        });
+        const [otherAdmins] = await pool.query(
+          'SELECT email FROM users WHERE role = "admin" AND password_hash <> "" AND id <> ?',
+          [invitedAdmin.id]
+        );
+        const emails = otherAdmins.map(a => a.email).filter(Boolean);
+        if (emails.length > 0) {
+          await sendEmail({
+            to: emails.join(', '),
+            subject: `New admin joined: ${invitedAdmin.name}`,
+            html: `
+              <h2>New admin account activated</h2>
+              <p><strong>${invitedAdmin.name}</strong> (${invitedAdmin.email}) has set their password and is now an active WorkHR administrator.</p>
+            `,
+            text: `${invitedAdmin.name} (${invitedAdmin.email}) completed admin setup and is now active.`
+          });
+        }
+      } catch (notifyError) {
+        console.error('Admin setup notification error:', notifyError);
+      }
+
+      return res.json({ message: 'Password set successfully. You can now log in.', accountType: 'admin' });
     }
 
     const application = applications[0];
@@ -389,6 +454,56 @@ router.post('/setup-password', async (req, res) => {
     );
 
     await connection.commit();
+
+    // Post-setup emails + admin notification — failures here must not undo the
+    // account creation, so they are handled outside the transaction.
+    try {
+      const loginLink = `${appBaseUrl(req)}/`;
+
+      // 1. Success confirmation to the worker
+      await sendEmail({
+        to: application.email,
+        subject: `Your WorkHR account is ready - ${application.worker_id}`,
+        html: `
+          <h2>Account setup complete!</h2>
+          <p>Hi ${application.name},</p>
+          <p>Your password has been set and your worker account is now active.</p>
+          <p><strong>Worker Code:</strong> ${application.worker_id}</p>
+          <p>You can now log in to your Worker Dashboard using your worker code and password:</p>
+          <p><a href="${loginLink}" style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Log In</a></p>
+        `,
+        text: `Your WorkHR account is active. Worker Code: ${application.worker_id}. Log in at: ${loginLink}`
+      });
+
+      // 2. New-registration notice to every admin
+      const [admins] = await pool.query('SELECT email FROM users WHERE role = "admin" AND email IS NOT NULL');
+      const adminEmails = admins.map(a => a.email).filter(Boolean);
+      if (adminEmails.length > 0) {
+        await sendEmail({
+          to: adminEmails.join(', '),
+          subject: `New worker registration completed: ${application.name} (${application.worker_id})`,
+          html: `
+            <h2>New worker registration completed</h2>
+            <p><strong>${application.name}</strong> has set their password and their worker account is now active.</p>
+            <p><strong>Worker Code:</strong> ${application.worker_id}</p>
+            <p><strong>Email:</strong> ${application.email}</p>
+            <p><strong>Role:</strong> ${application.applied_for || '-'}</p>
+            <p><strong>Location:</strong> ${application.location || '-'}</p>
+          `,
+          text: `${application.name} (${application.worker_id}) completed registration and their account is now active.`
+        });
+      }
+
+      // 3. In-app admin notification (deferred from approval — the worker row exists now)
+      await pool.query(
+        'INSERT INTO notifications (id, worker, worker_id, message, urgency, occurred_at) VALUES (?, ?, ?, ?, "info", "Just now")',
+        [`N-REG-${application.worker_id}`, application.name, application.worker_id,
+         `${application.name} completed registration — worker account ${application.worker_id} is now active.`]
+      );
+    } catch (notifyError) {
+      console.error('Post-setup notification error:', notifyError);
+    }
+
     res.json({ 
       message: 'Password set successfully. You can now log in.',
       workerId: application.worker_id
@@ -434,15 +549,15 @@ router.post('/forgot-password', async (req, res) => {
 
       const worker = workers[0];
       console.log(`[forgot-password] Matched worker ${worker.id} (${worker.name}) in workers table`);
-      await sendPasswordResetEmail(worker.email, worker.name, worker.id, 'worker');
+      await sendPasswordResetEmail(worker.email, worker.name, worker.id, 'worker', req);
     } else {
       const user = users[0];
       console.log(`[forgot-password] Matched users row id=${user.id} role=${user.role} worker_id=${user.worker_id}`);
       if (user.role === 'admin' || user.role === 'client') {
         // Clients live in the users table like admins — same reset path
-        await sendPasswordResetEmail(user.email, user.name, user.id, 'admin');
+        await sendPasswordResetEmail(user.email, user.name, user.id, 'admin', req);
       } else if (user.role === 'worker') {
-        await sendPasswordResetEmail(user.email, user.name, user.worker_id, 'worker');
+        await sendPasswordResetEmail(user.email, user.name, user.worker_id, 'worker', req);
       }
     }
 
@@ -554,7 +669,7 @@ router.post('/reset-password', async (req, res) => {
 });
 
 // Helper function to send password reset email
-async function sendPasswordResetEmail(email, name, userId, userType) {
+async function sendPasswordResetEmail(email, name, userId, userType, req) {
   const token = crypto.randomBytes(32).toString('hex');
   // Use UTC timestamp to match database timezone
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
@@ -571,7 +686,7 @@ async function sendPasswordResetEmail(email, name, userId, userType) {
     [email, userType === 'worker' ? userId : null, token, expiresAt]
   );
 
-  const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:8080'}/reset-password?token=${token}`;
+  const resetLink = `${appBaseUrl(req)}/reset-password?token=${token}`;
 
   const result = await sendEmail({
     to: email,

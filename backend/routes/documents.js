@@ -37,6 +37,18 @@ const upload = multer({
   },
 });
 
+// Run multer and turn its errors (size limit, wrong type) into clear 400 JSON
+// responses instead of falling through to the generic 500 handler.
+const uploadPdf = (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'File is too large — maximum size is 3MB.' });
+    }
+    return res.status(400).json({ error: err.message || 'Upload failed' });
+  });
+};
+
 // Substitute {{tokens}} with the worker's real record data
 const renderTemplate = (content, worker, locationsByName) => {
   const loc = worker.location && locationsByName[worker.location];
@@ -62,7 +74,7 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
 });
 
 // Upload a PDF document
-router.post('/upload', requireAuth, requireAdmin, upload.single('file'), async (req, res) => {
+router.post('/upload', requireAuth, requireAdmin, uploadPdf, async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'PDF file is required' });
     const name = req.body.name || req.file.originalname.replace(/\.pdf$/i, '');
@@ -119,7 +131,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
 });
 
 // Replace the underlying PDF file (deletes the old file)
-router.put('/:id/file', requireAuth, requireAdmin, upload.single('file'), async (req, res) => {
+router.put('/:id/file', requireAuth, requireAdmin, uploadPdf, async (req, res) => {
   try {
     const [docs] = await pool.query('SELECT * FROM documents WHERE id = ?', [req.params.id]);
     if (docs.length === 0) return res.status(404).json({ error: 'Document not found' });

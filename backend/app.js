@@ -123,6 +123,9 @@ async function ensureSchema() {
       console.log('⚠️ Could not create incidents table:', error.message);
     }
 
+    // Team page: optional note/details on admin accounts (used by admin invites)
+    await addCol('ALTER TABLE users ADD COLUMN note VARCHAR(500) NULL', 'users.note');
+
     // Client portal (Phase 4): 'client' user role + clients/client_locations tables
     try {
       await pool.query(
@@ -205,6 +208,7 @@ app.use('/api/expiry', require('./routes/expiry'));
 app.use('/api/action-logs', require('./routes/action-logs'));
 app.use('/api/incidents', require('./routes/incidents'));
 app.use('/api/clients', require('./routes/clients'));
+app.use('/api/admins', require('./routes/admins'));
 app.use('/api/client', require('./routes/client'));
 
 // Health check

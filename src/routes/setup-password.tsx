@@ -31,6 +31,7 @@ function SetupPasswordPage() {
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [workerId, setWorkerId] = useState("");
+  const [accountType, setAccountType] = useState<"worker" | "admin">("worker");
   
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -52,7 +53,8 @@ function SetupPasswordPage() {
       .then((response) => {
         setTokenValid(true);
         setEmail(response.email);
-        setWorkerId(response.workerId);
+        setWorkerId(response.workerId || "");
+        if (response.accountType === "admin") setAccountType("admin");
         setValidating(false);
       })
       .catch((err) => {
@@ -146,7 +148,11 @@ function SetupPasswordPage() {
               Your account has been set up successfully.
             </p>
             <p className="text-sm text-muted-foreground mb-6">
-              <strong>Worker Code:</strong> {workerId}
+              {accountType === "admin" ? (
+                <>Admin account: <strong>{email}</strong></>
+              ) : (
+                <><strong>Worker Code:</strong> {workerId}</>
+              )}
             </p>
             <Link 
               to="/" 
@@ -171,9 +177,15 @@ function SetupPasswordPage() {
           <p className="mt-1.5 text-sm text-muted-foreground">
             Complete your account setup for {email}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Worker Code: {workerId}
-          </p>
+          {accountType === "admin" ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Administrator account
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Worker Code: {workerId}
+            </p>
+          )}
         </div>
 
         <form onSubmit={submit} className="card-surface space-y-4 p-6">

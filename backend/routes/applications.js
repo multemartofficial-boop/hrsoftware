@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const pool = require('../config/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { sendEmail } = require('../utils/email');
+const { appBaseUrl } = require('../utils/app-url');
 const { logActionFromReq } = require('../utils/action-log');
 
 // Configure multer for file uploads
@@ -235,7 +236,13 @@ router.post('/', upload.fields(appUploadFields), async (req, res) => {
     // Optional date fields must be NULL (not '') for MySQL DATE columns
     const nullableDate = (v) => (v && String(v).trim() ? v : null);
 
-    const applicationId = generateApplicationId();
+    // Random 4-digit IDs collide as applications accumulate — retry until unused
+    let applicationId = generateApplicationId();
+    for (let i = 0; i < 10; i++) {
+      const [dup] = await connection.query('SELECT id FROM registration_applications WHERE id = ?', [applicationId]);
+      if (dup.length === 0) break;
+      applicationId = generateApplicationId();
+    }
     const address = [addr1, addr2, addr3, town, county, postcode, country].filter(Boolean).join(', ');
 
     // Parse JSON fields
@@ -585,7 +592,7 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
     );
 
     // Send email with setup link
-    const setupLink = `${process.env.FRONTEND_URL || 'http://localhost:8080'}/setup-password?token=${setupToken}`;
+    const setupLink = `${appBaseUrl(req)}/setup-password?token=${setupToken}`;
     const emailHtml = `
       <h2>Welcome to WorkHR!</h2>
       <p>Your application has been approved and your worker account has been created.</p>
@@ -730,7 +737,7 @@ router.post('/:id/resend-setup', requireAuth, requireAdmin, async (req, res) => 
     );
 
     // Send email with new setup link
-    const setupLink = `${process.env.FRONTEND_URL || 'http://localhost:8080'}/setup-password?token=${setupToken}`;
+    const setupLink = `${appBaseUrl(req)}/setup-password?token=${setupToken}`;
     const emailHtml = `
       <h2>WorkHR Account Setup</h2>
       <p>Your worker account has been created.</p>

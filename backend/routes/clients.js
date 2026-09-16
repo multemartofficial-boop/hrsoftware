@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const pool = require('../config/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { sendEmail } = require('../utils/email');
+const { appBaseUrl } = require('../utils/app-url');
 const { logActionFromReq } = require('../utils/action-log');
 
 const generateClientId = () => `CLT-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
@@ -108,7 +109,7 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
           <p>Hi ${name},</p>
           <p>An account has been created for <strong>${company}</strong>. You can sign in with this email
           and the password provided by your WorkHR contact.</p>
-          <p><a href="${process.env.FRONTEND_URL || 'http://localhost:8080'}">Open the client portal</a>
+          <p><a href="${appBaseUrl(req)}">Open the client portal</a>
           and choose the <strong>Client</strong> tab.</p>
           <p>If you did not expect this, please ignore this email.</p>
         `,

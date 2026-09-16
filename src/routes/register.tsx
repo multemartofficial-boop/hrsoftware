@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
-  Sparkles, CheckCircle2, ArrowLeft, ArrowRight, Plus, Trash2, Check,
+  CheckCircle2, ArrowLeft, ArrowRight, Plus, Trash2, Check,
   User, Phone, Mail, Calendar, MapPin, Hash, Landmark, FileText, Upload, X,
   Briefcase, Globe, Clock, ShieldCheck, CircleDashed, ChevronDown, Search,
 } from "lucide-react";
@@ -1751,10 +1751,7 @@ function Shell({ children, step, maxStep, onStep }: { children: React.ReactNode;
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-5 py-4">
-          <span className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground">
-            <Sparkles className="size-4" />
-          </span>
-          <span className="text-lg font-bold tracking-tight">WorkHR</span>
+          <img src="/site-logo.png" alt="Sinha Security Services Limited" className="h-10 w-auto" />
           <Link to="/" className="ml-auto flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
             <ArrowLeft className="size-4" /> Back
           </Link>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Sparkles, Mail, Lock, AlertCircle, LogIn } from "lucide-react";
+import { Mail, Lock, AlertCircle, LogIn } from "lucide-react";
 import { inputCls } from "@/components/hr/bits";
 import { useApi } from "@/lib/api-store";
 
@@ -65,10 +65,7 @@ function LoginPage() {
     <div className="grid min-h-screen place-items-center bg-background px-5 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <span className="mx-auto mb-4 grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground">
-            <Sparkles className="size-5" />
-          </span>
-          <h1 className="text-2xl font-bold tracking-tight">WorkHR</h1>
+          <img src="/site-logo.png" alt="Sinha Security Services Limited" className="mx-auto mb-4 h-16 w-auto" />
           <p className="mt-1.5 text-sm text-muted-foreground">
             Sign in to your HR &amp; Payroll workspace.
           </p>
