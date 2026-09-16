@@ -58,15 +58,12 @@ export function GlobalSearch({
     if (!term) return [];
     const out: Result[] = [];
     for (const w of workers) {
-      if (
-        w.name.toLowerCase().includes(term) ||
-        w.id.toLowerCase().includes(term) ||
-        (w.email ?? "").toLowerCase().includes(term)
-      ) {
+      const searchableFields = [w.id, w.name, w.phone, w.email];
+      if (searchableFields.some((value) => (value ?? "").toLowerCase().includes(term))) {
         out.push({
           key: `w-${w.id}`,
           label: w.name,
-          sub: w.id,
+          sub: [w.id, w.phone, w.email].filter(Boolean).join(" · "),
           kind: "worker",
           img: avatarUrl(w.name),
           go: () => navigate({ to: "/admin/workers/$id", params: { id: w.id } }),
