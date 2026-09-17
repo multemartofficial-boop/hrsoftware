@@ -191,7 +191,8 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
 
 // Admin: Update worker. Fields not present in the body keep their current
 // values — partial updates (e.g. just pay type) must not blank other columns,
-// and mysql2 rejects undefined bind parameters.
+// and mysql2 rejects undefined bind parameters. Every changed field is logged
+// to Action History with its before/after value.
 router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM workers WHERE id = ?', [req.params.id]);
@@ -207,6 +208,16 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       }
       return undefined;
     };
+    // Nullable column merge: undefined keeps the current value, ''/null clears to NULL.
+    const keep = (v, curVal) => (v === undefined ? curVal : v);
+    const dateStr = (v) => {
+      if (v === undefined) return undefined;
+      if (v === null || v === '') return null;
+      if (v instanceof Date) {
+        return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+      }
+      return String(v).slice(0, 10);
+    };
 
     const payTypeRaw = pick('payType', 'pay_type');
     const payType = payTypeRaw !== undefined
@@ -220,27 +231,82 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'A monthly salary greater than 0 is required for salaried workers' });
     }
 
-    const name = pick('name') ?? cur.name;
-    const phone = pick('phone') ?? cur.phone;
-    const email = pick('email') ?? cur.email;
-    const location = pick('location') ?? cur.location;
-    const role = pick('role') ?? cur.role;
-    const rate = payType === 'salary' ? 0 : (pick('rate') !== undefined ? Number(pick('rate')) : Number(cur.rate) || 0);
-    const address = pick('address') ?? cur.address;
-    const nid = pick('nid') ?? cur.nid;
-    const onLeave = pick('on_leave', 'onLeave');
-    const onLeaveVal = onLeave !== undefined ? (onLeave === true || onLeave === 1 || onLeave === '1') : (cur.on_leave === 1);
+    const onLeaveRaw = pick('on_leave', 'onLeave');
+    const merged = {
+      name: keep(pick('name'), cur.name),
+      phone: keep(pick('phone'), cur.phone),
+      email: keep(pick('email'), cur.email),
+      location: keep(pick('location'), cur.location),
+      role: keep(pick('role'), cur.role),
+      rate: payType === 'salary' ? 0 : (pick('rate') !== undefined ? Number(pick('rate')) : Number(cur.rate) || 0),
+      pay_type: payType,
+      monthly_salary: monthlySalary,
+      address: keep(pick('address'), cur.address),
+      nid: keep(pick('nid'), cur.nid),
+      on_leave: onLeaveRaw !== undefined
+        ? (onLeaveRaw === true || onLeaveRaw === 1 || onLeaveRaw === '1')
+        : (cur.on_leave === 1),
+      joined: keep(dateStr(pick('joined')), dateStr(cur.joined)),
+      expiry: keep(dateStr(pick('expiry')), dateStr(cur.expiry)),
+      passport_country: keep(pick('passportCountry', 'passport_country'), cur.passport_country),
+      passport_number: keep(pick('passportNumber', 'passport_number'), cur.passport_number),
+      passport_expiry: keep(dateStr(pick('passportExpiry', 'passport_expiry')), dateStr(cur.passport_expiry)),
+      visa_number: keep(pick('visaNumber', 'visa_number'), cur.visa_number),
+      visa_expiry: keep(dateStr(pick('visaExpiry', 'visa_expiry')), dateStr(cur.visa_expiry)),
+      sia_badge_number: keep(pick('siaBadgeNumber', 'sia_badge_number'), cur.sia_badge_number),
+      sia_badge_expiry: keep(dateStr(pick('siaBadgeExpiry', 'sia_badge_expiry')), dateStr(cur.sia_badge_expiry)),
+      worker_type: keep(pick('workerType', 'worker_type'), cur.worker_type),
+      subcontract_company: keep(pick('subcontractCompany', 'subcontract_company'), cur.subcontract_company),
+    };
 
     await pool.query(
       `UPDATE workers
       SET name = ?, phone = ?, email = ?, location = ?, role = ?, rate = ?,
-          pay_type = ?, monthly_salary = ?,
-          address = ?, nid = ?, on_leave = ?
+          pay_type = ?, monthly_salary = ?, address = ?, nid = ?, on_leave = ?,
+          joined = ?, expiry = ?,
+          passport_country = ?, passport_number = ?, passport_expiry = ?,
+          visa_number = ?, visa_expiry = ?,
+          sia_badge_number = ?, sia_badge_expiry = ?,
+          worker_type = ?, subcontract_company = ?
       WHERE id = ?`,
-      [name, phone, email, location, role, rate, payType, monthlySalary, address, nid, onLeaveVal, req.params.id]
+      [merged.name, merged.phone, merged.email, merged.location, merged.role, merged.rate,
+       merged.pay_type, merged.monthly_salary, merged.address, merged.nid, merged.on_leave,
+       merged.joined, merged.expiry,
+       merged.passport_country, merged.passport_number, merged.passport_expiry,
+       merged.visa_number, merged.visa_expiry,
+       merged.sia_badge_number, merged.sia_badge_expiry,
+       merged.worker_type, merged.subcontract_company, req.params.id]
     );
 
-    await logActionFromReq(req, 'updated_worker', 'worker', req.params.id, { name, email, location, role, rate, payType, monthlySalary });
+    // Before/after audit trail — only fields whose value actually changed.
+    const LABELS = {
+      name: 'Name', phone: 'Phone', email: 'Email', location: 'Location', role: 'Role',
+      rate: 'Hourly rate', pay_type: 'Pay type', monthly_salary: 'Monthly salary',
+      address: 'Address', nid: 'N.I. number', on_leave: 'On leave',
+      joined: 'Joining date', expiry: 'Expiry date',
+      passport_country: 'Passport country', passport_number: 'Passport number', passport_expiry: 'Passport expiry',
+      visa_number: 'Visa number', visa_expiry: 'Visa expiry',
+      sia_badge_number: 'SIA badge number', sia_badge_expiry: 'SIA badge expiry',
+      worker_type: 'Employment type', subcontract_company: 'Sub-contract company',
+    };
+    const norm = (k, v) => {
+      if (v === null || v === undefined) return null;
+      if (k === 'on_leave') return v === true || v === 1 ? 'yes' : 'no';
+      if (k === 'rate' || k === 'monthly_salary') return Number(v);
+      if (k === 'joined' || k === 'expiry' || k.endsWith('_expiry')) return dateStr(v);
+      return String(v);
+    };
+    const changes = {};
+    for (const [col, label] of Object.entries(LABELS)) {
+      const before = norm(col, cur[col]);
+      const after = norm(col, merged[col]);
+      if (before !== after) changes[label] = { from: before ?? '—', to: after ?? '—' };
+    }
+
+    await logActionFromReq(req, 'updated_worker', 'worker', req.params.id, {
+      name: merged.name,
+      changes,
+    });
     res.json({ message: 'Worker updated successfully' });
   } catch (error) {
     console.error('Update worker error:', error);

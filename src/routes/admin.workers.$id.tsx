@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
-import { ArrowLeft, Copy, Check, RotateCcw, FileImage, FileText, ExternalLink, Loader2, X, Trash2, ShieldCheck, Pencil, Banknote } from "lucide-react";
+import { ArrowLeft, Copy, Check, RotateCcw, FileImage, FileText, ExternalLink, Loader2, X, Trash2, ShieldCheck, Pencil } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, DataTable, EmptyRow, StatusBadge, Td, Th, inputCls } from "@/components/hr/bits";
 import {
@@ -17,7 +17,7 @@ import {
 } from "@/lib/mock-data";
 import { useApi } from "@/lib/api-store";
 import { apiClient } from "@/lib/api-client";
-import { fmtDate, daysUntil } from "@/lib/hr-utils";
+import { fmtDate, daysUntil, toISO } from "@/lib/hr-utils";
 
 export const Route = createFileRoute("/admin/workers/$id")({
   head: () => ({
@@ -266,122 +266,200 @@ function WorkerDocuments({ workerId }: { workerId: string }) {
   );
 }
 
-/** Admin editor for a worker's pay type and rate/salary amount (Part 2). */
-function PaySection({ worker }: { worker: Worker }) {
-  const { updateWorker } = useApi();
-  const [editing, setEditing] = useState(false);
-  const [payType, setPayType] = useState<PayType>(worker.payType ?? "hourly");
-  const [amount, setAmount] = useState(
-    worker.payType === "salary" ? String(worker.monthlySalary ?? "") : String(worker.rate ?? ""),
-  );
+const dateInput = (v?: string | Date | null) =>
+  !v ? "" : v instanceof Date ? toISO(v) : String(v).slice(0, 10);
+
+type EditForm = {
+  name: string; phone: string; email: string; address: string; nid: string;
+  location: string; role: string; joined: string; expiry: string;
+  payType: PayType; rate: string; monthlySalary: string;
+  workerType: string; subcontractCompany: string;
+  passportCountry: string; passportNumber: string; passportExpiry: string;
+  visaNumber: string; visaExpiry: string;
+  siaBadgeNumber: string; siaBadgeExpiry: string;
+  onLeave: boolean;
+};
+
+/** Full worker-record editor (Part 4): every field, saved to MySQL with a
+ * before/after entry in Action History. */
+function EditWorkerForm({ worker, onDone }: { worker: Worker; onDone: () => void }) {
+  const { updateWorker, locations } = useApi();
+  const [f, setF] = useState<EditForm>({
+    name: worker.name ?? "",
+    phone: worker.phone ?? "",
+    email: worker.email ?? "",
+    address: worker.address ?? "",
+    nid: worker.nid ?? "",
+    location: worker.location ?? "",
+    role: worker.role ?? "",
+    joined: dateInput(worker.joined),
+    expiry: dateInput(worker.expiry),
+    payType: worker.payType ?? "hourly",
+    rate: worker.rate ? String(worker.rate) : "",
+    monthlySalary: worker.monthlySalary ? String(worker.monthlySalary) : "",
+    workerType: worker.workerType || "Direct",
+    subcontractCompany: worker.subcontractCompany ?? "",
+    passportCountry: worker.passportCountry ?? "",
+    passportNumber: worker.passportNumber ?? "",
+    passportExpiry: dateInput(worker.passportExpiry),
+    visaNumber: worker.visaNumber ?? "",
+    visaExpiry: dateInput(worker.visaExpiry),
+    siaBadgeNumber: worker.siaBadgeNumber ?? "",
+    siaBadgeExpiry: dateInput(worker.siaBadgeExpiry),
+    onLeave: worker.onLeave ?? false,
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const set = <K extends keyof EditForm>(k: K, v: EditForm[K]) => setF((s) => ({ ...s, [k]: v }));
 
-  const parsed = Number(amount);
-  const valid = Number.isFinite(parsed) && parsed > 0;
-  const isSalary = (worker.payType ?? "hourly") === "salary";
+  const amountValid = f.payType === "salary"
+    ? Number(f.monthlySalary) > 0
+    : Number(f.rate) > 0;
 
   const save = async () => {
-    if (!valid || saving) return;
+    if (!amountValid || saving) return;
     setSaving(true);
     setError(null);
-    try {
-      await updateWorker(worker.id, {
-        payType,
-        rate: payType === "hourly" ? Math.round(parsed * 100) / 100 : 0,
-        monthlySalary: payType === "salary" ? Math.round(parsed * 100) / 100 : null,
-      });
-      setEditing(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save pay details");
-    } finally {
-      setSaving(false);
-    }
+    const ok = await updateWorker(worker.id, {
+      name: f.name, phone: f.phone, email: f.email, address: f.address, nid: f.nid,
+      location: f.location, role: f.role, joined: f.joined, expiry: f.expiry,
+      payType: f.payType,
+      rate: f.payType === "hourly" ? Number(f.rate) : 0,
+      monthlySalary: f.payType === "salary" ? Number(f.monthlySalary) : null,
+      workerType: f.workerType,
+      subcontractCompany: f.workerType === "Sub-contract" ? f.subcontractCompany : null,
+      passportCountry: f.passportCountry, passportNumber: f.passportNumber,
+      passportExpiry: f.passportExpiry || null,
+      visaNumber: f.visaNumber, visaExpiry: f.visaExpiry || null,
+      siaBadgeNumber: f.siaBadgeNumber, siaBadgeExpiry: f.siaBadgeExpiry || null,
+      onLeave: f.onLeave,
+    });
+    setSaving(false);
+    if (ok) onDone();
+    else setError("Failed to save worker details — please try again.");
   };
 
+  const tf = (label: string, key: keyof EditForm, type = "text") => (
+    <label className="block" key={key}>
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <input
+        type={type}
+        value={String(f[key])}
+        onChange={(e) => set(key, e.target.value as never)}
+        className={inputCls}
+      />
+    </label>
+  );
+
   return (
-    <Card>
-      <div className="flex flex-wrap items-center gap-3">
-        <span className={`grid size-9 place-items-center rounded-lg ${isSalary ? "bg-success/10 text-success" : "bg-primary/10 text-primary"}`}>
-          <Banknote className="size-4" />
-        </span>
-        <div className="mr-auto">
-          <h2 className="text-base font-semibold">Pay — {PAY_TYPE_LABELS[worker.payType ?? "hourly"]}</h2>
-          <p className="text-xs text-muted-foreground">
-            {isSalary
-              ? `${money2(worker.monthlySalary ?? 0)} per month · prorated by calendar days · ${money2((worker.monthlySalary ?? 0) * 12)} per year`
-              : `${money2(worker.rate)} per hour × hours worked`}
-          </p>
-        </div>
-        {!editing && (
-          <button
-            onClick={() => {
-              setPayType(worker.payType ?? "hourly");
-              setAmount(worker.payType === "salary" ? String(worker.monthlySalary ?? "") : String(worker.rate ?? ""));
-              setEditing(true);
-            }}
-            className="flex h-9 items-center gap-1.5 rounded-lg border border-border px-4 text-sm font-medium hover:bg-secondary"
-          >
-            <Pencil className="size-4" /> Edit
-          </button>
-        )}
+    <div className="space-y-5">
+      <p className="text-sm font-semibold">Core details</p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {tf("Name", "name")}
+        {tf("Role", "role")}
+        {tf("Phone", "phone")}
+        {tf("Email", "email")}
+        <label className="block sm:col-span-2">
+          <span className="text-xs text-muted-foreground">Address</span>
+          <input value={f.address} onChange={(e) => set("address", e.target.value)} className={inputCls} />
+        </label>
+        {tf("N.I. Number", "nid")}
+        <label className="block">
+          <span className="text-xs text-muted-foreground">Location</span>
+          <select value={f.location} onChange={(e) => set("location", e.target.value)} className={inputCls}>
+            <option value="">— Unassigned —</option>
+            {(locations || []).map((l) => (
+              <option key={l.id} value={l.name}>{l.name}</option>
+            ))}
+            {f.location && !(locations || []).some((l) => l.name === f.location) && (
+              <option value={f.location}>{f.location} (not in list)</option>
+            )}
+          </select>
+        </label>
+        {tf("Joining date", "joined", "date")}
+        {tf("Expiry date", "expiry", "date")}
+        <label className="flex items-center gap-2 pt-5 text-sm">
+          <input
+            type="checkbox"
+            checked={f.onLeave}
+            onChange={(e) => set("onLeave", e.target.checked)}
+            className="size-4 accent-primary"
+          />
+          On leave
+        </label>
       </div>
 
-      {editing && (
-        <div className="mt-4 grid gap-3 sm:grid-cols-[200px_1fr_auto_auto] sm:items-end">
-          <div>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">Pay type</p>
-            <select
-              value={payType}
-              onChange={(e) => {
-                setPayType(e.target.value as PayType);
-                setAmount("");
-              }}
-              className={inputCls}
-            >
-              <option value="hourly">Hourly</option>
-              <option value="salary">Monthly Salary</option>
-            </select>
-          </div>
-          <div>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">
-              {payType === "salary" ? "Monthly salary (£)" : "Hourly rate (£)"}
-            </p>
-            <input
-              type="number"
-              min="0.01"
-              step="0.01"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className={inputCls}
-            />
-          </div>
-          <button
-            onClick={save}
-            disabled={!valid || saving}
-            className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-60"
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
-          <button
-            onClick={() => setEditing(false)}
-            disabled={saving}
-            className="flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium hover:bg-secondary"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
-      {error && <p className="mt-2 text-xs text-danger">{error}</p>}
-      {editing && !valid && amount !== "" && (
-        <p className="mt-2 text-xs text-danger">Enter an amount greater than 0.</p>
-      )}
-      {editing && payType === "salary" && (
-        <p className="mt-2 text-xs text-muted-foreground">
-          Payroll will pay the monthly salary prorated by calendar days — hours worked are still recorded but not used for pay.
+      <p className="text-sm font-semibold">Pay</p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block">
+          <span className="text-xs text-muted-foreground">Pay type</span>
+          <select value={f.payType} onChange={(e) => set("payType", e.target.value as PayType)} className={inputCls}>
+            <option value="hourly">Hourly</option>
+            <option value="salary">Monthly Salary</option>
+          </select>
+        </label>
+        {f.payType === "salary" ? (
+          <label className="block">
+            <span className="text-xs text-muted-foreground">Monthly salary (£)</span>
+            <input type="number" min="0.01" step="0.01" value={f.monthlySalary}
+              onChange={(e) => set("monthlySalary", e.target.value)} className={inputCls} />
+          </label>
+        ) : (
+          <label className="block">
+            <span className="text-xs text-muted-foreground">Hourly rate (£)</span>
+            <input type="number" min="0.01" step="0.01" value={f.rate}
+              onChange={(e) => set("rate", e.target.value)} className={inputCls} />
+          </label>
+        )}
+      </div>
+      {f.payType === "salary" && (
+        <p className="text-xs text-muted-foreground">
+          Payroll pays the monthly salary prorated by calendar days — recorded hours are kept for reference only.
         </p>
       )}
-    </Card>
+      {!amountValid && (
+        <p className="text-xs text-danger">
+          {f.payType === "salary" ? "Enter a monthly salary greater than 0." : "Enter an hourly rate greater than 0."}
+        </p>
+      )}
+
+      <p className="text-sm font-semibold">Passport, visa &amp; SIA badge</p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block">
+          <span className="text-xs text-muted-foreground">Employment type</span>
+          <select value={f.workerType} onChange={(e) => set("workerType", e.target.value)} className={inputCls}>
+            <option value="Direct">Direct</option>
+            <option value="Sub-contract">Sub-contract</option>
+          </select>
+        </label>
+        {f.workerType === "Sub-contract" && tf("Sub-contract company", "subcontractCompany")}
+        {tf("Passport country", "passportCountry")}
+        {tf("Passport number", "passportNumber")}
+        {tf("Passport expiry", "passportExpiry", "date")}
+        {tf("Visa number", "visaNumber")}
+        {tf("Visa expiry", "visaExpiry", "date")}
+        {tf("SIA badge number", "siaBadgeNumber")}
+        {tf("SIA badge expiry", "siaBadgeExpiry", "date")}
+      </div>
+
+      {error && <p className="text-sm text-danger">{error}</p>}
+      <div className="flex justify-end gap-2 border-t border-border pt-4">
+        <button
+          onClick={onDone}
+          disabled={saving}
+          className="flex h-10 items-center rounded-lg border border-border px-5 text-sm font-medium hover:bg-secondary"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={save}
+          disabled={!amountValid || saving || !f.name.trim()}
+          className="flex h-10 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground disabled:opacity-60"
+        >
+          {saving ? "Saving…" : "Save all changes"}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -389,6 +467,7 @@ function WorkerDetails() {
   const { id } = useParams({ from: "/admin/workers/$id" });
   const { workers, attendance, payrolls, workerStatus, reactivateWorker, deleteWorker, loading, loadWorkers } = useApi();
   const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState(false);
   const worker = workers?.find((w) => w.id === id);
 
   if (loading.workers) {
@@ -488,6 +567,12 @@ function WorkerDetails() {
                 </div>
               </div>
 
+              {editing ? (
+                <div className="mt-4">
+                  <EditWorkerForm worker={worker} onDone={() => setEditing(false)} />
+                </div>
+              ) : (
+                <>
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 {[
                   ["Phone", worker.phone],
@@ -536,11 +621,21 @@ function WorkerDetails() {
                   </div>
                 ))}
               </div>
+                </>
+              )}
 
               <p className="mt-6 mb-2 text-sm font-semibold">Registration documents</p>
               <WorkerDocuments workerId={worker.id} />
 
               <div className="mt-6 flex flex-wrap gap-3">
+                {!editing && (
+                  <button
+                    onClick={() => setEditing(true)}
+                    className="flex h-10 items-center gap-2 rounded-lg border border-border px-5 text-sm font-medium hover:bg-secondary"
+                  >
+                    <Pencil className="size-4" /> Edit details
+                  </button>
+                )}
                 {(status === "Expiring Soon" || status === "Expired") && (
                   <button
                     onClick={() => reactivateWorker(worker.id)}
@@ -560,8 +655,6 @@ function WorkerDetails() {
             </div>
           </div>
         </Card>
-
-        <PaySection worker={worker} />
 
         <ComplianceSection workerId={worker.id} onSaved={() => loadWorkers()} />
 

@@ -494,12 +494,14 @@ function useApiState() {
     }
   };
 
-  const updateWorker = async (id: string, worker: Partial<Worker>) => {
+  const updateWorker = async (id: string, worker: Partial<Worker>): Promise<boolean> => {
     try {
       await apiClient.put(`/api/workers/${id}`, worker);
       await loadWorkers();
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update worker');
+      return false;
     }
   };
 
