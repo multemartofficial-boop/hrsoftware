@@ -156,36 +156,8 @@ function useApiState() {
     }
   };
 
-  const clientLogin = async (email: string, password: string): Promise<Session | null> => {
-    setLoading({ ...loading, login: true });
-    setError(null);
-
-    try {
-      const response = await apiClient.post<{ token: string; user: Session }>('/api/auth/client/login', {
-        email,
-        password,
-      });
-
-      apiClient.setToken(response.token);
-      const next = response.user;
-      setSession(next);
-
-      try {
-        if (typeof window !== 'undefined' && window.localStorage) {
-          localStorage.setItem(SESSION_KEY, JSON.stringify(next));
-        }
-      } catch {
-        /* ignore */
-      }
-
-      return next;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
-      return null;
-    } finally {
-      setLoading({ ...loading, login: false });
-    }
-  };
+  // Client portal login removed (Part 6) — clients are internal reference
+  // records with no sign-in.
 
   const logout = () => {
     setSession(null);

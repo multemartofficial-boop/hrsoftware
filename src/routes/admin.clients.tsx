@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Plus, RefreshCw, Building2, MapPin, Trash2, KeyRound, Pencil } from "lucide-react";
+import { Plus, RefreshCw, Building2, MapPin, Trash2, Pencil } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import {
   Card, Field, GhostButton, Modal, PrimaryButton, inputCls,
-  DataTable, Th, Td, EmptyRow, SectionTitle,
+  DataTable, Th, Td, EmptyRow, SectionTitle, StatusBadge,
 } from "@/components/hr/bits";
 import { apiClient } from "@/lib/api-client";
 import { fmtDate } from "@/lib/hr-utils";
@@ -14,7 +14,7 @@ export const Route = createFileRoute("/admin/clients")({
   head: () => ({
     meta: [
       { title: "Clients — WorkHR" },
-      { name: "description", content: "Manage client portal accounts and their site links." },
+      { name: "description", content: "Internal client reference records — company details and linked locations." },
     ],
   }),
   component: ClientsPage,
@@ -22,11 +22,13 @@ export const Route = createFileRoute("/admin/clients")({
 
 type Client = {
   id: string;
-  userId: number;
   name: string;
   company: string;
-  email: string;
-  buyerName: string | null;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  status: "Active" | "Inactive";
+  notes: string | null;
   locations: { id: string; name: string; address: string }[];
   createdAt: string;
 };
@@ -64,11 +66,12 @@ function LocationPicker({
 function ClientForm({
   existing, onClose, onSaved,
 }: { existing: Client | null; onClose: () => void; onSaved: () => void }) {
-  const [name, setName] = useState(existing?.name ?? "");
   const [company, setCompany] = useState(existing?.company ?? "");
   const [email, setEmail] = useState(existing?.email ?? "");
-  const [password, setPassword] = useState("");
-  const [buyerName, setBuyerName] = useState(existing?.buyerName ?? "");
+  const [phone, setPhone] = useState(existing?.phone ?? "");
+  const [address, setAddress] = useState(existing?.address ?? "");
+  const [status, setStatus] = useState<"Active" | "Inactive">(existing?.status ?? "Active");
+  const [notes, setNotes] = useState(existing?.notes ?? "");
   const [locIds, setLocIds] = useState<Set<string>>(new Set((existing?.locations ?? []).map(l => l.id)));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -78,15 +81,13 @@ function ClientForm({
     setErr(null);
     setBusy(true);
     try {
-      if (existing) {
-        await apiClient.put(`/api/clients/${existing.id}`, {
-          name, company, email, buyerName: buyerName || company, locationIds: [...locIds],
-        });
-      } else {
-        await apiClient.post("/api/clients", {
-          name, company, email, password, buyerName: buyerName || company, locationIds: [...locIds],
-        });
-      }
+      const payload = {
+        company, name: company, email: email || null, phone: phone || null,
+        address: address || null, status, notes: notes || null,
+        locationIds: [...locIds],
+      };
+      if (existing) await apiClient.put(`/api/clients/${existing.id}`, payload);
+      else await apiClient.post("/api/clients", payload);
       onSaved();
       onClose();
     } catch (e: any) {
@@ -98,91 +99,51 @@ function ClientForm({
 
   return (
     <Modal
-      title={existing ? `Edit ${existing.company}` : "Add client account"}
-      description={
-        existing
-          ? "Update the client's details and which sites they can see."
-          : "Creates a login for the client portal. They sign in on the Client tab with this email + password."
-      }
+      title={existing ? `Edit ${existing.company}` : "Add client"}
+      description="Internal reference record — clients do not sign in; this is for admin records only."
       onClose={onClose}
       wide
     >
       <form onSubmit={submit} className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Contact name">
-            <input required value={name} onChange={(e) => setName(e.target.value)} className={inputCls} placeholder="Jane Smith" />
-          </Field>
-          <Field label="Company">
+          <Field label="Company name">
             <input required value={company} onChange={(e) => setCompany(e.target.value)} className={inputCls} placeholder="Acme Facilities Ltd" />
           </Field>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Email (login)">
-            <input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} placeholder="jane@acme.com" />
+          <Field label="Status">
+            <select value={status} onChange={(e) => setStatus(e.target.value as "Active" | "Inactive")} className={inputCls}>
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+            </select>
           </Field>
-          {!existing && (
-            <Field label="Initial password">
-              <input required type="text" minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} placeholder="min 6 characters" />
-            </Field>
-          )}
-          <Field label="Buyer name (billing link)">
-            <input value={buyerName} onChange={(e) => setBuyerName(e.target.value)} className={inputCls} placeholder={company || "Matches buyer_income buyer_name"} />
+          <Field label="Email">
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} placeholder="contact@acme.com" />
+          </Field>
+          <Field label="Phone number">
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} className={inputCls} placeholder="020 7946 0000" />
           </Field>
         </div>
-        <Field label="Locations this client can see">
+        <Field label="Address">
+          <input value={address} onChange={(e) => setAddress(e.target.value)} className={inputCls} placeholder="1 Example Street, London, E1 1AA" />
+        </Field>
+        <Field label="Active locations" hint="The sites this client is linked to — for admin reference.">
           <LocationPicker selected={locIds} onChange={setLocIds} />
+        </Field>
+        <Field label="Notes">
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            className={`${inputCls} min-h-20 resize-y`}
+            placeholder="Contract details, key contacts, billing terms…"
+          />
         </Field>
         {err && <p className="text-sm text-danger">{err}</p>}
         <div className="flex justify-end gap-2">
           <GhostButton type="button" onClick={onClose}>Cancel</GhostButton>
           <PrimaryButton type="submit" disabled={busy}>
-            {busy ? "Saving..." : existing ? "Save changes" : "Create client"}
+            {busy ? "Saving..." : existing ? "Save changes" : "Add client"}
           </PrimaryButton>
         </div>
       </form>
-    </Modal>
-  );
-}
-
-function ResetPasswordForm({ client, onClose }: { client: Client; onClose: () => void }) {
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setErr(null);
-    try {
-      await apiClient.post(`/api/clients/${client.id}/reset-password`, { password });
-      setDone(true);
-    } catch (e: any) {
-      setErr(e.message || "Failed to reset password");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal title={`Reset password — ${client.company}`} description="Set a new password for this client account." onClose={onClose}>
-      {done ? (
-        <div className="space-y-4">
-          <p className="rounded-lg bg-success-soft px-3 py-2 text-sm font-medium text-success">Password updated.</p>
-          <div className="flex justify-end"><GhostButton onClick={onClose}>Close</GhostButton></div>
-        </div>
-      ) : (
-        <form onSubmit={submit} className="space-y-4">
-          <Field label="New password">
-            <input required type="text" minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} placeholder="min 6 characters" />
-          </Field>
-          {err && <p className="text-sm text-danger">{err}</p>}
-          <div className="flex justify-end gap-2">
-            <GhostButton type="button" onClick={onClose}>Cancel</GhostButton>
-            <PrimaryButton type="submit" disabled={busy}>{busy ? "Saving..." : "Reset password"}</PrimaryButton>
-          </div>
-        </form>
-      )}
     </Modal>
   );
 }
@@ -192,7 +153,6 @@ function ClientsPage() {
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
-  const [resetting, setResetting] = useState<Client | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -208,7 +168,7 @@ function ClientsPage() {
   useEffect(() => { void load(); }, [load]);
 
   const del = async (c: Client) => {
-    if (!confirm(`Delete client account for ${c.company}? Their login will stop working.`)) return;
+    if (!confirm(`Delete the client record for ${c.company}?`)) return;
     try {
       await apiClient.delete(`/api/clients/${c.id}`);
       void load();
@@ -235,39 +195,49 @@ function ClientsPage() {
       }
     >
       <Card>
-        <SectionTitle title="Client portal accounts" />
+        <SectionTitle title="Client records" />
+        <p className="-mt-3 mb-4 text-xs text-muted-foreground">
+          Internal admin reference — company details and which locations belong to each client.
+        </p>
         <DataTable
-          labels={["Client", "Company", "Buyer link", "Locations", "Created", ""]}
+          labels={["Company", "Contact", "Address", "Locations", "Status", "Created", ""]}
           head={
             <>
-              <Th>Client</Th>
               <Th>Company</Th>
-              <Th>Buyer link</Th>
+              <Th>Contact</Th>
+              <Th>Address</Th>
               <Th>Locations</Th>
+              <Th>Status</Th>
               <Th>Created</Th>
               <Th className="text-right">Actions</Th>
             </>
           }
         >
           {loading ? (
-            <EmptyRow colSpan={6} text="Loading clients…" />
+            <EmptyRow colSpan={7} text="Loading clients…" />
           ) : clients.length === 0 ? (
-            <EmptyRow colSpan={6} text="No client accounts yet. Add one to give a buyer portal access." />
+            <EmptyRow colSpan={7} text="No client records yet — add your first client company." />
           ) : (
             clients.map((c) => (
               <tr key={c.id}>
                 <Td>
                   <div className="leading-tight">
-                    <div className="text-sm font-medium">{c.name}</div>
-                    <div className="text-xs text-muted-foreground">{c.email}</div>
+                    <div className="flex items-center gap-1.5 text-sm font-medium">
+                      <Building2 className="size-4 text-muted-foreground" /> {c.company}
+                    </div>
+                    {c.notes && <div className="mt-0.5 max-w-52 truncate text-xs text-muted-foreground" title={c.notes}>{c.notes}</div>}
                   </div>
                 </Td>
                 <Td>
-                  <span className="flex items-center gap-1.5 font-medium">
-                    <Building2 className="size-4 text-muted-foreground" /> {c.company}
-                  </span>
+                  <div className="text-xs leading-tight">
+                    {c.email && <div>{c.email}</div>}
+                    {c.phone && <div className="text-muted-foreground">{c.phone}</div>}
+                    {!c.email && !c.phone && <span className="text-muted-foreground">—</span>}
+                  </div>
                 </Td>
-                <Td className="text-muted-foreground">{c.buyerName || "—"}</Td>
+                <Td className="max-w-44 truncate text-xs text-muted-foreground" title={c.address ?? undefined}>
+                  {c.address || "—"}
+                </Td>
                 <Td>
                   {c.locations.length === 0 ? (
                     <span className="text-xs text-muted-foreground">None linked</span>
@@ -281,6 +251,7 @@ function ClientsPage() {
                     </div>
                   )}
                 </Td>
+                <Td><StatusBadge status={c.status} /></Td>
                 <Td className="whitespace-nowrap text-muted-foreground">{fmtDate(c.createdAt)}</Td>
                 <Td className="text-right">
                   <div className="flex items-center justify-end gap-1">
@@ -290,13 +261,6 @@ function ClientsPage() {
                       className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary"
                     >
                       <Pencil className="size-4" />
-                    </button>
-                    <button
-                      title="Reset password"
-                      onClick={() => setResetting(c)}
-                      className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary"
-                    >
-                      <KeyRound className="size-4" />
                     </button>
                     <button
                       title="Delete client"
@@ -320,7 +284,6 @@ function ClientsPage() {
           onSaved={load}
         />
       )}
-      {resetting && <ResetPasswordForm client={resetting} onClose={() => setResetting(null)} />}
     </AdminShell>
   );
 }

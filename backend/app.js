@@ -177,6 +177,19 @@ async function ensureSchema() {
     } catch (error) {
       console.log('⚠️ Could not create client tables:', error.message);
     }
+
+    // Part 6: clients are internal admin reference records — no portal login.
+    // user_id becomes optional and the record gains address/phone/status/notes.
+    try {
+      await pool.query('ALTER TABLE clients MODIFY COLUMN user_id INT NULL');
+      console.log('✅ clients.user_id now nullable');
+    } catch (e) {
+      console.log('⚠️ clients.user_id modify:', e.message);
+    }
+    await addCol('ALTER TABLE clients ADD COLUMN address VARCHAR(500) NULL', 'clients.address');
+    await addCol('ALTER TABLE clients ADD COLUMN phone VARCHAR(50) NULL', 'clients.phone');
+    await addCol("ALTER TABLE clients ADD COLUMN status ENUM('Active','Inactive') NOT NULL DEFAULT 'Active'", 'clients.status');
+    await addCol('ALTER TABLE clients ADD COLUMN notes TEXT NULL', 'clients.notes');
   } catch (error) {
     console.error('Schema setup error:', error);
   }
@@ -226,7 +239,6 @@ app.use('/api/action-logs', require('./routes/action-logs'));
 app.use('/api/incidents', require('./routes/incidents'));
 app.use('/api/clients', require('./routes/clients'));
 app.use('/api/admins', require('./routes/admins'));
-app.use('/api/client', require('./routes/client'));
 
 // Health check
 app.get('/api/health', (req, res) => {

@@ -1,14 +1,14 @@
 const express = require('express');
 const router = express.Router();
-const bcrypt = require('bcryptjs');
 const pool = require('../config/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
-const { sendEmail } = require('../utils/email');
-const { appBaseUrl } = require('../utils/app-url');
 const { logActionFromReq } = require('../utils/action-log');
 
 const generateClientId = () => `CLT-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
+// Clients are internal admin-only reference records (Part 6): company details
+// plus which locations belong to them. They have no login or portal access —
+// legacy user_id links are kept on old rows but new records get NULL.
 const loadClientLocations = async (clientIds) => {
   if (!clientIds.length) return {};
   const ph = clientIds.map(() => '?').join(',');
@@ -27,16 +27,18 @@ const loadClientLocations = async (clientIds) => {
 
 const serialize = (row, locMap) => ({
   id: row.id,
-  userId: row.user_id,
   name: row.name,
   company: row.company,
   email: row.email,
-  buyerName: row.buyer_name,
+  phone: row.phone,
+  address: row.address,
+  status: row.status || 'Active',
+  notes: row.notes,
   locations: locMap[row.id] || [],
   createdAt: row.created_at,
 });
 
-// Admin: list all client accounts
+// Admin: list all client records
 router.get('/', requireAuth, requireAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM clients ORDER BY created_at DESC');
@@ -48,46 +50,36 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// Admin: create a client account (users row + clients row + location links)
+const validateLocations = async (locationIds) => {
+  const locIds = Array.isArray(locationIds) ? locationIds.filter(Boolean) : [];
+  if (!locIds.length) return locIds;
+  const ph = locIds.map(() => '?').join(',');
+  const [locs] = await pool.query(`SELECT id FROM locations WHERE id IN (${ph})`, locIds);
+  return locs.length === locIds.length ? locIds : null;
+};
+
+// Admin: create a client reference record
 router.post('/', requireAuth, requireAdmin, async (req, res) => {
   const connection = await pool.getConnection();
   try {
-    const { name, company, email, password, buyerName, locationIds } = req.body;
+    const { company, name, email, phone, address, notes } = req.body;
+    const status = req.body.status === 'Inactive' ? 'Inactive' : 'Active';
 
-    if (!name || !company || !email || !password) {
-      return res.status(400).json({ error: 'name, company, email and password are required' });
-    }
-    if (String(password).length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
-    }
-    const normalizedEmail = String(email).trim().toLowerCase();
-
-    const [existing] = await pool.query('SELECT id FROM users WHERE email = ?', [normalizedEmail]);
-    if (existing.length > 0) {
-      return res.status(400).json({ error: 'An account with this email already exists' });
+    if (!company || !String(company).trim()) {
+      return res.status(400).json({ error: 'Company name is required' });
     }
 
-    const locIds = Array.isArray(locationIds) ? locationIds.filter(Boolean) : [];
-    if (locIds.length) {
-      const ph = locIds.map(() => '?').join(',');
-      const [locs] = await pool.query(`SELECT id FROM locations WHERE id IN (${ph})`, locIds);
-      if (locs.length !== locIds.length) {
-        return res.status(400).json({ error: 'One or more locations do not exist' });
-      }
+    const locIds = await validateLocations(req.body.locationIds);
+    if (locIds === null) {
+      return res.status(400).json({ error: 'One or more locations do not exist' });
     }
 
     await connection.beginTransaction();
 
-    const passwordHash = await bcrypt.hash(String(password), 10);
-    const [userResult] = await connection.query(
-      'INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, "client")',
-      [name, normalizedEmail, passwordHash]
-    );
-
     const clientId = generateClientId();
     await connection.query(
-      'INSERT INTO clients (id, user_id, name, company, email, buyer_name) VALUES (?, ?, ?, ?, ?, ?)',
-      [clientId, userResult.insertId, name, company, normalizedEmail, buyerName || company]
+      'INSERT INTO clients (id, user_id, name, company, email, phone, address, status, notes) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?)',
+      [clientId, name || company, company, email || null, phone || null, address || null, status, notes || null]
     );
 
     for (const locId of locIds) {
@@ -98,74 +90,53 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
     }
 
     await connection.commit();
-
-    // Welcome email — credentials are set by admin; the link is just the login page
-    try {
-      await sendEmail({
-        to: normalizedEmail,
-        subject: 'Your WorkHR client portal account',
-        html: `
-          <h2>Welcome to the WorkHR Client Portal</h2>
-          <p>Hi ${name},</p>
-          <p>An account has been created for <strong>${company}</strong>. You can sign in with this email
-          and the password provided by your WorkHR contact.</p>
-          <p><a href="${appBaseUrl(req)}">Open the client portal</a>
-          and choose the <strong>Client</strong> tab.</p>
-          <p>If you did not expect this, please ignore this email.</p>
-        `,
-        text: `A WorkHR client portal account was created for ${company}. Sign in with this email and the password provided by your WorkHR contact.`,
-      });
-    } catch (e) {
-      console.error('Client welcome email failed:', e.message);
-    }
-
     await logActionFromReq(req, 'created_client', 'client', clientId, {
-      name, company, email: normalizedEmail, buyerName: buyerName || company, locations: locIds,
+      company, email: email || null, status, locations: locIds,
     });
-    res.status(201).json({ id: clientId, message: 'Client account created' });
+    res.status(201).json({ id: clientId, message: 'Client record created' });
   } catch (error) {
     await connection.rollback();
     console.error('Create client error:', error);
-    res.status(500).json({ error: 'Failed to create client account' });
+    res.status(500).json({ error: 'Failed to create client record' });
   } finally {
     connection.release();
   }
 });
 
-// Admin: update a client (details, buyer link, location links)
+// Admin: update a client record (details + location links)
 router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   const connection = await pool.getConnection();
   try {
-    const { name, company, email, buyerName, locationIds } = req.body;
-
     const [rows] = await pool.query('SELECT * FROM clients WHERE id = ?', [req.params.id]);
     if (rows.length === 0) return res.status(404).json({ error: 'Client not found' });
     const prev = rows[0];
 
-    const normalizedEmail = email ? String(email).trim().toLowerCase() : prev.email;
-    if (normalizedEmail !== prev.email) {
-      const [dup] = await pool.query('SELECT id FROM users WHERE email = ? AND id != ?', [normalizedEmail, prev.user_id]);
-      if (dup.length > 0) {
-        return res.status(400).json({ error: 'An account with this email already exists' });
-      }
-    }
+    const pick = (k) => (req.body[k] !== undefined ? req.body[k] : undefined);
+    const status = pick('status') !== undefined
+      ? (req.body.status === 'Inactive' ? 'Inactive' : 'Active')
+      : (prev.status || 'Active');
+    const merged = {
+      name: pick('name') ?? prev.name,
+      company: pick('company') ?? prev.company,
+      email: pick('email') ?? prev.email,
+      phone: pick('phone') ?? prev.phone,
+      address: pick('address') ?? prev.address,
+      status,
+      notes: pick('notes') ?? prev.notes,
+    };
 
-    const locIds = locationIds === undefined ? null : (Array.isArray(locationIds) ? locationIds.filter(Boolean) : []);
-    if (locIds && locIds.length) {
-      const ph = locIds.map(() => '?').join(',');
-      const [locs] = await pool.query(`SELECT id FROM locations WHERE id IN (${ph})`, locIds);
-      if (locs.length !== locIds.length) {
-        return res.status(400).json({ error: 'One or more locations do not exist' });
-      }
+    const locIds = req.body.locationIds === undefined
+      ? null
+      : await validateLocations(req.body.locationIds);
+    if (req.body.locationIds !== undefined && locIds === null) {
+      return res.status(400).json({ error: 'One or more locations do not exist' });
     }
 
     await connection.beginTransaction();
     await connection.query(
-      'UPDATE clients SET name = ?, company = ?, email = ?, buyer_name = ? WHERE id = ?',
-      [name ?? prev.name, company ?? prev.company, normalizedEmail, buyerName ?? prev.buyer_name, req.params.id]
+      'UPDATE clients SET name = ?, company = ?, email = ?, phone = ?, address = ?, status = ?, notes = ? WHERE id = ?',
+      [merged.name, merged.company, merged.email, merged.phone, merged.address, merged.status, merged.notes, req.params.id]
     );
-    await connection.query('UPDATE users SET name = ?, email = ? WHERE id = ?',
-      [name ?? prev.name, normalizedEmail, prev.user_id]);
 
     if (locIds !== null) {
       await connection.query('DELETE FROM client_locations WHERE client_id = ?', [req.params.id]);
@@ -176,11 +147,14 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     }
 
     await connection.commit();
-    await logActionFromReq(req, 'updated_client', 'client', req.params.id, {
-      before: { name: prev.name, company: prev.company, email: prev.email, buyerName: prev.buyer_name },
-      after: { name: name ?? prev.name, company: company ?? prev.company, email: normalizedEmail, buyerName: buyerName ?? prev.buyer_name },
-      ...(locIds !== null ? { locations: locIds } : {}),
-    });
+    const changes = {};
+    for (const [label, col] of [['Company', 'company'], ['Name', 'name'], ['Email', 'email'], ['Phone', 'phone'], ['Address', 'address'], ['Status', 'status'], ['Notes', 'notes']]) {
+      const before = prev[col] ?? null;
+      const after = merged[col] ?? null;
+      if (String(before) !== String(after)) changes[label] = { from: before ?? '—', to: after ?? '—' };
+    }
+    if (locIds !== null) changes['Locations'] = { from: 'updated', to: `${locIds.length} linked` };
+    await logActionFromReq(req, 'updated_client', 'client', req.params.id, { company: merged.company, changes });
     res.json({ message: 'Client updated' });
   } catch (error) {
     await connection.rollback();
@@ -191,28 +165,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// Admin: reset a client's password directly
-router.post('/:id/reset-password', requireAuth, requireAdmin, async (req, res) => {
-  try {
-    const { password } = req.body;
-    if (!password || String(password).length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
-    }
-    const [rows] = await pool.query('SELECT user_id, name FROM clients WHERE id = ?', [req.params.id]);
-    if (rows.length === 0) return res.status(404).json({ error: 'Client not found' });
-
-    const passwordHash = await bcrypt.hash(String(password), 10);
-    await pool.query('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, rows[0].user_id]);
-
-    await logActionFromReq(req, 'reset_client_password', 'client', req.params.id, { name: rows[0].name });
-    res.json({ message: 'Client password reset' });
-  } catch (error) {
-    console.error('Reset client password error:', error);
-    res.status(500).json({ error: 'Failed to reset password' });
-  }
-});
-
-// Admin: delete a client account (also removes the users row)
+// Admin: delete a client record (also removes location links and any legacy login)
 router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   const connection = await pool.getConnection();
   try {
@@ -223,7 +176,9 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
     await connection.beginTransaction();
     await connection.query('DELETE FROM client_locations WHERE client_id = ?', [req.params.id]);
     await connection.query('DELETE FROM clients WHERE id = ?', [req.params.id]);
-    await connection.query('DELETE FROM users WHERE id = ?', [client.user_id]);
+    if (client.user_id != null) {
+      await connection.query('DELETE FROM users WHERE id = ?', [client.user_id]);
+    }
     await connection.commit();
 
     await logActionFromReq(req, 'deleted_client', 'client', req.params.id, {
@@ -236,6 +191,20 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
     res.status(500).json({ error: 'Failed to delete client' });
   } finally {
     connection.release();
+  }
+});
+
+// Get workers count by location
+router.get('/:name/workers-count', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [count] = await pool.query(
+      'SELECT COUNT(*) as count FROM workers WHERE location = ?',
+      [req.params.name]
+    );
+    res.json({ count: count[0].count });
+  } catch (error) {
+    console.error('Get workers count error:', error);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 

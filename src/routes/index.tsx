@@ -24,15 +24,15 @@ export const Route = createFileRoute("/")({
 });
 
 function LoginPage() {
-  const { login, workerLogin, clientLogin, session, authReady, loading, error: apiError } = useApi();
+  const { login, workerLogin, session, authReady, loading, error: apiError } = useApi();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [loginType, setLoginType] = useState<'email' | 'worker' | 'client'>('email');
+  const [loginType, setLoginType] = useState<'email' | 'worker'>('email');
 
   const homeFor = (role?: string) =>
-    role === "admin" ? "/admin" : role === "client" ? "/client/dashboard" : "/worker/dashboard";
+    role === "admin" ? "/admin" : "/worker/dashboard";
 
   useEffect(() => {
     if (authReady && session) {
@@ -47,8 +47,6 @@ function LoginPage() {
     let s;
     if (loginType === 'email') {
       s = await login(email, password);
-    } else if (loginType === 'client') {
-      s = await clientLogin(email, password);
     } else {
       s = await workerLogin(email, password); // email field contains worker code
     }
@@ -87,13 +85,6 @@ function LoginPage() {
             >
               Worker
             </button>
-            <button
-              type="button"
-              onClick={() => { setLoginType('client'); setEmail(''); }}
-              className={`flex-1 py-2 text-sm rounded-lg ${loginType === 'client' ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}
-            >
-              Client
-            </button>
           </div>
 
           <div>
@@ -109,7 +100,7 @@ function LoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder={loginType === 'worker' ? 'WKR-2026-XXXX' : loginType === 'client' ? 'you@company.com' : 'you@workhr.com'}
+                placeholder={loginType === 'worker' ? 'WKR-2026-XXXX' : 'you@workhr.com'}
                 className={`${inputCls} pl-9`}
               />
             </div>
