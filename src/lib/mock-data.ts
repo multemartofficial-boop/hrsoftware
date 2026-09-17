@@ -606,6 +606,11 @@ export type LocationItem = {
   id: string;
   name: string;
   address: string;
+  /** Structured UK address parts (Part 5 postcode picker) */
+  building?: string | null;
+  street?: string | null;
+  city?: string | null;
+  postcode?: string | null;
   /** Phase E: geofence anchor — null when not configured */
   latitude?: number | null;
   longitude?: number | null;

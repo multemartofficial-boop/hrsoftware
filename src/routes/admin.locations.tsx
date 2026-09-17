@@ -6,6 +6,7 @@ import { Plus, MapPin, Pencil, Trash2, Users, Search, Loader2 } from "lucide-rea
 import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, Field, GhostButton, Modal, PrimaryButton, inputCls } from "@/components/hr/bits";
 import { useApi } from "@/lib/api-store";
+import { apiClient } from "@/lib/api-client";
 import type { LocationItem } from "@/lib/mock-data";
 
 export const Route = createFileRoute("/admin/locations")({
@@ -32,22 +33,18 @@ function LocationMapPicker({
   lng,
   radius,
   onPick,
-  onSearchSelect,
 }: {
   lat: number | null;
   lng: number | null;
   radius: number;
   onPick: (lat: number, lng: number) => void;
-  onSearchSelect: (address: string) => void;
 }) {
   const mapDiv = useRef<HTMLDivElement | null>(null);
   const mapObj = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
   const circleRef = useRef<L.Circle | null>(null);
   const onPickRef = useRef(onPick);
-  const onSearchRef = useRef(onSearchSelect);
   onPickRef.current = onPick;
-  onSearchRef.current = onSearchSelect;
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchErr, setSearchErr] = useState<string | null>(null);
@@ -135,7 +132,6 @@ function LocationMapPicker({
         const lo = Number(first.lon);
         placePin(la, lo, true);
         onPickRef.current(la, lo);
-        onSearchRef.current(first.display_name);
       }
     } catch {
       setSearchErr("Search failed — check your connection and try again.");
@@ -172,45 +168,178 @@ function LocationMapPicker({
   );
 }
 
+type AddressHit = {
+  label: string;
+  building: string | null;
+  street: string | null;
+  city: string | null;
+  postcode: string | null;
+  latitude: number;
+  longitude: number;
+  exactPostcode?: boolean;
+  distanceMeters?: number | null;
+};
+
 function LocationForm({ editing, onClose }: { editing: LocationItem | null; onClose: () => void }) {
   const { addLocation, updateLocation } = useApi();
   const [name, setName] = useState(editing?.name ?? "");
-  const [address, setAddress] = useState(editing?.address ?? "");
+  const [building, setBuilding] = useState(editing?.building ?? "");
+  const [street, setStreet] = useState(editing?.street ?? "");
+  const [city, setCity] = useState(editing?.city ?? "");
+  const [postcode, setPostcode] = useState(editing?.postcode ?? "");
+  const [pcQuery, setPcQuery] = useState(editing?.postcode ?? "");
+  const [hits, setHits] = useState<AddressHit[] | null>(null);
+  const [pcCentre, setPcCentre] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchErr, setSearchErr] = useState<string | null>(null);
   const [latitude, setLatitude] = useState(editing?.latitude != null ? String(editing.latitude) : "");
   const [longitude, setLongitude] = useState(editing?.longitude != null ? String(editing.longitude) : "");
-  const [radiusMeters, setRadiusMeters] = useState(String(editing?.radiusMeters ?? 200));
+  const [radiusMeters, setRadiusMeters] = useState(String(editing?.radiusMeters ?? 100));
   const [geoErr, setGeoErr] = useState<string | null>(null);
 
   const latNum = latitude !== "" && !Number.isNaN(Number(latitude)) ? Number(latitude) : null;
   const lngNum = longitude !== "" && !Number.isNaN(Number(longitude)) ? Number(longitude) : null;
-  const radNum = radiusMeters !== "" && !Number.isNaN(Number(radiusMeters)) ? Number(radiusMeters) : 200;
+  const radNum = radiusMeters !== "" && !Number.isNaN(Number(radiusMeters)) ? Number(radiusMeters) : 100;
+  const address = [building, street, city, postcode].filter(Boolean).join(", ");
+
+  const lookupPostcode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = pcQuery.trim();
+    if (!q) return;
+    setSearching(true);
+    setSearchErr(null);
+    setHits(null);
+    try {
+      const data = await apiClient.get<{ postcode: string; centre: { latitude: number; longitude: number }; addresses: AddressHit[] }>(
+        `/api/locations/address-search?postcode=${encodeURIComponent(q)}`,
+      );
+      setPcCentre(data.centre);
+      setPostcode(data.postcode);
+      setHits(data.addresses);
+      if (!data.addresses.length) {
+        setSearchErr("No buildings listed for this postcode — use the postcode centre below or click the map.");
+      }
+    } catch (err) {
+      setSearchErr(err instanceof Error ? err.message : "Address lookup failed.");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const pickHit = (h: AddressHit) => {
+    setBuilding(h.building ?? "");
+    setStreet(h.street ?? "");
+    setCity(h.city ?? "");
+    if (h.postcode) setPostcode(h.postcode);
+    setLatitude(String(h.latitude));
+    setLongitude(String(h.longitude));
+    setGeoErr(null);
+    if (!name.trim() && (h.building || h.street)) setName(h.building ?? h.street ?? "");
+    setHits(null);
+  };
+
+  const useCentre = () => {
+    if (!pcCentre) return;
+    setLatitude(String(pcCentre.latitude));
+    setLongitude(String(pcCentre.longitude));
+    setGeoErr(null);
+    setHits(null);
+  };
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (latNum == null || lngNum == null) {
-      setGeoErr("Pick a point on the map (search or click) to set the coordinates.");
+      setGeoErr("Pick a building by postcode, or click the map to set the coordinates.");
       return;
     }
-    const geo = { latitude: latNum, longitude: lngNum, radiusMeters: radNum > 0 ? radNum : 200 };
-    if (editing) updateLocation(editing.id, { name, address, ...geo });
-    else addLocation(name, address, geo);
+    const payload = {
+      name,
+      address,
+      building: building || null,
+      street: street || null,
+      city: city || null,
+      postcode: postcode ? postcode.toUpperCase() : null,
+      latitude: latNum,
+      longitude: lngNum,
+      radiusMeters: radNum > 0 ? radNum : 100,
+    };
+    if (editing) updateLocation(editing.id, payload);
+    else addLocation(payload);
     onClose();
   };
 
   return (
     <Modal
       title={editing ? "Edit location" : "Add location"}
-      description="Search or click the map to place the pin — the circle shows the geofence radius."
+      description="Find the exact building by UK postcode, then fine-tune the pin on the map if needed."
       onClose={onClose}
       wide
     >
       <form onSubmit={submit} className="space-y-4">
+        <Field label="Find by UK postcode" hint="Search a postcode, then pick the exact building.">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={pcQuery}
+              onChange={(e) => setPcQuery(e.target.value)}
+              className={`${inputCls} mt-0 pl-9 pr-24`}
+              placeholder="e.g. E9 6LH"
+            />
+            <button
+              type="button"
+              onClick={lookupPostcode}
+              disabled={searching || !pcQuery.trim()}
+              className="absolute right-1.5 top-1/2 flex h-7 -translate-y-1/2 items-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground disabled:opacity-60"
+            >
+              {searching ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              Find
+            </button>
+          </div>
+        </Field>
+        {searchErr && <p className="text-xs font-medium text-danger">{searchErr}</p>}
+        {hits && hits.length > 0 && (
+          <div className="max-h-48 overflow-y-auto rounded-xl border border-border">
+            {hits.map((h, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => pickHit(h)}
+                className="flex w-full items-start gap-2 border-b border-border px-3 py-2 text-left text-sm last:border-b-0 hover:bg-secondary/60"
+              >
+                <MapPin className="mt-0.5 size-3.5 shrink-0 text-primary" />
+                <span>
+                  {h.label}
+                  {!h.exactPostcode && h.distanceMeters != null && (
+                    <span className="ml-1 text-xs text-muted-foreground">(~{h.distanceMeters} m away)</span>
+                  )}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+        {hits !== null && pcCentre && (
+          <button type="button" onClick={useCentre} className="text-xs font-medium text-primary hover:underline">
+            Use postcode area centre instead
+          </button>
+        )}
+
         <Field label="Location name">
           <input required value={name} onChange={(e) => setName(e.target.value)} className={inputCls} placeholder="Camden Site" />
         </Field>
-        <Field label="Address" hint="Filled automatically when you search — editable if needed.">
-          <input required value={address} onChange={(e) => setAddress(e.target.value)} className={inputCls} placeholder="24 Camden High St, London" />
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Building / No.">
+            <input value={building} onChange={(e) => setBuilding(e.target.value)} className={inputCls} placeholder="24 or Building name" />
+          </Field>
+          <Field label="Street">
+            <input value={street} onChange={(e) => setStreet(e.target.value)} className={inputCls} placeholder="Camden High St" />
+          </Field>
+          <Field label="City / Town">
+            <input value={city} onChange={(e) => setCity(e.target.value)} className={inputCls} placeholder="London" />
+          </Field>
+          <Field label="Postcode">
+            <input value={postcode} onChange={(e) => setPostcode(e.target.value)} className={inputCls} placeholder="NW1 0JH" />
+          </Field>
+        </div>
         <Field label="Location on map" error={geoErr ?? undefined}>
           <LocationMapPicker
             lat={latNum}
@@ -221,7 +350,6 @@ function LocationForm({ editing, onClose }: { editing: LocationItem | null; onCl
               setLongitude(lo.toFixed(6));
               setGeoErr(null);
             }}
-            onSearchSelect={(a) => setAddress(a)}
           />
         </Field>
         <Field label="Geofence radius" hint="Workers must be within this distance to check in.">

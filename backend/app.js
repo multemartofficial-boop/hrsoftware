@@ -81,6 +81,13 @@ async function ensureSchema() {
     await addCol('ALTER TABLE payroll ADD COLUMN monthly_salary DECIMAL(10,2) NULL', 'payroll.monthly_salary');
     await addCol('ALTER TABLE payroll ADD COLUMN pay_details JSON NULL', 'payroll.pay_details');
 
+    // Part 5: structured address fields on locations — a building picked by
+    // postcode is stored as building / street / city / postcode.
+    await addCol('ALTER TABLE locations ADD COLUMN building VARCHAR(255) NULL', 'locations.building');
+    await addCol('ALTER TABLE locations ADD COLUMN street VARCHAR(255) NULL', 'locations.street');
+    await addCol('ALTER TABLE locations ADD COLUMN city VARCHAR(100) NULL', 'locations.city');
+    await addCol('ALTER TABLE locations ADD COLUMN postcode VARCHAR(12) NULL', 'locations.postcode');
+
     // Action History audit log
     try {
       await pool.query(

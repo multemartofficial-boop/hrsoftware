@@ -706,9 +706,9 @@ function useApiState() {
   };
 
   /* ---------------- locations ---------------- */
-  const addLocation = async (name: string, address: string, geo?: { latitude?: number | null; longitude?: number | null; radiusMeters?: number }) => {
+  const addLocation = async (payload: { name: string; address?: string; building?: string | null; street?: string | null; city?: string | null; postcode?: string | null; latitude?: number | null; longitude?: number | null; radiusMeters?: number }) => {
     try {
-      await apiClient.post('/api/locations', { name, address, ...geo });
+      await apiClient.post('/api/locations', payload);
       await loadLocations();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add location');
