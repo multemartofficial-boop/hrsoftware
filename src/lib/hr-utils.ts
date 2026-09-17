@@ -83,3 +83,54 @@ export const weekStart = (iso: string) => {
   d.setDate(d.getDate() - day);
   return toISO(d);
 };
+
+/** Days in the calendar month containing `iso` ("YYYY-MM-DD"). */
+export const daysInMonth = (iso: string) => {
+  const d = new Date(String(iso).slice(0, 10) + "T00:00:00");
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+};
+
+/**
+ * Monthly-salary proration — mirrors backend/routes/payroll.js:
+ * each calendar month the period touches contributes
+ * monthlySalary × (days of the period inside that month / days in that month).
+ * `joined` bounds the start so salary never accrues before the join date.
+ */
+export const proratedMonthlySalary = (
+  monthlySalary: number,
+  from: string,
+  to: string,
+  joined?: string | Date | null,
+) => {
+  const toLocal = (v: string | Date) =>
+    v instanceof Date
+      ? new Date(v.getFullYear(), v.getMonth(), v.getDate())
+      : new Date(String(v).slice(0, 10) + "T00:00:00");
+  const start0 = toLocal(from);
+  const end = toLocal(to);
+  const j = joined ? toLocal(joined) : null;
+  const start = j && j > start0 ? j : start0;
+  const breakdown: { month: string; days: number; daysInMonth: number; amount: number }[] = [];
+  if (!(monthlySalary > 0) || start > end) return { amount: 0, breakdown };
+  const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+  while (cursor <= end) {
+    const y = cursor.getFullYear();
+    const m = cursor.getMonth();
+    const dim = new Date(y, m + 1, 0).getDate();
+    const monthEnd = new Date(y, m, dim);
+    const s = start > cursor ? start : cursor;
+    const e = end < monthEnd ? end : monthEnd;
+    if (s <= e) {
+      const days = Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
+      breakdown.push({
+        month: `${y}-${String(m + 1).padStart(2, "0")}`,
+        days,
+        daysInMonth: dim,
+        amount: Math.round(((monthlySalary * days) / dim) * 100) / 100,
+      });
+    }
+    cursor.setMonth(m + 1);
+    cursor.setDate(1);
+  }
+  return { amount: Math.round(breakdown.reduce((t, b) => t + b.amount, 0) * 100) / 100, breakdown };
+};

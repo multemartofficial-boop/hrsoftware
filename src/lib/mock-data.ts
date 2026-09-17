@@ -9,6 +9,14 @@ export const avatarUrl = (seed: string) =>
 
 export type WorkerStatus = "Active" | "Expiring Soon" | "Expired" | "On Leave";
 
+/** 'hourly' = paid rate × hours (default); 'salary' = fixed monthly salary prorated by calendar days. */
+export type PayType = "hourly" | "salary";
+
+export const PAY_TYPE_LABELS: Record<PayType, string> = {
+  hourly: "Hourly",
+  salary: "Monthly Salary",
+};
+
 export type Worker = {
   id: string;
   name: string;
@@ -19,7 +27,11 @@ export type Worker = {
   expiry: string | Date; // ISO string or Date object
   onLeave?: boolean;
   role: string;
+  /** Hourly rate — only meaningful when payType is 'hourly' */
   rate: number;
+  payType?: PayType;
+  /** Monthly salary amount — only meaningful when payType is 'salary' */
+  monthlySalary?: number | null;
   address?: string;
   nid?: string;
   passportCountry?: string;
@@ -73,6 +85,9 @@ export type Application = {
   appliedFor: string;
   location: string;
   rate: number;
+  /** Confirmed at approval time — 'hourly' uses rate, 'salary' uses monthlySalary */
+  payType?: PayType;
+  monthlySalary?: number | null;
   status: "pending" | "approved" | "rejected";
   workerId?: string;
   /** server-computed: worker row exists AND password_hash set (setup complete) */
@@ -522,6 +537,11 @@ export type Payroll = {
   worker: string;
   from: string; // ISO
   to: string; // ISO
+  /** 'hourly' runs paid rate × hours; 'salary' runs paid prorated monthlySalary */
+  payType?: PayType;
+  monthlySalary?: number | null;
+  /** Backend snapshot for salary runs: per-month proration breakdown */
+  payDetails?: { salaryBreakdown?: { month: string; days: number; daysInMonth: number; amount: number }[] } | null;
   hours: number;
   rate: number;
   gross: number;

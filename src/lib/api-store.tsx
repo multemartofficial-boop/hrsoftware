@@ -25,6 +25,7 @@ import {
   MONTHS,
   money,
   money2,
+  proratedMonthlySalary,
 } from "./hr-utils";
 
 export type Role = "admin" | "worker" | "client";
@@ -205,10 +206,12 @@ function useApiState() {
     setError(null);
     try {
       const data = await apiClient.get<Worker[]>('/api/workers');
-      // Convert rate from string to number
+      // Convert decimal fields from strings to numbers
       const normalizedData = data.map(w => ({
         ...w,
-        rate: Number(w.rate)
+        rate: Number(w.rate),
+        payType: w.payType === 'salary' ? 'salary' as const : 'hourly' as const,
+        monthlySalary: w.monthlySalary != null ? Number(w.monthlySalary) : null
       }));
       setWorkers(normalizedData);
     } catch (err) {
@@ -319,6 +322,9 @@ function useApiState() {
         holidayPay: Number(p.holidayPay ?? 0),
         holidayAccruedHours: Number(p.holidayAccruedHours ?? 0),
         holidayAccrualPay: Number(p.holidayAccrualPay ?? 0),
+        payType: p.payType === 'salary' ? 'salary' as const : 'hourly' as const,
+        monthlySalary: p.monthlySalary != null ? Number(p.monthlySalary) : null,
+        payDetails: p.payDetails ?? null,
         rate: Number(p.rate),
         gross: Number(p.gross),
         advance: Number(p.advanceDeduction),
@@ -528,11 +534,14 @@ function useApiState() {
     }
   };
 
-  const approveApplication = async (id: string, rate?: number) => {
+  const approveApplication = async (
+    id: string,
+    pay?: { rate?: number; payType?: "hourly" | "salary"; monthlySalary?: number },
+  ) => {
     try {
-      const response = await apiClient.post<{ id: string; expiry: string; workerId: string; rate: number; message: string; setupLink: string }>(
+      const response = await apiClient.post<{ id: string; expiry: string; workerId: string; rate: number; payType?: string; monthlySalary?: number | null; message: string; setupLink: string }>(
         `/api/applications/${id}/approve`,
-        rate !== undefined ? { rate } : {}
+        pay ?? {}
       );
       await loadApplications();
       // Don't load workers yet - they're not created until password setup
@@ -892,15 +901,29 @@ function useApiState() {
     ];
   }, [payrolls, settings]);
 
+  // Pay-aware cost helpers (Part 2): hourly rows cost hours × rate; salaried
+  // workers cost their monthly salary prorated by calendar days — attendance
+  // is tracked for records but never multiplied by a rate for them.
+  const hourlyRowCost = (a: Attendance) => {
+    const w = workers.find((x) => x.id === a.workerId);
+    if (w?.payType === "salary") return 0; // salaried cost is calendar-based, added separately
+    return a.hours * (w?.rate ?? settings?.hourlyRate ?? 14.5);
+  };
+  const salaryCostForRange = (from: string, to: string) =>
+    workers
+      .filter((w) => w.payType === "salary" && (w.monthlySalary ?? 0) > 0)
+      .reduce((t, w) => t + proratedMonthlySalary(Number(w.monthlySalary), from, to, w.joined).amount, 0);
+
   const weeklyReport = useMemo(() => {
-    const rateOf = (id: string) => workers.find((w) => w.id === id)?.rate ?? settings?.hourlyRate ?? 14.5;
     const starts: string[] = [];
     for (let i = 5; i >= 0; i--) starts.push(weekStart(addDays(todayISO(), -7 * i)));
     return starts.map((s, idx) => {
       const end = addDays(s, 6);
       const rows = attendance.filter((a) => a.date >= s && a.date <= end);
       const hours = round(rows.reduce((t, a) => t + a.hours, 0));
-      const cost = round(rows.reduce((t, a) => t + a.hours * rateOf(a.workerId), 0));
+      const cost = round(
+        rows.reduce((t, a) => t + hourlyRowCost(a), 0) + salaryCostForRange(s, end),
+      );
       return {
         week: `W${idx + 1}`,
         label: fmtDate(s),
@@ -912,9 +935,18 @@ function useApiState() {
   }, [attendance, workers, settings]);
 
   const totals = useMemo(() => {
-    const rateOf = (id: string) => workers.find((w) => w.id === id)?.rate ?? settings?.hourlyRate ?? 14.5;
     const totalHours = round(attendance.reduce((t, a) => t + a.hours, 0));
-    const labourCost = round(attendance.reduce((t, a) => t + a.hours * rateOf(a.workerId), 0));
+    // All-time labour cost: hourly attendance cost + salaried workers' prorated
+    // salary from their join date to today.
+    const labourCost = round(
+      attendance.reduce((t, a) => t + hourlyRowCost(a), 0) +
+        workers
+          .filter((w) => w.payType === "salary" && (w.monthlySalary ?? 0) > 0)
+          .reduce((t, w) => {
+            const from = w.joined ? String(w.joined).slice(0, 10) : todayISO();
+            return t + proratedMonthlySalary(Number(w.monthlySalary), from, todayISO(), w.joined).amount;
+          }, 0),
+    );
     const billing = round(labourCost * (settings?.billingMultiplier || 1.45));
     const payrollCost = round(payrolls.reduce((t, p) => t + p.gross, 0));
     const pending = round(payrolls.filter((p) => p.status === "Pending").reduce((t, p) => t + p.net, 0));

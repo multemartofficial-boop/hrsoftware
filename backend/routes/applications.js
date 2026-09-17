@@ -93,6 +93,8 @@ const transformApplication = (app) => {
     howHeard: app.how_heard,
     subcontractCompany: app.subcontract_company,
     workerType: app.worker_type || 'Direct',
+    payType: app.pay_type === 'salary' ? 'salary' : 'hourly',
+    monthlySalary: app.monthly_salary != null ? Number(app.monthly_salary) : null,
     passportCountry: app.passport_country,
     passportNumber: app.passport_number,
     passportIssueDate: app.passport_issue_date,
@@ -532,12 +534,24 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
       return res.status(400).json({ error: `Application is already ${application.status}` });
     }
 
-    // Admin-confirmed hourly rate (defaults to the applicant's expected rate).
-    // This is what the worker row will be created with at password setup.
+    // Pay type (Part 2): 'hourly' (default, unchanged behaviour) or 'salary'.
+    // For hourly workers the admin-confirmed hourly rate is required; for
+    // salaried workers a monthly salary amount is required instead.
+    const payType = (req.body.payType || req.body.pay_type) === 'salary' ? 'salary' : 'hourly';
     const confirmedRate = req.body.rate !== undefined && req.body.rate !== null && req.body.rate !== ''
       ? Number(req.body.rate)
       : Number(application.rate);
-    if (!Number.isFinite(confirmedRate) || confirmedRate <= 0) {
+    let monthlySalary = null;
+    if (payType === 'salary') {
+      const raw = req.body.monthlySalary ?? req.body.monthly_salary;
+      monthlySalary = raw !== undefined && raw !== null && raw !== ''
+        ? Number(raw)
+        : Number(application.monthly_salary);
+      if (!Number.isFinite(monthlySalary) || monthlySalary <= 0) {
+        await connection.rollback();
+        return res.status(400).json({ error: 'A valid monthly salary greater than 0 is required' });
+      }
+    } else if (!Number.isFinite(confirmedRate) || confirmedRate <= 0) {
       await connection.rollback();
       return res.status(400).json({ error: 'A valid hourly rate greater than 0 is required' });
     }
@@ -580,15 +594,18 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
 
     // Update application status and store worker info temporarily
     await connection.query(
-      `UPDATE registration_applications 
-      SET status = "approved", 
-          worker_id = ?, 
-          worker_joined = ?, 
+      `UPDATE registration_applications
+      SET status = "approved",
+          worker_id = ?,
+          worker_joined = ?,
           worker_expiry = ?,
           approval_token = ?,
-          rate = ?
+          rate = ?,
+          pay_type = ?,
+          monthly_salary = ?
       WHERE id = ?`,
-      [workerId, joined, expiry, setupToken, confirmedRate, req.params.id]
+      [workerId, joined, expiry, setupToken,
+       payType === 'salary' ? 0 : confirmedRate, payType, monthlySalary, req.params.id]
     );
 
     // Send email with setup link
@@ -597,7 +614,7 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
       <h2>Welcome to WorkHR!</h2>
       <p>Your application has been approved and your worker account has been created.</p>
       <p><strong>Worker Code:</strong> ${workerId}</p>
-      <p><strong>Hourly Rate:</strong> £${confirmedRate.toFixed(2)}</p>
+      <p><strong>${payType === 'salary' ? 'Monthly Salary' : 'Hourly Rate'}:</strong> £${(payType === 'salary' ? monthlySalary : confirmedRate).toFixed(2)}${payType === 'salary' ? ' / month' : ' / hour'}</p>
       <p><strong>Join Date:</strong> ${joined.toISOString().split('T')[0]}</p>
       <p><strong>Expiry Date:</strong> ${expiry.toISOString().split('T')[0]}</p>
       <p>To set your password and complete your account setup, click the link below:</p>
@@ -621,13 +638,17 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
       applicant: application.name,
       email: application.email,
       workerId,
-      rate: confirmedRate,
+      rate: payType === 'salary' ? null : confirmedRate,
+      payType,
+      monthlySalary,
     });
     res.json({
       id: workerId,
       expiry: expiry.toISOString().split('T')[0],
       workerId,
-      rate: confirmedRate,
+      rate: payType === 'salary' ? 0 : confirmedRate,
+      payType,
+      monthlySalary,
       message: 'Application approved successfully. Setup link sent to worker email.',
       setupLink: setupLink // Include for testing
     });

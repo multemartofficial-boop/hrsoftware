@@ -72,22 +72,28 @@ function RateConfirmModal({
   onCancel,
 }: {
   app: Application;
-  onConfirm: (rate: number) => Promise<void>;
+  onConfirm: (pay: { payType: "hourly" | "salary"; rate?: number; monthlySalary?: number }) => Promise<void>;
   onCancel: () => void;
 }) {
   const expected = Number(app.rate) || 0;
+  const [payType, setPayType] = useState<"hourly" | "salary">("hourly");
   const [rate, setRate] = useState(expected > 0 ? expected.toFixed(2) : "");
   const [saving, setSaving] = useState(false);
   const parsed = Number(rate);
   const valid = Number.isFinite(parsed) && parsed > 0;
-  const changed = valid && Math.abs(parsed - expected) > 0.004;
+  const changed = payType === "hourly" && valid && Math.abs(parsed - expected) > 0.004;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!valid || saving) return;
     setSaving(true);
     try {
-      await onConfirm(Math.round(parsed * 100) / 100);
+      const amount = Math.round(parsed * 100) / 100;
+      await onConfirm(
+        payType === "salary"
+          ? { payType, monthlySalary: amount }
+          : { payType, rate: amount },
+      );
     } finally {
       setSaving(false);
     }
@@ -95,26 +101,54 @@ function RateConfirmModal({
 
   return (
     <Modal
-      title="Confirm hourly rate"
+      title="Confirm pay"
       description={`Approving ${app.name} (${app.id})`}
       onClose={onCancel}
     >
       <form onSubmit={submit} className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          {expected > 0 ? (
-            <>
-              This applicant expects{" "}
-              <strong className="text-foreground">£{expected.toFixed(2)}/hour</strong>. Do you want to continue with
-              this rate, or set a different rate?
-            </>
+          {payType === "hourly" ? (
+            expected > 0 ? (
+              <>
+                This applicant expects{" "}
+                <strong className="text-foreground">£{expected.toFixed(2)}/hour</strong>. Do you want to continue with
+                this rate, or set a different rate?
+              </>
+            ) : (
+              <>No expected hourly rate was provided. Please set the worker&apos;s hourly rate below.</>
+            )
           ) : (
-            <>No expected hourly rate was provided. Please set the worker&apos;s hourly rate below.</>
+            <>Monthly-salaried workers are paid a fixed amount per month, prorated by calendar days for partial periods — attendance is still tracked for records but is not multiplied by a rate.</>
           )}{" "}
-          The confirmed rate becomes the worker&apos;s hourly rate used for all payroll calculations.
+          {payType === "hourly" && "The confirmed rate becomes the worker's hourly rate used for all payroll calculations."}
         </p>
+        <Field label="Pay type" hint="Choose how this worker is paid">
+          <div className="grid grid-cols-2 gap-2">
+            {(["hourly", "salary"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setPayType(t)}
+                className={`h-10 rounded-lg border text-sm font-medium transition-colors ${
+                  payType === t
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:bg-secondary"
+                }`}
+              >
+                {t === "hourly" ? "Hourly" : "Monthly Salary"}
+              </button>
+            ))}
+          </div>
+        </Field>
         <Field
-          label="Hourly rate (£)"
-          hint={expected > 0 ? (changed ? `Changed from applicant's expected £${expected.toFixed(2)}` : "Applicant's expected rate") : "Enter the worker's hourly rate"}
+          label={payType === "salary" ? "Monthly salary (£)" : "Hourly rate (£)"}
+          hint={
+            payType === "salary"
+              ? "Fixed amount per calendar month — prorated automatically for partial periods"
+              : expected > 0
+                ? (changed ? `Changed from applicant's expected £${expected.toFixed(2)}` : "Applicant's expected rate")
+                : "Enter the worker's hourly rate"
+          }
         >
           <input
             type="number"
@@ -127,13 +161,17 @@ function RateConfirmModal({
             className={inputCls}
           />
         </Field>
-        {!valid && rate !== "" && <p className="text-xs text-danger">Enter a rate greater than 0.</p>}
+        {!valid && rate !== "" && (
+          <p className="text-xs text-danger">
+            {payType === "salary" ? "Enter a salary greater than 0." : "Enter a rate greater than 0."}
+          </p>
+        )}
         <div className="flex justify-end gap-2">
           <GhostButton type="button" onClick={onCancel} disabled={saving}>
             Cancel
           </GhostButton>
           <PrimaryButton type="submit" disabled={!valid || saving}>
-            <Check className="size-4" /> {saving ? "Approving…" : changed ? "Approve with new rate" : "Approve with this rate"}
+            <Check className="size-4" /> {saving ? "Approving…" : payType === "salary" ? "Approve as salaried" : changed ? "Approve with new rate" : "Approve with this rate"}
           </PrimaryButton>
         </div>
       </form>
@@ -167,15 +205,18 @@ function Approvals() {
   // Step 1: clicking Approve opens the rate confirmation; nothing is sent yet.
   const approve = (id: string) => setConfirmingId(id);
 
-  // Step 2: admin confirmed (or edited) the rate — now actually approve.
-  const confirmApprove = async (id: string, rate: number) => {
-    const result = await approveApplication(id, rate);
+  // Step 2: admin confirmed the pay type and amount — now actually approve.
+  const confirmApprove = async (id: string, pay: { payType: "hourly" | "salary"; rate?: number; monthlySalary?: number }) => {
+    const result = await approveApplication(id, pay);
     setConfirmingId(null);
     setSelectedId(null);
     await loadAllApplications();
     if (result) {
       setFlashWorkerId(result.workerId);
-      setFlash(`Application approved — Worker Code: ${result.workerId} · Rate £${Number(result.rate ?? rate).toFixed(2)}/h · Setup link sent to email.`);
+      const payLabel = pay.payType === "salary"
+        ? `Salary £${Number(result.monthlySalary ?? pay.monthlySalary).toFixed(2)}/month`
+        : `Rate £${Number(result.rate ?? pay.rate).toFixed(2)}/h`;
+      setFlash(`Application approved — Worker Code: ${result.workerId} · ${payLabel} · Setup link sent to email.`);
     }
   };
 
@@ -239,7 +280,7 @@ function Approvals() {
       {confirming && (
         <RateConfirmModal
           app={confirming}
-          onConfirm={(rate) => confirmApprove(confirming.id, rate)}
+          onConfirm={(pay) => confirmApprove(confirming.id, pay)}
           onCancel={() => setConfirmingId(null)}
         />
       )}

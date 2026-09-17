@@ -71,6 +71,16 @@ async function ensureSchema() {
     await addCol('ALTER TABLE payroll ADD COLUMN holiday_accrued_hours DECIMAL(8,2) NOT NULL DEFAULT 0', 'payroll.holiday_accrued_hours');
     await addCol('ALTER TABLE payroll ADD COLUMN holiday_accrual_pay DECIMAL(10,2) NOT NULL DEFAULT 0', 'payroll.holiday_accrual_pay');
 
+    // Pay type (Part 2): 'hourly' (default, existing behaviour) or 'salary'
+    // (monthly-salaried, prorated by calendar days). Existing rows stay hourly.
+    await addCol("ALTER TABLE workers ADD COLUMN pay_type ENUM('hourly','salary') NOT NULL DEFAULT 'hourly'", 'workers.pay_type');
+    await addCol('ALTER TABLE workers ADD COLUMN monthly_salary DECIMAL(10,2) NULL', 'workers.monthly_salary');
+    await addCol("ALTER TABLE registration_applications ADD COLUMN pay_type ENUM('hourly','salary') NOT NULL DEFAULT 'hourly'", 'registration_applications.pay_type');
+    await addCol('ALTER TABLE registration_applications ADD COLUMN monthly_salary DECIMAL(10,2) NULL', 'registration_applications.monthly_salary');
+    await addCol("ALTER TABLE payroll ADD COLUMN pay_type ENUM('hourly','salary') NOT NULL DEFAULT 'hourly'", 'payroll.pay_type');
+    await addCol('ALTER TABLE payroll ADD COLUMN monthly_salary DECIMAL(10,2) NULL', 'payroll.monthly_salary');
+    await addCol('ALTER TABLE payroll ADD COLUMN pay_details JSON NULL', 'payroll.pay_details');
+
     // Action History audit log
     try {
       await pool.query(

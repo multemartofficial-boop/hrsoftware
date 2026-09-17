@@ -1,14 +1,17 @@
 import { useState, useEffect, useRef } from "react";
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
-import { ArrowLeft, Copy, Check, RotateCcw, FileImage, FileText, ExternalLink, Loader2, X, Trash2, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Copy, Check, RotateCcw, FileImage, FileText, ExternalLink, Loader2, X, Trash2, ShieldCheck, Pencil, Banknote } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, DataTable, EmptyRow, StatusBadge, Td, Th, inputCls } from "@/components/hr/bits";
 import {
   avatarUrl,
   money2,
+  PAY_TYPE_LABELS,
   COMPLIANCE_ITEMS,
   CRIMINAL_CHECK_LEVELS,
   WORKER_CHECK_STATUSES,
+  type PayType,
+  type Worker,
   type WorkerCompliance,
   type WorkerComplianceCheck,
 } from "@/lib/mock-data";
@@ -263,6 +266,125 @@ function WorkerDocuments({ workerId }: { workerId: string }) {
   );
 }
 
+/** Admin editor for a worker's pay type and rate/salary amount (Part 2). */
+function PaySection({ worker }: { worker: Worker }) {
+  const { updateWorker } = useApi();
+  const [editing, setEditing] = useState(false);
+  const [payType, setPayType] = useState<PayType>(worker.payType ?? "hourly");
+  const [amount, setAmount] = useState(
+    worker.payType === "salary" ? String(worker.monthlySalary ?? "") : String(worker.rate ?? ""),
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const parsed = Number(amount);
+  const valid = Number.isFinite(parsed) && parsed > 0;
+  const isSalary = (worker.payType ?? "hourly") === "salary";
+
+  const save = async () => {
+    if (!valid || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await updateWorker(worker.id, {
+        payType,
+        rate: payType === "hourly" ? Math.round(parsed * 100) / 100 : 0,
+        monthlySalary: payType === "salary" ? Math.round(parsed * 100) / 100 : null,
+      });
+      setEditing(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save pay details");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center gap-3">
+        <span className={`grid size-9 place-items-center rounded-lg ${isSalary ? "bg-success/10 text-success" : "bg-primary/10 text-primary"}`}>
+          <Banknote className="size-4" />
+        </span>
+        <div className="mr-auto">
+          <h2 className="text-base font-semibold">Pay — {PAY_TYPE_LABELS[worker.payType ?? "hourly"]}</h2>
+          <p className="text-xs text-muted-foreground">
+            {isSalary
+              ? `${money2(worker.monthlySalary ?? 0)} per month · prorated by calendar days · ${money2((worker.monthlySalary ?? 0) * 12)} per year`
+              : `${money2(worker.rate)} per hour × hours worked`}
+          </p>
+        </div>
+        {!editing && (
+          <button
+            onClick={() => {
+              setPayType(worker.payType ?? "hourly");
+              setAmount(worker.payType === "salary" ? String(worker.monthlySalary ?? "") : String(worker.rate ?? ""));
+              setEditing(true);
+            }}
+            className="flex h-9 items-center gap-1.5 rounded-lg border border-border px-4 text-sm font-medium hover:bg-secondary"
+          >
+            <Pencil className="size-4" /> Edit
+          </button>
+        )}
+      </div>
+
+      {editing && (
+        <div className="mt-4 grid gap-3 sm:grid-cols-[200px_1fr_auto_auto] sm:items-end">
+          <div>
+            <p className="mb-1 text-xs font-medium text-muted-foreground">Pay type</p>
+            <select
+              value={payType}
+              onChange={(e) => {
+                setPayType(e.target.value as PayType);
+                setAmount("");
+              }}
+              className={inputCls}
+            >
+              <option value="hourly">Hourly</option>
+              <option value="salary">Monthly Salary</option>
+            </select>
+          </div>
+          <div>
+            <p className="mb-1 text-xs font-medium text-muted-foreground">
+              {payType === "salary" ? "Monthly salary (£)" : "Hourly rate (£)"}
+            </p>
+            <input
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className={inputCls}
+            />
+          </div>
+          <button
+            onClick={save}
+            disabled={!valid || saving}
+            className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-60"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button
+            onClick={() => setEditing(false)}
+            disabled={saving}
+            className="flex h-9 items-center rounded-lg border border-border px-4 text-sm font-medium hover:bg-secondary"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+      {error && <p className="mt-2 text-xs text-danger">{error}</p>}
+      {editing && !valid && amount !== "" && (
+        <p className="mt-2 text-xs text-danger">Enter an amount greater than 0.</p>
+      )}
+      {editing && payType === "salary" && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Payroll will pay the monthly salary prorated by calendar days — hours worked are still recorded but not used for pay.
+        </p>
+      )}
+    </Card>
+  );
+}
+
 function WorkerDetails() {
   const { id } = useParams({ from: "/admin/workers/$id" });
   const { workers, attendance, payrolls, workerStatus, reactivateWorker, deleteWorker, loading, loadWorkers } = useApi();
@@ -326,8 +448,18 @@ function WorkerDetails() {
               <img src={avatarUrl(worker.name)} alt={worker.name} className="mx-auto size-32 rounded-2xl bg-secondary" />
               <h2 className="mt-4 text-lg font-semibold">{worker.name}</h2>
               <p className="text-sm text-muted-foreground">{worker.role}</p>
-              <div className="mt-3 flex justify-center gap-2">
+              <div className="mt-3 flex flex-wrap justify-center gap-2">
                 <StatusBadge status={status} />
+                <span
+                  className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                    (worker.payType ?? "hourly") === "salary"
+                      ? "bg-success/10 text-success"
+                      : "bg-primary/10 text-primary"
+                  }`}
+                  title="How this worker is paid"
+                >
+                  {PAY_TYPE_LABELS[worker.payType ?? "hourly"]}
+                </span>
                 <span
                   className={`rounded-full px-2.5 py-1 text-xs font-medium ${
                     (worker.complianceDone ?? 0) >= 8
@@ -363,7 +495,13 @@ function WorkerDetails() {
                   ["Address", worker.address ?? "—"],
                   ["N.I. Number", worker.nid ?? "—"],
                   ["Location", worker.location],
-                  ["Hourly rate", money2(worker.rate)],
+                  ["Pay type", PAY_TYPE_LABELS[worker.payType ?? "hourly"]],
+                  ...((worker.payType ?? "hourly") === "salary"
+                    ? ([
+                        ["Monthly salary", money2(worker.monthlySalary ?? 0)],
+                        ["Yearly equivalent", money2((worker.monthlySalary ?? 0) * 12)],
+                      ] as [string, string][])
+                    : ([["Hourly rate", `${money2(worker.rate)} / hour`]] as [string, string][])),
                   ["Joining date", fmtDate(worker.joined)],
                   [
                     "Expiry date",
@@ -422,6 +560,8 @@ function WorkerDetails() {
             </div>
           </div>
         </Card>
+
+        <PaySection worker={worker} />
 
         <ComplianceSection workerId={worker.id} onSaved={() => loadWorkers()} />
 

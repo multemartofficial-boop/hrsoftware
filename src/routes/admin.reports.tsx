@@ -8,7 +8,8 @@ import { DailyHoursChart, DonutChart, donutColors } from "@/components/hr/charts
 import { PayrollSummary } from "@/components/hr/payroll-summary";
 import { useApi } from "@/lib/api-store";
 import { apiClient } from "@/lib/api-client";
-import { addDays, fmtDate, money, money2, todayISO } from "@/lib/hr-utils";
+import { addDays, daysInMonth, fmtDate, money, money2, proratedMonthlySalary, todayISO } from "@/lib/hr-utils";
+import type { Attendance } from "@/lib/mock-data";
 
 export const Route = createFileRoute("/admin/reports")({
   head: () => ({
@@ -74,8 +75,44 @@ function ReportsPage() {
   );
 
   /* ---------- stat cards ---------- */
+  // Salaried workers are paid per calendar day, never hours × rate: their cost
+  // in a range is the monthly salary prorated by days (bounded by join date),
+  // and per-attendance-row they cost one day of salary split across that day's
+  // rows for location/row-level attribution.
+  const rowsPerWorkerDay = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const a of fAtt) {
+      const k = `${a.workerId}|${a.date}`;
+      m.set(k, (m.get(k) ?? 0) + 1);
+    }
+    return m;
+  }, [fAtt]);
+
+  const costOfRow = (a: Attendance) => {
+    const w = workers?.find((x) => x.id === a.workerId);
+    if (w?.payType === "salary") {
+      const n = rowsPerWorkerDay.get(`${a.workerId}|${a.date}`) ?? 1;
+      return (Number(w.monthlySalary) || 0) / daysInMonth(a.date) / n;
+    }
+    return a.hours * rateOf(a.workerId);
+  };
+
+  const salaryCostInRange = r2(
+    (workers || [])
+      .filter((w) =>
+        w.payType === "salary" &&
+        (w.monthlySalary ?? 0) > 0 &&
+        (worker === "all" || w.id === worker) &&
+        (loc === "all" || w.location === loc)
+      )
+      .reduce((t, w) => t + proratedMonthlySalary(Number(w.monthlySalary), from, to, w.joined).amount, 0),
+  );
+
   const totalHours = r2(fAtt.reduce((t, a) => t + a.hours, 0));
-  const labourCost = r2(fAtt.reduce((t, a) => t + a.hours * rateOf(a.workerId), 0));
+  const labourCost = r2(
+    fAtt.reduce((t, a) => t + (workers?.find((x) => x.id === a.workerId)?.payType === "salary" ? 0 : a.hours * rateOf(a.workerId)), 0)
+      + salaryCostInRange,
+  );
   const payrollIssued = r2(fPays.reduce((t, p) => t + p.gross, 0));
   const billing = r2(labourCost * (settings?.billingMultiplier ?? 1));
   const profit = r2(billing - labourCost);
@@ -122,13 +159,13 @@ function ReportsPage() {
     for (const a of fAtt) {
       const cur = map.get(a.location) ?? { hours: 0, cost: 0 };
       cur.hours += a.hours;
-      cur.cost += a.hours * rateOf(a.workerId);
+      cur.cost += costOfRow(a);
       map.set(a.location, cur);
     }
     return Array.from(map.entries())
       .map(([name, v]) => ({ name, hours: r2(v.hours), cost: r2(v.cost), billing: r2(v.cost * (settings?.billingMultiplier ?? 1)) }))
       .sort((a, b) => b.hours - a.hours);
-  }, [fAtt, workers, settings]);
+  }, [fAtt, workers, settings, rowsPerWorkerDay]);
 
   /* ---------- documents ratio ---------- */
   const docStats = useMemo(() => {
@@ -155,7 +192,7 @@ function ReportsPage() {
       "",
       "ATTENDANCE",
       ["Date", "Worker", "Worker Code", "Location", "Check In", "Check Out", "Hours", "Cost"].join(","),
-      ...fAtt.map((a) => [a.date, a.worker, a.workerId, a.location, a.in, a.out ?? "", a.hours, r2(a.hours * rateOf(a.workerId))].map(esc).join(",")),
+      ...fAtt.map((a) => [a.date, a.worker, a.workerId, a.location, a.in, a.out ?? "", a.hours, r2(costOfRow(a))].map(esc).join(",")),
       "",
       "PAYROLLS",
       ["ID", "Worker", "Period", "Hours", "Gross", "Net", "Status"].join(","),
@@ -299,7 +336,7 @@ function ReportsPage() {
         {/* stat cards — filtered */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatCard label="Total Hours Worked" value={`${totalHours.toFixed(1)} h`} hint="filtered range" />
-          <StatCard label="Total Labour Cost" value={money(labourCost)} hint="hours × rate" />
+          <StatCard label="Total Labour Cost" value={money(labourCost)} hint="hourly × rate + prorated salaries" />
           <StatCard label="Payroll Issued" value={money(payrollIssued)} hint={`${fPays.length} runs`} />
           <StatCard label="Profit / Loss" value={money(profit)} hint={`margin ${margin}%`} tone={profit >= 0 ? "up" : "down"} />
         </div>
@@ -310,7 +347,7 @@ function ReportsPage() {
             <div>
               <h2 className="text-base font-semibold">Payroll Period Summary</h2>
               <p className="text-xs text-muted-foreground mt-1">
-                Live from attendance records and hourly rates — click a row to expand per-worker details.
+                Live from attendance records, hourly rates and monthly salaries — click a row to expand per-worker details.
               </p>
             </div>
             <div className="ml-auto flex gap-1 rounded-lg border border-border bg-secondary/40 p-1">

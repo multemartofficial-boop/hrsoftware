@@ -398,15 +398,20 @@ router.post('/setup-password', async (req, res) => {
 
     // Create worker account. Passport / visa / SIA details are carried over from the
     // application so later phases (visa & SIA expiry warnings) can use them.
+    // Pay type (Part 2): salaried workers get monthly_salary and rate 0;
+    // hourly workers get the confirmed rate and no salary.
+    const appPayType = application.pay_type === 'salary' ? 'salary' : 'hourly';
     await connection.query(
       `INSERT INTO workers
-      (id, name, phone, email, location, role, rate, joined, expiry, address, nid, status, password_hash,
+      (id, name, phone, email, location, role, rate, pay_type, monthly_salary, joined, expiry, address, nid, status, password_hash,
        passport_country, passport_number, passport_expiry,
        visa_number, visa_expiry, sia_badge_number, sia_badge_expiry,
        worker_type, subcontract_company)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [application.worker_id, application.name, application.phone, application.email, application.location,
-       application.applied_for, application.rate, application.worker_joined, application.worker_expiry,
+       application.applied_for, appPayType === 'salary' ? 0 : application.rate,
+       appPayType, appPayType === 'salary' ? (Number(application.monthly_salary) || null) : null,
+       application.worker_joined, application.worker_expiry,
        application.address, application.nid, passwordHash,
        application.passport_country || null, application.passport_number || null, application.passport_expiry || null,
        application.visa_number || null, application.visa_expiry || null,

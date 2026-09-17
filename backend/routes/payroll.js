@@ -28,6 +28,46 @@ const getBankHolidaySet = async () => {
   return set;
 };
 
+const round2 = (n) => Math.round(n * 100) / 100;
+
+// Monthly-salary proration (Part 2): each calendar month the period touches
+// contributes monthlySalary × (days of the period inside that month / days in
+// that month). A period covering a whole calendar month therefore pays exactly
+// one monthly salary. `joinedStr` bounds the start so a worker never accrues
+// salary before their join date.
+const prorateMonthlySalary = (monthlySalary, fromStr, toStr, joinedStr) => {
+  const toLocal = (v) => v instanceof Date
+    ? new Date(v.getFullYear(), v.getMonth(), v.getDate())
+    : new Date(String(v).slice(0, 10) + 'T00:00:00');
+  const from = toLocal(fromStr);
+  const to = toLocal(toStr);
+  const joined = joinedStr ? toLocal(joinedStr) : null;
+  const start = joined && joined > from ? joined : from;
+  const breakdown = [];
+  if (!(monthlySalary > 0) || start > to) return { amount: 0, breakdown };
+  let cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+  while (cursor <= to) {
+    const y = cursor.getFullYear();
+    const m = cursor.getMonth();
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const monthStart = cursor;
+    const monthEnd = new Date(y, m, daysInMonth);
+    const s = start > monthStart ? start : monthStart;
+    const e = to < monthEnd ? to : monthEnd;
+    if (s <= e) {
+      const days = Math.round((e - s) / 86400000) + 1;
+      breakdown.push({
+        month: `${y}-${String(m + 1).padStart(2, '0')}`,
+        days,
+        daysInMonth,
+        amount: round2((monthlySalary * days) / daysInMonth),
+      });
+    }
+    cursor = new Date(y, m + 1, 1);
+  }
+  return { amount: round2(breakdown.reduce((t, b) => t + b.amount, 0)), breakdown };
+};
+
 // Helper: Calculate payroll
 // Phase C: hours worked on configured bank holidays are paid at
 // rate * holiday_pay_multiplier. Holiday hours still count toward the
@@ -43,6 +83,8 @@ const calculatePayroll = async (workerId, from, to, advance, settings, { allowZe
   const worker = workers[0];
   // Convert rate from string to number
   const rate = Number(worker.rate) || 0;
+  const payType = worker.pay_type === 'salary' ? 'salary' : 'hourly';
+  const monthlySalary = Number(worker.monthly_salary) || 0;
 
   const holidays = await getBankHolidaySet();
 
@@ -66,8 +108,10 @@ const calculatePayroll = async (workerId, from, to, advance, settings, { allowZe
   }
   const regularHours = totalHours - holidayHours;
 
-  // Validate: if no attendance records, return early with a clear error
-  if (totalHours === 0 && !allowZeroHours) {
+  // Validate: if no attendance records, return early with a clear error.
+  // Salaried workers are paid per calendar day, not per attended hour, so a
+  // period with no attendance is still payable for them.
+  if (totalHours === 0 && !allowZeroHours && payType !== 'salary') {
     throw new Error('No attendance records found for this worker in the selected date range');
   }
 
@@ -79,6 +123,47 @@ const calculatePayroll = async (workerId, from, to, advance, settings, { allowZe
   const accrualRate = Number.isFinite(holidayAccrualRate) ? holidayAccrualRate : 12.07;
   const taxRateValue = Number(settings.tax_rate) || 0;
   const niRateValue = Number(settings.ni_rate) || 0;
+  const taxRatePercent = (taxRateValue + niRateValue) / 100;
+
+  // Monthly-salaried workers (Part 2): gross is the monthly salary prorated by
+  // calendar days across the period — hours are recorded for reference only
+  // and never multiplied by a rate. No overtime/bank-holiday/holiday-accrual
+  // pay applies on top of a salary. Tax/NI and advance deductions still apply.
+  if (payType === 'salary') {
+    if (!(monthlySalary > 0)) {
+      throw new Error('This worker is on Monthly Salary but has no monthly salary amount set — set one on their worker record first');
+    }
+    const { amount: salaryGross, breakdown } = prorateMonthlySalary(monthlySalary, from, to, worker.joined);
+    const gross = salaryGross;
+    const tax = gross * taxRatePercent;
+    const net = gross - tax - advance;
+    if (!Number.isFinite(gross) || !Number.isFinite(tax) || !Number.isFinite(net)) {
+      throw new Error('Invalid calculation results: gross, tax, or net pay is not a valid number');
+    }
+    return {
+      workerId,
+      worker: worker.name,
+      payType,
+      monthlySalary,
+      salaryBreakdown: breakdown,
+      rate: 0,
+      hours: totalHours,
+      regularHours: Math.round(totalHours * 100) / 100,
+      overtime: 0,
+      holidayHours: Math.round(holidayHours * 100) / 100,
+      holidayPay: 0,
+      holidayMultiplier,
+      holidayAccruedHours: Math.round(holidayAccruedHours * 100) / 100,
+      holidayAccrualPay: 0,
+      holidayAccrualRate: accrualRate,
+      gross: Math.round(gross * 100) / 100,
+      tax: Math.round(tax * 100) / 100,
+      advance: Math.round(advance * 100) / 100,
+      net: Math.round(net * 100) / 100,
+      from,
+      to
+    };
+  }
 
   // Overtime: total hours count toward the threshold, but the excess is
   // drawn from non-holiday hours first — holiday hours are always paid
@@ -94,7 +179,6 @@ const calculatePayroll = async (workerId, from, to, advance, settings, { allowZe
   // Independent of bank-holiday pay — both apply on the same day when relevant.
   const holidayAccrualPay = holidayAccruedHours * rate;
   const gross = regularGross + holidayPay + holidayAccrualPay;
-  const taxRatePercent = (taxRateValue + niRateValue) / 100;
   const tax = gross * taxRatePercent;
   const net = gross - tax - advance;
 
@@ -106,6 +190,8 @@ const calculatePayroll = async (workerId, from, to, advance, settings, { allowZe
   return {
     workerId,
     worker: worker.name,
+    payType,
+    monthlySalary: null,
     rate,
     hours: totalHours,
     regularHours: Math.round(normalHours * 100) / 100,
@@ -151,7 +237,7 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
     query += ' ORDER BY generated_at DESC';
     
     const [payrolls] = await pool.query(query, params);
-    
+
     // Normalize snake_case to camelCase for frontend compatibility
     const normalizedPayrolls = payrolls.map(p => ({
       id: p.id,
@@ -159,6 +245,11 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
       worker: p.worker,
       periodStart: p.period_start,
       periodEnd: p.period_end,
+      payType: p.pay_type === 'salary' ? 'salary' : 'hourly',
+      monthlySalary: p.monthly_salary != null ? Number(p.monthly_salary) : null,
+      payDetails: p.pay_details
+        ? (typeof p.pay_details === 'string' ? JSON.parse(p.pay_details) : p.pay_details)
+        : null,
       hours: Number(p.hours),
       overtime: Number(p.overtime),
       holidayHours: Number(p.holiday_hours || 0),
@@ -236,10 +327,13 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
     
     await pool.query(
       `INSERT INTO payroll
-      (id, worker_id, worker, period_start, period_end, hours, overtime, holiday_hours, holiday_pay,
+      (id, worker_id, worker, period_start, period_end, pay_type, monthly_salary, pay_details,
+       hours, overtime, holiday_hours, holiday_pay,
        holiday_accrued_hours, holiday_accrual_pay, rate, gross, advance_deduction, tax_ni, net_pay, status, generated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', NOW())`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', NOW())`,
       [payrollId, calculation.workerId, calculation.worker, calculation.from, calculation.to,
+       calculation.payType || 'hourly', calculation.monthlySalary ?? null,
+       calculation.payType === 'salary' ? JSON.stringify({ salaryBreakdown: calculation.salaryBreakdown || [] }) : null,
        calculation.hours, calculation.overtime, calculation.holidayHours, calculation.holidayPay,
        calculation.holidayAccruedHours, calculation.holidayAccrualPay,
        calculation.rate, calculation.gross,
@@ -256,6 +350,7 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
       workerId: calculation.workerId,
       worker: calculation.worker,
       period: `${calculation.from} → ${calculation.to}`,
+      payType: calculation.payType,
       gross: calculation.gross,
       net: calculation.net,
     });
@@ -332,7 +427,7 @@ router.get('/summary', requireAuth, requireAdmin, async (req, res) => {
 
     // Fetch all attendance joined with worker rates (incl. stored holiday accrual)
     const [rows] = await pool.query(
-      `SELECT a.worker_id, w.name AS worker_name, w.rate,
+      `SELECT a.worker_id, w.name AS worker_name, w.rate, w.pay_type, w.monthly_salary, w.joined,
               a.date, a.hours_worked, a.holiday_accrued_hours
        FROM attendance a
        JOIN workers w ON a.worker_id = w.id
@@ -371,27 +466,97 @@ router.get('/summary', requireAuth, requireAdmin, async (req, res) => {
       return `${f(start)} – ${f(end)} ${y}`;
     };
 
-    // Group attendance by period, then by worker
-    const groups = {};
-    for (const row of rows) {
-      const dateStr = toLocalDateStr(row.date);
-      const pk = periodKey(dateStr);
+    // Calendar bounds of a period key — used to prorate monthly salaries.
+    const periodBounds = (key) => {
+      if (period === 'yearly') return { start: `${key}-01-01`, end: `${key}-12-31` };
+      if (period === 'monthly') {
+        const [y, m] = key.split('-').map(Number);
+        const dim = new Date(y, m, 0).getDate();
+        return { start: `${key}-01`, end: `${key}-${String(dim).padStart(2, '0')}` };
+      }
+      const [start, end] = key.split('_');
+      return { start, end };
+    };
+
+    // All period keys covering [fromStr, toStr] — used so salaried workers
+    // appear in periods even when they logged no attendance (a salary accrues
+    // every calendar day, not just days with check-ins).
+    const periodKeysCovering = (fromStr, toStr) => {
+      const keys = [];
+      const from = new Date(String(fromStr).slice(0, 10) + 'T00:00:00');
+      const to = new Date(String(toStr).slice(0, 10) + 'T00:00:00');
+      if (from > to) return keys;
+      if (period === 'yearly') {
+        for (let y = from.getFullYear(); y <= to.getFullYear(); y++) keys.push(String(y));
+      } else if (period === 'monthly') {
+        const cur = new Date(from.getFullYear(), from.getMonth(), 1);
+        while (cur <= to) {
+          keys.push(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`);
+          cur.setMonth(cur.getMonth() + 1);
+        }
+      } else {
+        const cur = new Date(from);
+        cur.setDate(cur.getDate() - ((cur.getDay() + 6) % 7)); // Monday of that week
+        while (cur <= to) {
+          keys.push(periodKey(toLocalDateStr(cur)));
+          cur.setDate(cur.getDate() + 7);
+        }
+      }
+      return keys;
+    };
+
+    const ensureWorkerEntry = (pk, id, name, payType, monthlySalary, joined) => {
       if (!groups[pk]) groups[pk] = { label: periodLabel(pk), workers: {} };
-      if (!groups[pk].workers[row.worker_id]) {
-        groups[pk].workers[row.worker_id] = {
-          workerId: row.worker_id,
-          worker: row.worker_name,
-          rate: Number(row.rate) || 0,
+      if (!groups[pk].workers[id]) {
+        groups[pk].workers[id] = {
+          workerId: id,
+          worker: name,
+          rate: 0,
+          payType,
+          monthlySalary,
+          joined,
           hours: 0,
           holidayHours: 0,
           holidayAccruedHours: 0,
         };
       }
+      return groups[pk].workers[id];
+    };
+
+    // Group attendance by period, then by worker
+    const groups = {};
+    for (const row of rows) {
+      const dateStr = toLocalDateStr(row.date);
+      const pk = periodKey(dateStr);
+      const w = ensureWorkerEntry(
+        pk,
+        row.worker_id,
+        row.worker_name,
+        row.pay_type === 'salary' ? 'salary' : 'hourly',
+        row.monthly_salary != null ? Number(row.monthly_salary) : null,
+        toLocalDateStr(row.joined)
+      );
+      w.rate = Number(row.rate) || 0;
       const h = Number(row.hours_worked) || 0;
-      groups[pk].workers[row.worker_id].hours += h;
-      groups[pk].workers[row.worker_id].holidayAccruedHours += Number(row.holiday_accrued_hours) || 0;
+      w.hours += h;
+      w.holidayAccruedHours += Number(row.holiday_accrued_hours) || 0;
       if (holidaySet.has(dateStr)) {
-        groups[pk].workers[row.worker_id].holidayHours += h;
+        w.holidayHours += h;
+      }
+    }
+
+    // Salaried workers accrue pay on calendar days, not attended days — add
+    // them to every period overlapping their employment so the summary
+    // reflects real payroll cost even for weeks/months with no attendance.
+    const [salariedWorkers] = await pool.query(
+      "SELECT id, name, monthly_salary, joined FROM workers WHERE pay_type = 'salary'"
+    );
+    const todayStr = toLocalDateStr(new Date());
+    for (const sw of salariedWorkers) {
+      const joinedStr = sw.joined ? toLocalDateStr(sw.joined) : todayStr;
+      if (joinedStr > todayStr) continue;
+      for (const pk of periodKeysCovering(joinedStr, todayStr)) {
+        ensureWorkerEntry(pk, sw.id, sw.name, 'salary', Number(sw.monthly_salary) || null, joinedStr);
       }
     }
 
@@ -413,14 +578,22 @@ router.get('/summary', requireAuth, requireAdmin, async (req, res) => {
       let totalHours = 0, totalGross = 0, totalTax = 0, totalNet = 0, totalHolidayHours = 0, totalHolidayPay = 0;
       let totalAccruedHours = 0, totalAccrualPay = 0;
       const workerBreakdown = Object.values(group.workers).map((w) => {
-        // Same holiday/overtime rule as calculatePayroll: holiday hours count
-        // toward the threshold but are paid at the holiday rate.
-        const regularHours = w.hours - w.holidayHours;
-        const overtimeHours = Math.min(regularHours, Math.max(0, w.hours - overtimeThreshold * weeks));
-        const normalHours = regularHours - overtimeHours;
-        const holidayPay = w.holidayHours * w.rate * holidayMultiplier;
-        const holidayAccrualPay = w.holidayAccruedHours * w.rate;
-        const gross = (normalHours * w.rate) + (overtimeHours * w.rate * overtimeMultiplier) + holidayPay + holidayAccrualPay;
+        let overtimeHours = 0, holidayPay = 0, holidayAccrualPay = 0, gross;
+        if (w.payType === 'salary') {
+          // Monthly salary prorated by the calendar days of this period —
+          // hours are tracked for records but never multiplied by a rate.
+          const bounds = periodBounds(key);
+          gross = prorateMonthlySalary(w.monthlySalary || 0, bounds.start, bounds.end, w.joined).amount;
+        } else {
+          // Same holiday/overtime rule as calculatePayroll: holiday hours count
+          // toward the threshold but are paid at the holiday rate.
+          const regularHours = w.hours - w.holidayHours;
+          overtimeHours = Math.min(regularHours, Math.max(0, w.hours - overtimeThreshold * weeks));
+          const normalHours = regularHours - overtimeHours;
+          holidayPay = w.holidayHours * w.rate * holidayMultiplier;
+          holidayAccrualPay = w.holidayAccruedHours * w.rate;
+          gross = (normalHours * w.rate) + (overtimeHours * w.rate * overtimeMultiplier) + holidayPay + holidayAccrualPay;
+        }
         const tax = gross * taxRatePercent;
         const net = gross - tax;
         totalHours += w.hours;
@@ -434,6 +607,8 @@ router.get('/summary', requireAuth, requireAdmin, async (req, res) => {
         return {
           workerId: w.workerId,
           worker: w.worker,
+          payType: w.payType,
+          monthlySalary: w.monthlySalary,
           rate: w.rate,
           hours: Math.round(w.hours * 100) / 100,
           overtime: Math.round(overtimeHours * 100) / 100,

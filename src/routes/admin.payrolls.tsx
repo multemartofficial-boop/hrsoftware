@@ -27,6 +27,9 @@ import type { Payroll } from "@/lib/mock-data";
 type PayrollPreview = {
   workerId: string;
   worker: string;
+  payType?: "hourly" | "salary";
+  monthlySalary?: number | null;
+  salaryBreakdown?: { month: string; days: number; daysInMonth: number; amount: number }[];
   rate: number;
   hours: number;
   regularHours: number;
@@ -150,7 +153,9 @@ function NewPayrollForm({ onClose }: { onClose: () => void }) {
           <select value={workerId} onChange={(e) => setWorkerId(e.target.value)} className={inputCls}>
             {workers?.map((w) => (
               <option key={w.id} value={w.id}>
-                {w.name} — £{(w.rate ?? 0).toFixed(2)}/h
+                {w.payType === "salary"
+                  ? `${w.name} — Monthly Salary £${Number(w.monthlySalary ?? 0).toFixed(2)}/mo`
+                  : `${w.name} — £{(w.rate ?? 0).toFixed(2)}/h`}
               </option>
             ))}
           </select>
@@ -184,33 +189,61 @@ function NewPayrollForm({ onClose }: { onClose: () => void }) {
         )}
         {preview && settings && (
           <div className={`sm:col-span-2 rounded-xl bg-secondary/60 p-4${previewLoading ? " opacity-60" : ""}`}>
-            <p className="mb-2 text-sm font-semibold">Calculation preview</p>
+            <p className="mb-2 text-sm font-semibold">
+              Calculation preview
+              <span className={`ml-2 rounded-full px-2 py-0.5 text-xs font-medium ${
+                preview.payType === "salary" ? "bg-success/10 text-success" : "bg-primary/10 text-primary"
+              }`}>
+                {preview.payType === "salary" ? "Monthly Salary" : "Hourly"}
+              </span>
+            </p>
             <dl className="grid gap-y-1 text-sm sm:grid-cols-2">
-              {([
-                ["Regular hours", `${(preview.regularHours ?? preview.hours).toFixed(2)} h`],
-                preview.overtime > 0 ? ["Overtime hours", `${preview.overtime.toFixed(2)} h × ${settings.overtimeMultiplier}`] : null,
-                preview.holidayHours > 0
-                  ? ["Bank holiday hours", `${preview.holidayHours.toFixed(2)} h × ${preview.holidayMultiplier ?? settings.holidayPayMultiplier} = ${money2(preview.holidayPay)}`]
-                  : null,
-                (preview.holidayAccruedHours ?? 0) > 0
-                  ? ["Holiday accrual", `${(preview.holidayAccruedHours ?? 0).toFixed(2)} h (${preview.holidayAccrualRate ?? settings.holidayAccrualRate}%) = ${money2(preview.holidayAccrualPay ?? 0)}`]
-                  : null,
-                ["Hourly rate", money2(preview.rate)],
-                ["Gross pay", money2(preview.gross)],
-                [`Tax + NI (${settings.taxRate + settings.niRate}%)`, `-${money2(preview.tax)}`],
-                ["Advance", `-${money2(preview.advance)}`],
-              ].filter(Boolean) as [string, string][]).map(([k, v]) => (
-                <div key={k} className="flex justify-between gap-4 pr-4">
-                  <dt className="text-muted-foreground">{k}</dt>
-                  <dd>{v}</dd>
-                </div>
-              ))}
+              {preview.payType === "salary" ? (
+                <>
+                  {([
+                    ["Monthly salary", money2(preview.monthlySalary ?? 0)],
+                    ...((preview.salaryBreakdown ?? []).map((b) => [
+                      `Prorated ${b.month}`,
+                      `${b.days}/${b.daysInMonth} days = ${money2(b.amount)}`,
+                    ] as [string, string])),
+                    ["Hours recorded (records only)", `${preview.hours.toFixed(2)} h`],
+                    ["Gross pay", money2(preview.gross)],
+                    [`Tax + NI (${settings.taxRate + settings.niRate}%)`, `-${money2(preview.tax)}`],
+                    ["Advance", `-${money2(preview.advance)}`],
+                  ] as [string, string][]).map(([k, v]) => (
+                    <div key={k} className="flex justify-between gap-4 pr-4">
+                      <dt className="text-muted-foreground">{k}</dt>
+                      <dd>{v}</dd>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                ([
+                  ["Regular hours", `${(preview.regularHours ?? preview.hours).toFixed(2)} h`],
+                  preview.overtime > 0 ? ["Overtime hours", `${preview.overtime.toFixed(2)} h × ${settings.overtimeMultiplier}`] : null,
+                  preview.holidayHours > 0
+                    ? ["Bank holiday hours", `${preview.holidayHours.toFixed(2)} h × ${preview.holidayMultiplier ?? settings.holidayPayMultiplier} = ${money2(preview.holidayPay)}`]
+                    : null,
+                  (preview.holidayAccruedHours ?? 0) > 0
+                    ? ["Holiday accrual", `${(preview.holidayAccruedHours ?? 0).toFixed(2)} h (${preview.holidayAccrualRate ?? settings.holidayAccrualRate}%) = ${money2(preview.holidayAccrualPay ?? 0)}`]
+                    : null,
+                  ["Hourly rate", money2(preview.rate)],
+                  ["Gross pay", money2(preview.gross)],
+                  [`Tax + NI (${settings.taxRate + settings.niRate}%)`, `-${money2(preview.tax)}`],
+                  ["Advance", `-${money2(preview.advance)}`],
+                ].filter(Boolean) as [string, string][]).map(([k, v]) => (
+                  <div key={k} className="flex justify-between gap-4 pr-4">
+                    <dt className="text-muted-foreground">{k}</dt>
+                    <dd>{v}</dd>
+                  </div>
+                ))
+              )}
               <div className="flex justify-between gap-4 pr-4 font-semibold">
                 <dt>Net pay</dt>
                 <dd>{money2(preview.net)}</dd>
               </div>
             </dl>
-            {preview.hours === 0 && (
+            {preview.payType !== "salary" && preview.hours === 0 && (
               <p className="mt-2 text-xs text-danger">
                 No attendance found in this period — the payroll will be zero.
               </p>
@@ -272,14 +305,26 @@ function Payslip({ p, onClose }: { p: Payroll; onClose: () => void }) {
 
         <dl className="mt-5 space-y-2 text-sm">
           {([
-            ["Hours worked", `${p.hours.toFixed(2)} h`],
-            (p.holidayHours ?? 0) > 0
+            ["Pay type", p.payType === "salary" ? "Monthly Salary" : "Hourly"],
+            p.payType === "salary"
+              ? ["Monthly salary", money2(p.monthlySalary ?? 0)]
+              : null,
+            p.payType === "salary"
+              ? ["Hours worked (records only)", `${p.hours.toFixed(2)} h`]
+              : ["Hours worked", `${p.hours.toFixed(2)} h`],
+            ...(p.payType === "salary"
+              ? (p.payDetails?.salaryBreakdown ?? []).map((b) => [
+                  `Prorated ${b.month}`,
+                  `${b.days}/${b.daysInMonth} days = ${money2(b.amount)}`,
+                ] as [string, string][])
+              : []),
+            p.payType !== "salary" && (p.holidayHours ?? 0) > 0
               ? [`Bank holiday hours @ ×${settings.holidayPayMultiplier}`, `${(p.holidayHours ?? 0).toFixed(2)} h = ${money2(p.holidayPay ?? 0)}`]
               : null,
-            (p.holidayAccruedHours ?? 0) > 0
+            p.payType !== "salary" && (p.holidayAccruedHours ?? 0) > 0
               ? ["Holiday accrual (statutory)", `${(p.holidayAccruedHours ?? 0).toFixed(2)} h = ${money2(p.holidayAccrualPay ?? 0)}`]
               : null,
-            ["Hourly rate", money2(p.rate)],
+            p.payType !== "salary" ? ["Hourly rate", money2(p.rate)] : null,
             ["Gross pay", money2(p.gross)],
             ["Tax & NI", `-${money2(p.tax)}`],
             ["Advance deducted", `-${money2(p.advance)}`],
@@ -437,7 +482,7 @@ function PayrollsPage() {
                 <Th>Worker Name</Th>
                 <Th>Period</Th>
                 <Th>Hours</Th>
-                <Th>Rate</Th>
+                <Th>Rate / Salary</Th>
                 <Th>Gross Pay</Th>
                 <Th>Advance</Th>
                 <Th>Net Pay</Th>
@@ -454,8 +499,14 @@ function PayrollsPage() {
                 <Td className="whitespace-nowrap text-xs text-muted-foreground">
                   {fmtDate(p.from)} – {fmtDate(p.to)}
                 </Td>
-                <Td>{p.hours.toFixed(2)} h</Td>
-                <Td>{money2(p.rate)}</Td>
+                <Td title={p.payType === "salary" ? "Hours recorded — not used for salary pay" : undefined}>
+                  {p.hours.toFixed(2)} h{p.payType === "salary" ? " †" : ""}
+                </Td>
+                <Td>
+                  {p.payType === "salary"
+                    ? `${money2(p.monthlySalary ?? 0)}/mo`
+                    : `${money2(p.rate)}/h`}
+                </Td>
                 <Td>{money2(p.gross)}</Td>
                 <Td className={p.advance ? "text-danger" : "text-muted-foreground"}>
                   {p.advance ? `-${money2(p.advance)}` : "—"}

@@ -77,6 +77,8 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
       siaBadgeExpiry: w.sia_badge_expiry,
       workerType: w.worker_type || 'Direct',
       subcontractCompany: w.subcontract_company,
+      payType: w.pay_type === 'salary' ? 'salary' : 'hourly',
+      monthlySalary: w.monthly_salary != null ? Number(w.monthly_salary) : null,
       complianceDone: complianceByWorker[w.id]?.done || 0
     }));
     
@@ -133,7 +135,9 @@ router.get('/:id', requireAuth, requireAdmin, async (req, res) => {
       siaBadgeNumber: w.sia_badge_number,
       siaBadgeExpiry: w.sia_badge_expiry,
       workerType: w.worker_type || 'Direct',
-      subcontractCompany: w.subcontract_company
+      subcontractCompany: w.subcontract_company,
+      payType: w.pay_type === 'salary' ? 'salary' : 'hourly',
+      monthlySalary: w.monthly_salary != null ? Number(w.monthly_salary) : null
     };
 
     res.json({
@@ -153,20 +157,31 @@ router.get('/:id', requireAuth, requireAdmin, async (req, res) => {
 router.post('/', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { name, phone, email, location, role, rate, address, nid } = req.body;
-    
+
+    // Pay type (Part 2): 'hourly' keeps existing behaviour; 'salary' requires a
+    // monthly salary amount instead of an hourly rate.
+    const payType = (req.body.payType || req.body.pay_type) === 'salary' ? 'salary' : 'hourly';
+    const salaryRaw = req.body.monthlySalary ?? req.body.monthly_salary;
+    const monthlySalary = salaryRaw !== undefined && salaryRaw !== null && salaryRaw !== ''
+      ? Number(salaryRaw) : null;
+    if (payType === 'salary' && !(monthlySalary > 0)) {
+      return res.status(400).json({ error: 'A monthly salary greater than 0 is required for salaried workers' });
+    }
+    const rateValue = payType === 'salary' ? 0 : (Number(rate) || 0);
+
     const workerId = await generateWorkerCode();
     const joined = new Date();
     const expiry = new Date(joined);
     expiry.setMonth(expiry.getMonth() + 3);
 
     await pool.query(
-      `INSERT INTO workers 
-      (id, name, phone, email, location, role, rate, joined, expiry, address, nid, status) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
-      [workerId, name, phone, email, location, role, rate, joined, expiry, address, nid]
+      `INSERT INTO workers
+      (id, name, phone, email, location, role, rate, pay_type, monthly_salary, joined, expiry, address, nid, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+      [workerId, name, phone, email, location, role, rateValue, payType, monthlySalary, joined, expiry, address, nid]
     );
 
-    await logActionFromReq(req, 'created_worker', 'worker', workerId, { name, email, location, role, rate });
+    await logActionFromReq(req, 'created_worker', 'worker', workerId, { name, email, location, role, rate: rateValue, payType, monthlySalary });
     res.status(201).json({ id: workerId, message: 'Worker created successfully' });
   } catch (error) {
     console.error('Create worker error:', error);
@@ -174,20 +189,58 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// Admin: Update worker
+// Admin: Update worker. Fields not present in the body keep their current
+// values — partial updates (e.g. just pay type) must not blank other columns,
+// and mysql2 rejects undefined bind parameters.
 router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { name, phone, email, location, role, rate, address, nid, on_leave } = req.body;
-    
+    const [rows] = await pool.query('SELECT * FROM workers WHERE id = ?', [req.params.id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Worker not found' });
+    }
+    const cur = rows[0];
+
+    // First matching key wins; undefined means "not sent — keep current value".
+    const pick = (...keys) => {
+      for (const k of keys) {
+        if (req.body[k] !== undefined) return req.body[k];
+      }
+      return undefined;
+    };
+
+    const payTypeRaw = pick('payType', 'pay_type');
+    const payType = payTypeRaw !== undefined
+      ? (payTypeRaw === 'salary' ? 'salary' : 'hourly')
+      : (cur.pay_type === 'salary' ? 'salary' : 'hourly');
+    const salaryRaw = pick('monthlySalary', 'monthly_salary');
+    const monthlySalary = salaryRaw !== undefined
+      ? (salaryRaw === null || salaryRaw === '' ? null : Number(salaryRaw))
+      : (cur.monthly_salary != null ? Number(cur.monthly_salary) : null);
+    if (payType === 'salary' && !(monthlySalary > 0)) {
+      return res.status(400).json({ error: 'A monthly salary greater than 0 is required for salaried workers' });
+    }
+
+    const name = pick('name') ?? cur.name;
+    const phone = pick('phone') ?? cur.phone;
+    const email = pick('email') ?? cur.email;
+    const location = pick('location') ?? cur.location;
+    const role = pick('role') ?? cur.role;
+    const rate = payType === 'salary' ? 0 : (pick('rate') !== undefined ? Number(pick('rate')) : Number(cur.rate) || 0);
+    const address = pick('address') ?? cur.address;
+    const nid = pick('nid') ?? cur.nid;
+    const onLeave = pick('on_leave', 'onLeave');
+    const onLeaveVal = onLeave !== undefined ? (onLeave === true || onLeave === 1 || onLeave === '1') : (cur.on_leave === 1);
+
     await pool.query(
-      `UPDATE workers 
-      SET name = ?, phone = ?, email = ?, location = ?, role = ?, rate = ?, 
-          address = ?, nid = ?, on_leave = ? 
+      `UPDATE workers
+      SET name = ?, phone = ?, email = ?, location = ?, role = ?, rate = ?,
+          pay_type = ?, monthly_salary = ?,
+          address = ?, nid = ?, on_leave = ?
       WHERE id = ?`,
-      [name, phone, email, location, role, rate, address, nid, on_leave, req.params.id]
+      [name, phone, email, location, role, rate, payType, monthlySalary, address, nid, onLeaveVal, req.params.id]
     );
 
-    await logActionFromReq(req, 'updated_worker', 'worker', req.params.id, { name, email, location, role, rate });
+    await logActionFromReq(req, 'updated_worker', 'worker', req.params.id, { name, email, location, role, rate, payType, monthlySalary });
     res.json({ message: 'Worker updated successfully' });
   } catch (error) {
     console.error('Update worker error:', error);

@@ -165,7 +165,10 @@ function WorkerDirectory() {
                 </Td>
                 <Td className="font-medium">{w.id}</Td>
                 <Td>
-                  <Person name={w.name} sub={w.role} />
+                  <Person
+                    name={w.name}
+                    sub={`${w.role} · ${w.payType === "salary" ? "Monthly Salary" : "Hourly"}`}
+                  />
                 </Td>
                 <Td>
                   <div className="leading-tight">

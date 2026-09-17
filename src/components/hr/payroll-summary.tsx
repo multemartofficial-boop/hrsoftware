@@ -7,6 +7,8 @@ import { money2 } from "@/lib/hr-utils";
 export type SummaryWorker = {
   workerId: string;
   worker: string;
+  payType?: "hourly" | "salary";
+  monthlySalary?: number | null;
   rate: number;
   hours: number;
   overtime: number;
@@ -114,15 +116,21 @@ export function PayrollSummary({ period }: { period: "weekly" | "monthly" | "yea
           {expanded.has(p.period) && p.workers.map((w) => (
             <tr key={`${p.period}-${w.workerId}`} className="bg-secondary/20">
               <Td className="pl-8 text-sm text-muted-foreground">
-                <Person name={w.worker} sub={w.workerId} />
+                <Person
+                  name={w.worker}
+                  sub={`${w.workerId}${w.payType === "salary" ? " · Monthly Salary" : ""}`}
+                />
               </Td>
               <Td className="text-sm">
                 {w.hours.toFixed(2)} h
+                {w.payType === "salary" ? " (records)" : ""}
                 {w.overtime > 0 ? ` (+${w.overtime.toFixed(2)} OT)` : ""}
                 {w.holidayHours > 0 ? ` (${w.holidayHours.toFixed(2)}h bank hol.)` : ""}
               </Td>
               <Td className="text-sm text-muted-foreground">
-                {(w.holidayAccruedHours ?? 0).toFixed(2)} h = {money2(w.holidayAccrualPay ?? 0)}
+                {w.payType === "salary"
+                  ? `salary ${money2(w.monthlySalary ?? 0)}/mo`
+                  : `${(w.holidayAccruedHours ?? 0).toFixed(2)} h = ${money2(w.holidayAccrualPay ?? 0)}`}
               </Td>
               <Td className="text-sm">{money2(w.gross)}</Td>
               <Td className="text-sm text-muted-foreground">-{money2(w.tax)}</Td>
