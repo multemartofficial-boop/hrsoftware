@@ -5,7 +5,6 @@ import { jsPDF } from "jspdf";
 import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, DataTable, SectionTitle, StatCard, Td, Th, EmptyRow, Field, inputCls } from "@/components/hr/bits";
 import { DailyHoursChart, DonutChart, donutColors } from "@/components/hr/charts";
-import { PayrollSummary } from "@/components/hr/payroll-summary";
 import { useApi } from "@/lib/api-store";
 import { apiClient } from "@/lib/api-client";
 import { addDays, daysInMonth, fmtDate, money, money2, proratedMonthlySalary, todayISO } from "@/lib/hr-utils";
@@ -38,7 +37,6 @@ function ReportsPage() {
   const [to, setTo] = useState(todayISO());
   const [worker, setWorker] = useState("all");
   const [loc, setLoc] = useState("all");
-  const [period, setPeriod] = useState<"weekly" | "monthly" | "yearly">("weekly");
   const [sigRequests, setSigRequests] = useState<SigReq[]>([]);
   const [exportOpen, setExportOpen] = useState(false);
 
@@ -113,10 +111,13 @@ function ReportsPage() {
     fAtt.reduce((t, a) => t + (workers?.find((x) => x.id === a.workerId)?.payType === "salary" ? 0 : a.hours * rateOf(a.workerId)), 0)
       + salaryCostInRange,
   );
-  const payrollIssued = r2(fPays.reduce((t, p) => t + p.gross, 0));
-  const billing = r2(labourCost * (settings?.billingMultiplier ?? 1));
-  const profit = r2(billing - labourCost);
-  const margin = billing > 0 ? Math.round((profit / billing) * 100) : 0;
+  // Stat cards (Part 3): Payroll Issued / Profit-Loss replaced by attendance-
+  // driven stats — workers active in range, average hours, holiday accrual and
+  // locations used, all computable from the filtered rows.
+  const activeInRange = new Set(fAtt.map((a) => a.workerId)).size;
+  const avgHoursPerWorker = activeInRange > 0 ? r2(totalHours / activeInRange) : 0;
+  const holidayAccruedTotal = r2(fAtt.reduce((t, a) => t + (a.holidayAccruedHours ?? 0), 0));
+  const locationsUsed = new Set(fAtt.map((a) => a.location).filter(Boolean)).size;
 
   /* ---------- attendance chart: hours per day ---------- */
   const attChart = useMemo(() => {
@@ -187,8 +188,10 @@ function ReportsPage() {
       "SUMMARY",
       `Total Hours Worked,${totalHours}`,
       `Total Labour Cost,${labourCost}`,
-      `Payroll Issued,${payrollIssued}`,
-      `Profit/Loss,${profit}`,
+      `Workers Active in Range,${activeInRange}`,
+      `Avg Hours per Worker,${avgHoursPerWorker}`,
+      `Total Holiday Accrued,${holidayAccruedTotal}`,
+      `Locations Used,${locationsUsed}`,
       "",
       "ATTENDANCE",
       ["Date", "Worker", "Worker Code", "Location", "Check In", "Check Out", "Hours", "Cost"].join(","),
@@ -233,8 +236,10 @@ function ReportsPage() {
     line("Summary", { bold: true, size: 12 });
     line(`Total Hours Worked: ${totalHours} h`);
     line(`Total Labour Cost: ${money(labourCost)}`);
-    line(`Payroll Issued: ${money(payrollIssued)}`);
-    line(`Profit/Loss: ${money(profit)} (margin ${margin}%)`);
+    line(`Workers Active in Range: ${activeInRange}`);
+    line(`Avg Hours per Worker: ${avgHoursPerWorker} h`);
+    line(`Total Holiday Accrued: ${holidayAccruedTotal} h`);
+    line(`Locations Used: ${locationsUsed}`);
     y += 4;
     line("By Location", { bold: true, size: 12 });
     for (const l of byLocation) line(`  ${l.name}: ${l.hours} h — ${money(l.cost)} (billing ${money(l.billing)})`);
@@ -334,38 +339,14 @@ function ReportsPage() {
         </Card>
 
         {/* stat cards — filtered */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <StatCard label="Total Hours Worked" value={`${totalHours.toFixed(1)} h`} hint="filtered range" />
           <StatCard label="Total Labour Cost" value={money(labourCost)} hint="hourly × rate + prorated salaries" />
-          <StatCard label="Payroll Issued" value={money(payrollIssued)} hint={`${fPays.length} runs`} />
-          <StatCard label="Profit / Loss" value={money(profit)} hint={`margin ${margin}%`} tone={profit >= 0 ? "up" : "down"} />
+          <StatCard label="Workers Active in Range" value={String(activeInRange)} hint="with attendance" />
+          <StatCard label="Avg Hours per Worker" value={`${avgHoursPerWorker.toFixed(1)} h`} hint="filtered range" />
+          <StatCard label="Holiday Accrued" value={`${holidayAccruedTotal.toFixed(2)} h`} hint="statutory, in range" />
+          <StatCard label="Locations Used" value={String(locationsUsed)} hint="distinct sites" />
         </div>
-
-        {/* weekly / monthly / yearly summary (moved from Payrolls) */}
-        <Card className="p-0">
-          <div className="flex flex-wrap items-center gap-3 p-5 pb-0">
-            <div>
-              <h2 className="text-base font-semibold">Payroll Period Summary</h2>
-              <p className="text-xs text-muted-foreground mt-1">
-                Live from attendance records, hourly rates and monthly salaries — click a row to expand per-worker details.
-              </p>
-            </div>
-            <div className="ml-auto flex gap-1 rounded-lg border border-border bg-secondary/40 p-1">
-              {(["weekly", "monthly", "yearly"] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setPeriod(t)}
-                  className={`rounded-md px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
-                    period === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-          </div>
-          <PayrollSummary period={period} />
-        </Card>
 
         {/* attendance overview chart */}
         <Card>

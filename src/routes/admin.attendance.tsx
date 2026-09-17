@@ -18,7 +18,8 @@ import {
   inputCls,
 } from "@/components/hr/bits";
 import { useApi } from "@/lib/api-store";
-import { fmtDate, todayISO, hoursBetween } from "@/lib/hr-utils";
+import { PayrollSummary } from "@/components/hr/payroll-summary";
+import { fmtDate, todayISO, hoursBetween, money2, proratedMonthlySalary } from "@/lib/hr-utils";
 import type { Attendance } from "@/lib/mock-data";
 
 export const Route = createFileRoute("/admin/attendance")({
@@ -145,12 +146,13 @@ function EntryForm({
 }
 
 function AttendancePage() {
-  const { attendance, workers, locations, deleteAttendance, loading, error, loadAttendance } = useApi();
+  const { attendance, workers, locations, settings, deleteAttendance, loading, error, loadAttendance } = useApi();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Attendance | null>(null);
   const [workerFilter, setWorkerFilter] = useState("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [period, setPeriod] = useState<"weekly" | "monthly" | "yearly">("weekly");
 
   const rows = useMemo(
     () =>
@@ -166,6 +168,33 @@ function AttendancePage() {
   const todayRows = (attendance || []).filter((a) => a.date === today);
   const avg = rows.length ? rows.reduce((t, a) => t + a.hours, 0) / rows.length : 0;
   const openShifts = todayRows.filter((a) => a.out === "00:00:00" || a.out === "00:00");
+
+  // Gross total for the currently filtered range: hourly rows cost hours ×
+  // rate; salaried workers contribute their monthly salary prorated by the
+  // calendar days inside the filtered range (bounded by join date).
+  const filteredTotalHours = rows.reduce((t, a) => t + a.hours, 0);
+  const grossTotal = useMemo(() => {
+    if (!rows.length) return 0;
+    const minD = rows.reduce((m, a) => (a.date < m ? a.date : m), rows[0].date);
+    const maxD = rows.reduce((m, a) => (a.date > m ? a.date : m), rows[0].date);
+    const rangeFrom = from || minD;
+    const rangeTo = to || maxD;
+    let total = 0;
+    const salariedIds = new Set<string>();
+    for (const a of rows) {
+      const w = workers?.find((x) => x.id === a.workerId);
+      if (w?.payType === "salary") {
+        salariedIds.add(a.workerId);
+        continue;
+      }
+      total += a.hours * (w?.rate ?? settings?.hourlyRate ?? 0);
+    }
+    for (const id of salariedIds) {
+      const w = workers?.find((x) => x.id === id);
+      total += proratedMonthlySalary(Number(w?.monthlySalary) || 0, rangeFrom, rangeTo, w?.joined).amount;
+    }
+    return Math.round(total * 100) / 100;
+  }, [rows, workers, settings, from, to]);
 
   if (loading.attendance) {
     return (
@@ -353,6 +382,42 @@ function AttendancePage() {
               </tr>
             ))}
           </DataTable>
+
+          {/* Gross total for the currently filtered range */}
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-5 py-3 text-sm">
+            <span className="text-muted-foreground">
+              Filtered totals — {rows.length} entries · {filteredTotalHours.toFixed(2)} h
+            </span>
+            <span className="font-semibold" title="Hours × rate for hourly workers + monthly salaries prorated over the filtered range">
+              Est. gross pay: {money2(grossTotal)}
+            </span>
+          </div>
+        </Card>
+
+        {/* Payroll period summary (moved from Reports — Part 3) */}
+        <Card className="p-0">
+          <div className="flex flex-wrap items-center gap-3 p-5 pb-0">
+            <div>
+              <h2 className="text-base font-semibold">Payroll Period Summary</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Live from attendance records, hourly rates and monthly salaries — click a row to expand per-worker details.
+              </p>
+            </div>
+            <div className="ml-auto flex gap-1 rounded-lg border border-border bg-secondary/40 p-1">
+              {(["weekly", "monthly", "yearly"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setPeriod(t)}
+                  className={`rounded-md px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
+                    period === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+          <PayrollSummary period={period} />
         </Card>
       </div>
 
