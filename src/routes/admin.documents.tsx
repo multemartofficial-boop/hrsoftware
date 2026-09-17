@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Plus, FileText, Send, Eye, Ban, FileUp, FileSignature, Pencil, Trash2 } from "lucide-react";
+import { FileText, Send, Eye, Ban, FileSignature, Pencil, Trash2, PenLine, Download } from "lucide-react";
+import { jsPDF } from "jspdf";
 import { AdminShell } from "@/components/hr/admin-shell";
 import {
   Card, Field, GhostButton, Modal, PrimaryButton, inputCls,
@@ -14,7 +15,7 @@ export const Route = createFileRoute("/admin/documents")({
   head: () => ({
     meta: [
       { title: "Documents — WorkHR" },
-      { name: "description", content: "Upload documents and templates, send them to workers for e-signature." },
+      { name: "description", content: "Reusable templates sent to workers for dual e-signature." },
     ],
   }),
   component: DocumentsPage,
@@ -28,78 +29,136 @@ type Doc = {
 type SigRequest = {
   id: string; document_name: string; document_type: string;
   worker_id: string; worker_name: string;
-  status: "pending" | "signed" | "declined" | "cancelled";
+  status: "pending" | "worker_signed" | "signed" | "declined" | "cancelled";
   sent_at: string; signed_at: string | null; declined_at: string | null;
+  admin_signed_at: string | null; admin_signed_by: string | null;
   file_path: string | null;
 };
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-// Must match the multer limits on the backend (routes/documents.js)
-const MAX_PDF_SIZE = 3 * 1024 * 1024;
-const validatePdf = (file: File): string | null => {
-  if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") {
-    return "Only PDF files are allowed.";
-  }
-  if (file.size > MAX_PDF_SIZE) {
-    return `"${file.name}" is ${(file.size / 1024 / 1024).toFixed(1)}MB — maximum size is 3MB.`;
-  }
-  return null;
-};
+const statusLabel = (s: SigRequest["status"]) =>
+  s === "worker_signed" ? "Awaiting Countersign" : cap(s);
 
-function UploadModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [name, setName] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+/* ---------- Signature pad (draw on canvas) ---------- */
+function DrawPad({ onChange }: { onChange: (dataUrl: string | null) => void }) {
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  const drawing = useRef(false);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!file) { setErr("Choose a PDF file"); return; }
-    const invalid = validatePdf(file);
-    if (invalid) { setErr(invalid); return; }
-    setBusy(true);
-    setErr(null);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("name", name || file.name.replace(/\.pdf$/i, ""));
-      await apiClient.uploadFile("/documents/upload", fd);
-      onSaved();
-      onClose();
-    } catch (e: any) {
-      setErr(e.message || "Upload failed");
-    } finally {
-      setBusy(false);
-    }
+  useEffect(() => {
+    const c = ref.current!;
+    c.width = c.offsetWidth;
+    c.height = 160;
+    const ctx = c.getContext("2d")!;
+    ctx.strokeStyle = "#1e293b";
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+  }, []);
+
+  const pos = (e: React.PointerEvent) => {
+    const r = ref.current!.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
 
   return (
-    <Modal title="Upload PDF" description="Store a PDF document (offer letter, contract, policy) to send for signature." onClose={onClose}>
-      <form onSubmit={submit} className="space-y-4">
-        <Field label="Document name">
-          <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} placeholder="Employment Contract" />
-        </Field>
-        <Field label="PDF file">
-          <input
-            ref={fileRef}
-            type="file"
-            accept="application/pdf,.pdf"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className={inputCls}
-            required
-          />
-        </Field>
-        {err && <p className="text-sm text-danger">{err}</p>}
-        <div className="flex justify-end gap-2">
-          <GhostButton type="button" onClick={onClose}>Cancel</GhostButton>
-          <PrimaryButton type="submit" disabled={busy}>{busy ? "Uploading..." : "Upload"}</PrimaryButton>
-        </div>
-      </form>
-    </Modal>
+    <div>
+      <canvas
+        ref={ref}
+        className="w-full h-40 rounded-lg border border-border bg-white touch-none cursor-crosshair"
+        onPointerDown={(e) => {
+          drawing.current = true;
+          const ctx = ref.current!.getContext("2d")!;
+          const p = pos(e);
+          ctx.beginPath();
+          ctx.moveTo(p.x, p.y);
+          (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          if (!drawing.current) return;
+          const ctx = ref.current!.getContext("2d")!;
+          const p = pos(e);
+          ctx.lineTo(p.x, p.y);
+          ctx.stroke();
+        }}
+        onPointerUp={() => {
+          drawing.current = false;
+          onChange(ref.current!.toDataURL("image/png"));
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => {
+          const c = ref.current!;
+          c.getContext("2d")!.clearRect(0, 0, c.width, c.height);
+          onChange(null);
+        }}
+        className="mt-1 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+      >
+        Clear
+      </button>
+    </div>
   );
 }
+
+/* ---------- Build + download the fully signed PDF ---------- */
+const downloadSignedPdf = async (req: SigRequest) => {
+  const d = await apiClient.get<any>(`/api/documents/requests/${req.id}`);
+  const doc = new jsPDF();
+  const pageW = doc.internal.pageSize.getWidth();
+  const margin = 18;
+  let y = 20;
+
+  const write = (text: string, size = 10, style: "normal" | "bold" = "normal") => {
+    doc.setFontSize(size);
+    doc.setFont("helvetica", style);
+    for (const line of doc.splitTextToSize(text, pageW - margin * 2) as string[]) {
+      if (y > 278) { doc.addPage(); y = 20; }
+      doc.text(line, margin, y);
+      y += size * 0.5;
+    }
+    y += 2;
+  };
+
+  write(d.document_name || req.document_name, 16, "bold");
+  write(`Worker: ${d.worker_name || req.worker_name} (${d.worker_id})`, 10);
+  write(`Sent: ${fmtTs(d.sent_at)}`, 10);
+  y += 4;
+
+  // Body: rendered content (or signed_content minus the appended sig blocks)
+  const body = String(d.rendered_content || d.signed_content || "[No content]");
+  write(body, 10);
+  y += 6;
+
+  const sigBlock = (
+    label: string,
+    signer: string,
+    at: string | null,
+    ip: string | null,
+    sigType: string | null,
+    sigData: string | null,
+  ) => {
+    if (y > 240) { doc.addPage(); y = 20; }
+    write(label, 11, "bold");
+    if (sigType && sigData && sigType !== "type" && String(sigData).startsWith("data:image")) {
+      try { doc.addImage(sigData, "PNG", margin, y, 45, 18); } catch { /* fall through to text */ }
+      y += 22;
+    } else if (sigType === "type" && sigData) {
+      doc.setFont("times", "italic");
+      doc.setFontSize(18);
+      doc.text(String(sigData), margin, y + 8);
+      y += 12;
+    }
+    write(`Signed by ${signer}${at ? ` on ${fmtTs(at)}` : ""}${ip ? ` · IP ${ip}` : ""}`, 9);
+    y += 4;
+  };
+
+  sigBlock("Worker signature", d.worker_name || d.worker_id, d.signed_at, d.signer_ip, d.signature_type, d.signature_data);
+  if (d.admin_signed_at) {
+    sigBlock("Company countersignature", d.admin_signed_by || "Company", d.admin_signed_at, d.admin_signer_ip, d.admin_signature_type, d.admin_signature_data);
+  }
+
+  doc.save(`${(d.document_name || "document").replace(/[^\w-]+/g, "_")}-signed.pdf`);
+};
 
 function TemplateModal({ editing, onClose, onSaved }: { editing?: Doc | null; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState(editing?.name ?? "");
@@ -159,54 +218,95 @@ function TemplateModal({ editing, onClose, onSaved }: { editing?: Doc | null; on
   );
 }
 
-function EditPdfModal({ doc, onClose, onSaved }: { doc: Doc; onClose: () => void; onSaved: () => void }) {
-  const [name, setName] = useState(doc.name);
-  const [file, setFile] = useState<File | null>(null);
+/* ---------- Admin countersignature modal ---------- */
+function CountersignModal({ req, onClose, onDone }: { req: SigRequest; onClose: () => void; onDone: () => void }) {
+  const [detail, setDetail] = useState<any>(null);
+  const [method, setMethod] = useState<"draw" | "type">("draw");
+  const [drawData, setDrawData] = useState<string | null>(null);
+  const [typedName, setTypedName] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  useEffect(() => {
+    apiClient.get(`/api/documents/requests/${req.id}`).then(setDetail).catch(() => setDetail({ error: true }));
+  }, [req.id]);
+
+  const signatureData = method === "draw" ? drawData : typedName.trim();
+  const ready = method === "draw" ? !!drawData : typedName.trim().length > 0;
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (file) {
-      const invalid = validatePdf(file);
-      if (invalid) { setErr(invalid); return; }
-    }
     setBusy(true);
     setErr(null);
     try {
-      await apiClient.put(`/api/documents/${doc.id}`, { name });
-      if (file) {
-        const fd = new FormData();
-        fd.append("file", file);
-        await apiClient.uploadFile(`/documents/${doc.id}/file`, fd);
-      }
-      onSaved();
+      await apiClient.post(`/api/documents/requests/${req.id}/countersign`, {
+        signatureType: method,
+        signatureData,
+      });
+      onDone();
       onClose();
     } catch (e: any) {
-      setErr(e.message || "Failed to update document");
+      setErr(e.message || "Failed to countersign");
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Modal title="Edit PDF document" description="Rename the document or replace the PDF file. Already-sent requests keep their original file." onClose={onClose}>
+    <Modal
+      title={`Countersign — ${req.document_name}`}
+      description={`${req.worker_name} has signed. Add the company signature to complete the document.`}
+      onClose={onClose}
+      wide
+    >
       <form onSubmit={submit} className="space-y-4">
-        <Field label="Document name">
-          <input required value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
-        </Field>
-        <Field label="Replace PDF (optional)" hint="Leave empty to keep the current file">
-          <input
-            type="file"
-            accept="application/pdf,.pdf"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className={inputCls}
-          />
+        {detail === null ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : detail?.signed_content || detail?.rendered_content ? (
+          <pre className="max-h-52 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border bg-secondary/50 p-3 text-sm">
+            {detail.signed_content || detail.rendered_content}
+          </pre>
+        ) : null}
+
+        <Field label="Company signature" hint="Draw or type the authorised signatory's name.">
+          <div>
+            <div className="mb-2 flex gap-2">
+              {(["draw", "type"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMethod(m)}
+                  className={`px-3 py-1.5 rounded-lg text-sm capitalize ${method === m ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"}`}
+                >
+                  {m === "draw" ? "Draw" : "Type"}
+                </button>
+              ))}
+            </div>
+            {method === "draw" ? (
+              <DrawPad onChange={setDrawData} />
+            ) : (
+              <div>
+                <input
+                  value={typedName}
+                  onChange={(e) => setTypedName(e.target.value)}
+                  placeholder="Type the signatory's full name"
+                  className={inputCls}
+                />
+                {typedName.trim() && (
+                  <p className="mt-2 rounded-lg border border-border bg-white px-3 py-2 text-2xl italic" style={{ fontFamily: "cursive" }}>
+                    {typedName}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         </Field>
         {err && <p className="text-sm text-danger">{err}</p>}
         <div className="flex justify-end gap-2">
           <GhostButton type="button" onClick={onClose}>Cancel</GhostButton>
-          <PrimaryButton type="submit" disabled={busy}>{busy ? "Saving..." : "Save changes"}</PrimaryButton>
+          <PrimaryButton type="submit" disabled={busy || !ready}>
+            <PenLine className="size-4" /> {busy ? "Signing..." : "Countersign"}
+          </PrimaryButton>
         </div>
       </form>
     </Modal>
@@ -291,7 +391,7 @@ function ViewModal({ req, onClose }: { req: SigRequest; onClose: () => void }) {
   } catch { audit = []; }
 
   return (
-    <Modal title={req.document_name} description={`Sent to ${req.worker_name} · Status: ${cap(req.status)}`} onClose={onClose}>
+    <Modal title={req.document_name} description={`Sent to ${req.worker_name} · Status: ${statusLabel(req.status)}`} onClose={onClose}>
       {detail === null ? (
         <p className="text-sm text-muted-foreground">Loading...</p>
       ) : (
@@ -302,7 +402,8 @@ function ViewModal({ req, onClose }: { req: SigRequest; onClose: () => void }) {
             <div className="space-y-1.5 text-sm">
               <p><span className="font-medium">Sent:</span> {fmtTs(detail.sent_at)}</p>
               <p><span className="font-medium">Viewed:</span> {fmtTs(detail.viewed_at)}</p>
-              {detail.signed_at && <p><span className="font-medium">Signed:</span> {fmtTs(detail.signed_at)}{detail.signer_ip ? ` · IP ${detail.signer_ip}` : ""}</p>}
+              {detail.signed_at && <p><span className="font-medium">Worker signed:</span> {fmtTs(detail.signed_at)}{detail.signer_ip ? ` · IP ${detail.signer_ip}` : ""}</p>}
+              {detail.admin_signed_at && <p><span className="font-medium">Countersigned:</span> {fmtTs(detail.admin_signed_at)} by {detail.admin_signed_by || "admin"}{detail.admin_signer_ip ? ` · IP ${detail.admin_signer_ip}` : ""}</p>}
               {detail.declined_at && <p><span className="font-medium text-danger">Declined:</span> {fmtTs(detail.declined_at)}</p>}
               {audit.length > 0 && (
                 <details className="text-xs text-muted-foreground">
@@ -322,9 +423,20 @@ function ViewModal({ req, onClose }: { req: SigRequest; onClose: () => void }) {
             <div>
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Signed document</p>
               <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border bg-secondary/50 p-3 text-sm">{detail.signed_content}</pre>
-              {detail.signature_type === "type" ? null : detail.signature_data ? (
-                <img src={detail.signature_data} alt="Signature" className="mt-2 max-h-24 rounded border border-border bg-white" />
-              ) : null}
+              <div className="mt-2 flex flex-wrap gap-4">
+                {detail.signature_type !== "type" && detail.signature_data ? (
+                  <div>
+                    <p className="text-xs text-muted-foreground">Worker</p>
+                    <img src={detail.signature_data} alt="Worker signature" className="max-h-20 rounded border border-border bg-white" />
+                  </div>
+                ) : null}
+                {detail.admin_signature_type !== "type" && detail.admin_signature_data ? (
+                  <div>
+                    <p className="text-xs text-muted-foreground">Company — {detail.admin_signed_by}</p>
+                    <img src={detail.admin_signature_data} alt="Company signature" className="max-h-20 rounded border border-border bg-white" />
+                  </div>
+                ) : null}
+              </div>
             </div>
           ) : detail.rendered_content ? (
             <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border bg-secondary/50 p-3 text-sm">{detail.rendered_content}</pre>
@@ -352,11 +464,12 @@ function ViewModal({ req, onClose }: { req: SigRequest; onClose: () => void }) {
 function DocumentsPage() {
   const [docs, setDocs] = useState<Doc[]>([]);
   const [requests, setRequests] = useState<SigRequest[]>([]);
-  const [modal, setModal] = useState<"upload" | "template" | null>(null);
+  const [modal, setModal] = useState<"template" | null>(null);
   const [editing, setEditing] = useState<Doc | null>(null);
-  const [editPdf, setEditPdf] = useState<Doc | null>(null);
   const [sending, setSending] = useState<Doc | null>(null);
   const [viewing, setViewing] = useState<SigRequest | null>(null);
+  const [countersigning, setCountersigning] = useState<SigRequest | null>(null);
+  const [pdfBusy, setPdfBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -392,29 +505,39 @@ function DocumentsPage() {
     } catch (e: any) { setErr(e.message); }
   };
 
+  const download = async (r: SigRequest) => {
+    setPdfBusy(r.id);
+    setErr(null);
+    try {
+      await downloadSignedPdf(r);
+    } catch (e: any) {
+      setErr(e.message || "Failed to build PDF");
+    } finally {
+      setPdfBusy(null);
+    }
+  };
+
   return (
     <AdminShell
       title="Documents"
       action={
-        <div className="flex items-center gap-2">
-          <button onClick={() => setModal("template")} className="flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm font-medium">
-            <FileSignature className="size-4" /> New Template
-          </button>
-          <button onClick={() => setModal("upload")} className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground">
-            <FileUp className="size-4" /> Upload PDF
-          </button>
-        </div>
+        <button onClick={() => setModal("template")} className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground">
+          <FileSignature className="size-4" /> New Template
+        </button>
       }
     >
       {err && <p className="mb-3 text-sm text-danger">{err}</p>}
 
       <Card>
-        <SectionTitle title="Documents & templates" />
+        <SectionTitle title="Signature templates" />
+        <p className="-mt-3 mb-4 text-xs text-muted-foreground">
+          Every signature request is generated from a reusable template — the worker signs first, then the company countersigns.
+        </p>
         <DataTable
           labels={["Name", "Type", "Created", ""]}
           head={<><Th>Name</Th><Th>Type</Th><Th>Created</Th><Th className="text-right">Actions</Th></>}
         >
-          {docs.length === 0 && <EmptyRow colSpan={4} text="No documents yet — upload a PDF or create a template." />}
+          {docs.length === 0 && <EmptyRow colSpan={4} text="No templates yet — create your first reusable template." />}
           {docs.map((d) => (
             <tr key={d.id}>
               <Td>
@@ -423,23 +546,27 @@ function DocumentsPage() {
                   <span className="font-medium">{d.name}</span>
                 </div>
               </Td>
-              <Td><StatusBadge status={d.type === "template" ? "Template" : "PDF"} /></Td>
+              <Td><StatusBadge status={d.type === "template" ? "Template" : "Legacy PDF"} /></Td>
               <Td>{fmtDate(d.created_at)}</Td>
               <Td className="text-right">
                 <div className="flex items-center justify-end gap-1">
-                  <button
-                    onClick={() => setSending(d)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
-                  >
-                    <Send className="size-3.5" /> Send for Signature
-                  </button>
-                  <button
-                    onClick={() => (d.type === "template" ? setEditing(d) : setEditPdf(d))}
-                    title="Edit"
-                    className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-primary"
-                  >
-                    <Pencil className="size-4" />
-                  </button>
+                  {d.type === "template" && (
+                    <button
+                      onClick={() => setSending(d)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
+                    >
+                      <Send className="size-3.5" /> Send for Signature
+                    </button>
+                  )}
+                  {d.type === "template" && (
+                    <button
+                      onClick={() => setEditing(d)}
+                      title="Edit"
+                      className="rounded-md p-1.5 text-muted-foreground hover:bg-secondary hover:text-primary"
+                    >
+                      <Pencil className="size-4" />
+                    </button>
+                  )}
                   <button
                     onClick={() => del(d)}
                     title="Delete"
@@ -457,23 +584,47 @@ function DocumentsPage() {
       <Card className="mt-4">
         <SectionTitle title="Signature requests" />
         <DataTable
-          labels={["Worker", "Document", "Status", "Sent", "Signed", ""]}
-          head={<><Th>Worker</Th><Th>Document</Th><Th>Status</Th><Th>Sent</Th><Th>Signed</Th><Th className="text-right">Actions</Th></>}
+          labels={["Worker", "Document", "Status", "Sent", "Worker signed", "Countersigned", ""]}
+          head={<><Th>Worker</Th><Th>Document</Th><Th>Status</Th><Th>Sent</Th><Th>Worker signed</Th><Th>Countersigned</Th><Th className="text-right">Actions</Th></>}
         >
-          {requests.length === 0 && <EmptyRow colSpan={6} text="No signature requests yet." />}
+          {requests.length === 0 && <EmptyRow colSpan={7} text="No signature requests yet." />}
           {requests.map((r) => (
             <tr key={r.id}>
               <Td><Person name={r.worker_name} sub={r.worker_id} /></Td>
               <Td>{r.document_name}</Td>
-              <Td><StatusBadge status={cap(r.status)} /></Td>
+              <Td><StatusBadge status={statusLabel(r.status)} /></Td>
               <Td>{fmtDate(r.sent_at)}</Td>
               <Td>{r.signed_at ? fmtDate(r.signed_at) : "—"}</Td>
               <Td>
+                {r.admin_signed_at
+                  ? <span title={r.admin_signed_by ?? undefined}>{fmtDate(r.admin_signed_at)}</span>
+                  : "—"}
+              </Td>
+              <Td>
                 <div className="flex justify-end gap-1 text-muted-foreground">
+                  {(r.status === "worker_signed" || (r.status === "signed" && !r.admin_signed_at)) && (
+                    <button
+                      onClick={() => setCountersigning(r)}
+                      title="Countersign for the company"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary hover:text-primary"
+                    >
+                      <PenLine className="size-3.5" /> Countersign
+                    </button>
+                  )}
+                  {r.status === "signed" && r.admin_signed_at && (
+                    <button
+                      onClick={() => void download(r)}
+                      disabled={pdfBusy === r.id}
+                      title="Download signed PDF"
+                      className="rounded-md p-1.5 hover:bg-secondary hover:text-primary disabled:opacity-50"
+                    >
+                      <Download className="size-4" />
+                    </button>
+                  )}
                   <button onClick={() => setViewing(r)} title="View" className="rounded-md p-1.5 hover:bg-secondary hover:text-primary">
                     <Eye className="size-4" />
                   </button>
-                  {r.status === "pending" && (
+                  {(r.status === "pending" || r.status === "worker_signed") && (
                     <button onClick={() => cancel(r.id)} title="Cancel request" className="rounded-md p-1.5 hover:bg-secondary hover:text-danger">
                       <Ban className="size-4" />
                     </button>
@@ -485,10 +636,9 @@ function DocumentsPage() {
         </DataTable>
       </Card>
 
-      {modal === "upload" && <UploadModal onClose={() => setModal(null)} onSaved={load} />}
       {modal === "template" && <TemplateModal onClose={() => setModal(null)} onSaved={load} />}
       {editing && <TemplateModal editing={editing} onClose={() => setEditing(null)} onSaved={load} />}
-      {editPdf && <EditPdfModal doc={editPdf} onClose={() => setEditPdf(null)} onSaved={load} />}
+      {countersigning && <CountersignModal req={countersigning} onClose={() => setCountersigning(null)} onDone={load} />}
       {sending && <SendModal doc={sending} onClose={() => setSending(null)} onSaved={load} />}
       {viewing && <ViewModal req={viewing} onClose={() => setViewing(null)} />}
     </AdminShell>

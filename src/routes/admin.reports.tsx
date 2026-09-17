@@ -173,7 +173,7 @@ function ReportsPage() {
     const c = { sent: fDocs.length, signed: 0, pending: 0, declined: 0, cancelled: 0 };
     for (const r of fDocs) {
       if (r.status === "signed") c.signed++;
-      else if (r.status === "pending") c.pending++;
+      else if (r.status === "pending" || r.status === "worker_signed") c.pending++;
       else if (r.status === "declined") c.declined++;
       else c.cancelled++;
     }

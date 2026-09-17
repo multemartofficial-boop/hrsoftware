@@ -88,6 +88,14 @@ async function ensureSchema() {
     await addCol('ALTER TABLE locations ADD COLUMN city VARCHAR(100) NULL', 'locations.city');
     await addCol('ALTER TABLE locations ADD COLUMN postcode VARCHAR(12) NULL', 'locations.postcode');
 
+    // Part 7: dual signatures — the company countersigns after the worker.
+    // Statuses: pending → worker_signed → signed (both parties).
+    await addCol('ALTER TABLE signature_requests ADD COLUMN admin_signature_type VARCHAR(20) NULL', 'signature_requests.admin_signature_type');
+    await addCol('ALTER TABLE signature_requests ADD COLUMN admin_signature_data MEDIUMTEXT NULL', 'signature_requests.admin_signature_data');
+    await addCol('ALTER TABLE signature_requests ADD COLUMN admin_signed_by VARCHAR(255) NULL', 'signature_requests.admin_signed_by');
+    await addCol('ALTER TABLE signature_requests ADD COLUMN admin_signed_at TIMESTAMP NULL', 'signature_requests.admin_signed_at');
+    await addCol('ALTER TABLE signature_requests ADD COLUMN admin_signer_ip VARCHAR(64) NULL', 'signature_requests.admin_signer_ip');
+
     // Action History audit log
     try {
       await pool.query(

@@ -1,7 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const multer = require('multer');
-const path = require('path');
 const fs = require('fs');
 const pool = require('../config/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
@@ -9,45 +7,8 @@ const { sendEmail } = require('../utils/email');
 
 const generateId = (prefix) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
-// Multer for PDF uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    // /tmp on Vercel (ephemeral); local uploads/ dir otherwise
-    const dir = process.env.VERCEL ? '/tmp/uploads/documents' : 'uploads/documents';
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => {
-    cb(null, `doc-${Date.now()}-${Math.round(Math.random() * 1e9)}.pdf`);
-  },
-});
-const upload = multer({
-  storage,
-  limits: {
-    fileSize: 3 * 1024 * 1024,
-    fieldSize: 10 * 1024 * 1024,
-    files: 20,
-    fields: 100,
-  },
-  fileFilter: (req, file, cb) => {
-    if (path.extname(file.originalname).toLowerCase() === '.pdf' || file.mimetype === 'application/pdf') {
-      return cb(null, true);
-    }
-    cb(new Error('Only PDF files are allowed'));
-  },
-});
-
-// Run multer and turn its errors (size limit, wrong type) into clear 400 JSON
-// responses instead of falling through to the generic 500 handler.
-const uploadPdf = (req, res, next) => {
-  upload.single('file')(req, res, (err) => {
-    if (!err) return next();
-    if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ error: 'File is too large — maximum size is 3MB.' });
-    }
-    return res.status(400).json({ error: err.message || 'Upload failed' });
-  });
-};
+// Part 7: signature requests are template-based only — no arbitrary PDF
+// uploads. Legacy uploaded_pdf rows/files stay for already-sent requests.
 
 // Substitute {{tokens}} with the worker's real record data
 const renderTemplate = (content, worker, locationsByName) => {
@@ -70,23 +31,6 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
   } catch (e) {
     console.error('List documents error:', e);
     res.status(500).json({ error: 'Failed to load documents' });
-  }
-});
-
-// Upload a PDF document
-router.post('/upload', requireAuth, requireAdmin, uploadPdf, async (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ error: 'PDF file is required' });
-    const name = req.body.name || req.file.originalname.replace(/\.pdf$/i, '');
-    const id = generateId('DOC');
-    await pool.query(
-      'INSERT INTO documents (id, name, type, file_path, uploaded_by_admin_id) VALUES (?, ?, ?, ?, ?)',
-      [id, name, 'uploaded_pdf', req.file.path, req.user.userId || null]
-    );
-    res.status(201).json({ id, name, type: 'uploaded_pdf', filePath: req.file.path });
-  } catch (e) {
-    console.error('Upload document error:', e);
-    res.status(500).json({ error: 'Failed to upload document' });
   }
 });
 
@@ -127,23 +71,6 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   } catch (e) {
     console.error('Update document error:', e);
     res.status(500).json({ error: 'Failed to update document' });
-  }
-});
-
-// Replace the underlying PDF file (deletes the old file)
-router.put('/:id/file', requireAuth, requireAdmin, uploadPdf, async (req, res) => {
-  try {
-    const [docs] = await pool.query('SELECT * FROM documents WHERE id = ?', [req.params.id]);
-    if (docs.length === 0) return res.status(404).json({ error: 'Document not found' });
-    if (docs[0].type !== 'uploaded_pdf') return res.status(400).json({ error: 'Only PDF uploads have files' });
-    if (!req.file) return res.status(400).json({ error: 'PDF file is required' });
-
-    if (docs[0].file_path && fs.existsSync(docs[0].file_path)) fs.unlinkSync(docs[0].file_path);
-    await pool.query('UPDATE documents SET file_path = ? WHERE id = ?', [req.file.path, req.params.id]);
-    res.json({ message: 'File replaced' });
-  } catch (e) {
-    console.error('Replace file error:', e);
-    res.status(500).json({ error: 'Failed to replace file' });
   }
 });
 
@@ -190,7 +117,7 @@ router.get('/:id/preview/:workerId', requireAuth, requireAdmin, async (req, res)
   }
 });
 
-// Send a document/template to a worker for signature
+// Send a template to a worker for signature (template-based only — Part 7)
 router.post('/:id/send', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { workerId } = req.body;
@@ -199,6 +126,9 @@ router.post('/:id/send', requireAuth, requireAdmin, async (req, res) => {
     const [docs] = await pool.query('SELECT * FROM documents WHERE id = ?', [req.params.id]);
     if (docs.length === 0) return res.status(404).json({ error: 'Document not found' });
     const doc = docs[0];
+    if (doc.type !== 'template') {
+      return res.status(400).json({ error: 'Only reusable templates can be sent for signature' });
+    }
 
     const [workers] = await pool.query('SELECT * FROM workers WHERE id = ?', [workerId]);
     if (workers.length === 0) return res.status(404).json({ error: 'Worker not found' });
@@ -208,7 +138,7 @@ router.post('/:id/send', requireAuth, requireAdmin, async (req, res) => {
     const locationsByName = Object.fromEntries(locs.map(l => [l.name, l]));
 
     const reqId = generateId('SIG');
-    const rendered = doc.type === 'template' ? renderTemplate(doc.content || '', worker, locationsByName) : null;
+    const rendered = renderTemplate(doc.content || '', worker, locationsByName);
     await pool.query(
       `INSERT INTO signature_requests
        (id, document_id, worker_id, status, rendered_content, file_path, created_by_admin_id)
@@ -298,7 +228,8 @@ router.post('/requests/:id/view', requireAuth, async (req, res) => {
   }
 });
 
-// Sign a request
+// Sign a request (worker) — Part 7: the company must countersign afterwards,
+// so the status moves to 'worker_signed' rather than 'signed'.
 router.post('/requests/:id/sign', requireAuth, async (req, res) => {
   try {
     const r = await loadRequestForWorker(req.params.id, req.user.workerId);
@@ -312,35 +243,32 @@ router.post('/requests/:id/sign', requireAuth, async (req, res) => {
 
     const ip = clientIp(req);
 
-    // Build the final signed content: rendered content + signature block.
-    // For PDFs the signature is stored alongside (signature_data + type) —
-    // no PDF overlay, keeping the original file untouched.
     const signedBlock =
       `\n\n---\nSigned by ${r.worker_id} on ${new Date().toISOString()}` +
       (signatureType === 'type'
         ? `\nSignature (typed): ${signatureData}`
         : `\nSignature: [captured ${signatureType} image — stored in signature_data]`) +
       (ip ? `\nSigner IP: ${ip}` : '');
-    const signedContent = (r.rendered_content || `[PDF document: ${r.document_name}]`) + signedBlock;
+    const signedContent = (r.rendered_content || `[Document: ${r.document_name}]`) + signedBlock;
 
     await pool.query(
       `UPDATE signature_requests
-       SET status='signed', signed_at=NOW(), signature_type=?, signature_data=?, signer_ip=?, signed_content=?
+       SET status='worker_signed', signed_at=NOW(), signature_type=?, signature_data=?, signer_ip=?, signed_content=?
        WHERE id = ?`,
       [signatureType, signatureData, ip, signedContent, req.params.id]
     );
-    await logAudit(req.params.id, 'signed', ip);
+    await logAudit(req.params.id, 'worker_signed', ip);
 
-    // Notify admin
+    // Notify admin — countersignature now required
     const [w] = await pool.query('SELECT name FROM workers WHERE id = ?', [r.worker_id]);
     await pool.query(
       'INSERT INTO notifications (id, worker, worker_id, message, urgency) VALUES (?, ?, ?, ?, ?)',
       [`SGN-${req.params.id}`, w[0]?.name || r.worker_id, r.worker_id,
-       `[Signature] ${w[0]?.name || r.worker_id} signed "${r.document_name}" on ${new Date().toISOString().slice(0, 10)}.`,
+       `[Signature] ${w[0]?.name || r.worker_id} signed "${r.document_name}" — awaiting company countersignature.`,
        'info']
     );
 
-    res.json({ status: 'signed', signedAt: new Date().toISOString() });
+    res.json({ status: 'worker_signed', signedAt: new Date().toISOString() });
   } catch (e) {
     console.error('Sign error:', e);
     res.status(500).json({ error: 'Failed to sign' });
@@ -373,7 +301,62 @@ router.post('/requests/:id/decline', requireAuth, async (req, res) => {
   }
 });
 
-/* ================= ADMIN: tracking ================= */
+/* ================= ADMIN: countersignature + tracking ================= */
+
+// Company countersignature — the second signature that completes a request.
+// Allowed on 'worker_signed' requests and on legacy 'signed' requests that
+// were completed before dual signatures existed (admin_signed_at IS NULL).
+router.post('/requests/:id/countersign', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT r.*, d.name AS document_name, w.name AS worker_name
+       FROM signature_requests r
+       JOIN documents d ON d.id = r.document_id
+       JOIN workers w ON w.id = r.worker_id
+       WHERE r.id = ?`,
+      [req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Request not found' });
+    const r = rows[0];
+
+    if (!['worker_signed', 'signed'].includes(r.status)) {
+      return res.status(400).json({ error: `Cannot countersign a ${r.status} request` });
+    }
+    if (r.admin_signed_at) {
+      return res.status(400).json({ error: 'This request has already been countersigned' });
+    }
+
+    const { signatureType, signatureData } = req.body;
+    if (!['draw', 'type', 'upload'].includes(signatureType) || !signatureData) {
+      return res.status(400).json({ error: 'signatureType (draw|type|upload) and signatureData are required' });
+    }
+
+    const ip = clientIp(req);
+    const adminName = req.user.name || `Admin #${req.user.userId}`;
+
+    const counterBlock =
+      `\n\nCountersigned for the company by ${adminName} on ${new Date().toISOString()}` +
+      (signatureType === 'type'
+        ? `\nSignature (typed): ${signatureData}`
+        : `\nSignature: [captured ${signatureType} image — stored in admin_signature_data]`) +
+      (ip ? `\nSigner IP: ${ip}` : '');
+    const signedContent = (r.signed_content || r.rendered_content || `[Document: ${r.document_name}]`) + counterBlock;
+
+    await pool.query(
+      `UPDATE signature_requests
+       SET status='signed', admin_signature_type=?, admin_signature_data=?, admin_signed_by=?,
+           admin_signed_at=NOW(), admin_signer_ip=?, signed_content=?
+       WHERE id = ?`,
+      [signatureType, signatureData, adminName, ip, signedContent, req.params.id]
+    );
+    await logAudit(req.params.id, 'admin_signed', ip);
+
+    res.json({ status: 'signed', adminSignedAt: new Date().toISOString(), adminSignedBy: adminName });
+  } catch (e) {
+    console.error('Countersign error:', e);
+    res.status(500).json({ error: 'Failed to countersign' });
+  }
+});
 
 // List all signature requests
 router.get('/requests', requireAuth, requireAdmin, async (req, res) => {
@@ -381,7 +364,7 @@ router.get('/requests', requireAuth, requireAdmin, async (req, res) => {
     const [rows] = await pool.query(
       `SELECT r.id, r.document_id, d.name AS document_name, d.type AS document_type,
               r.worker_id, w.name AS worker_name, r.status, r.file_path,
-              r.sent_at, r.signed_at, r.declined_at
+              r.sent_at, r.signed_at, r.declined_at, r.admin_signed_at, r.admin_signed_by
        FROM signature_requests r
        JOIN documents d ON d.id = r.document_id
        JOIN workers w ON w.id = r.worker_id
@@ -418,12 +401,14 @@ router.get('/requests/:id', requireAuth, async (req, res) => {
   }
 });
 
-// Cancel a pending request
+// Cancel a request that isn't fully signed yet
 router.post('/requests/:id/cancel', requireAuth, requireAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT status FROM signature_requests WHERE id = ?', [req.params.id]);
     if (rows.length === 0) return res.status(404).json({ error: 'Request not found' });
-    if (rows[0].status !== 'pending') return res.status(400).json({ error: 'Only pending requests can be cancelled' });
+    if (!['pending', 'worker_signed'].includes(rows[0].status)) {
+      return res.status(400).json({ error: 'Only requests awaiting signatures can be cancelled' });
+    }
     await pool.query("UPDATE signature_requests SET status = 'cancelled' WHERE id = ?", [req.params.id]);
     res.json({ message: 'Request cancelled' });
   } catch (e) {
