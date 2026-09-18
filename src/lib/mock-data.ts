@@ -553,7 +553,11 @@ export type Payroll = {
   /** Statutory holiday accrual (12.07% default) summed from attendance in the period */
   holidayAccruedHours?: number;
   holidayAccrualPay?: number;
-  status: "Completed" | "Pending";
+  status: "Paid" | "Pending";
+  /** Set when status is 'Paid' — recorded payment status audit fields */
+  paidAt?: string | null;
+  paidBy?: string | null;
+  paymentReference?: string | null;
   created: string; // ISO
 };
 
@@ -570,7 +574,7 @@ const mkSeed = (
   hours: number,
   rate: number,
   advance: number,
-  status: "Completed" | "Pending",
+  status: "Paid" | "Pending",
   back: number,
 ): Payroll => {
   const gross = Math.round(hours * rate * 100) / 100;
@@ -593,12 +597,12 @@ const mkSeed = (
 };
 
 export const seedPayrolls: Payroll[] = [
-  mkSeed("PYRL-12024", "WRK-10241", "Hazel Nutt", 168, 14.5, 200, "Completed", 2),
-  mkSeed("PYRL-12025", "WRK-10242", "Simon Cyrene", 172, 16, 100, "Completed", 2),
+  mkSeed("PYRL-12024", "WRK-10241", "Hazel Nutt", 168, 14.5, 200, "Paid", 2),
+  mkSeed("PYRL-12025", "WRK-10242", "Simon Cyrene", 172, 16, 100, "Paid", 2),
   mkSeed("PYRL-12026", "WRK-10243", "Aida Bugg", 140, 12.75, 350, "Pending", 3),
   mkSeed("PYRL-12027", "WRK-10244", "Peg Legge", 160, 13.2, 0, "Pending", 3),
-  mkSeed("PYRL-12028", "WRK-10246", "Nadia Karim", 176, 19.5, 500, "Completed", 4),
-  mkSeed("PYRL-12029", "WRK-10247", "Owen Blake", 152, 14.5, 120, "Completed", 5),
+  mkSeed("PYRL-12028", "WRK-10246", "Nadia Karim", 176, 19.5, 500, "Paid", 4),
+  mkSeed("PYRL-12029", "WRK-10247", "Owen Blake", 152, 14.5, 120, "Paid", 5),
   mkSeed("PYRL-12030", "WRK-10248", "Priya Anand", 164, 15.25, 0, "Pending", 6),
 ];
 

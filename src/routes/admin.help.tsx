@@ -93,7 +93,7 @@ const ADMIN_TOPICS: Topic[] = [
       "Click Generate Payroll and pick the worker(s) and pay period.",
       "The system sums attendance hours in the period, applies the hourly rate, overtime above the threshold, bank-holiday uplift and holiday accrual pay.",
       "Review gross → deductions (tax, NI, advances) → net pay, then confirm.",
-      "Mark a run Completed once paid; each generation is logged in Action History.",
+      "Mark a run Paid once the worker has been paid — you can add an optional payment reference. Every status change is kept in a permanent payment record (even if the run is later deleted) and in Action History.",
     ],
     notes: ["A payroll run stores the numbers as-at generation time — changing Settings later does not alter existing payrolls."],
   },
@@ -237,7 +237,7 @@ const ADMIN_TOPICS: Topic[] = [
     icon: Settings,
     title: "Settings",
     where: "Sidebar → Settings",
-    what: "System-wide values used by payroll and alerts: default hourly rate, overtime multiplier & threshold, tax/NI/pension rates, max advance, holiday accrual %, contract length, reminder days, company name and billing multiplier.",
+    what: "System-wide values used by payroll and alerts: default hourly rate, overtime multiplier & threshold, tax/NI/pension rates, max advance, holiday accrual %, contract length and reminder days.",
     steps: [
       "Change any value and Save — the change takes effect for future calculations only.",
       "Every settings change is written to Action History with before/after values.",

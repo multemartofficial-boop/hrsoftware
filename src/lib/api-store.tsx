@@ -297,7 +297,11 @@ function useApiState() {
         advance: Number(p.advanceDeduction),
         tax: Number(p.taxNi),
         net: Number(p.netPay),
-        status: p.status,
+        // Backend already normalises legacy 'Completed' rows, but tolerate them anyway
+        status: p.status === 'Completed' ? 'Paid' as const : p.status,
+        paidAt: p.paidAt ?? null,
+        paidBy: p.paidBy ?? null,
+        paymentReference: p.paymentReference ?? null,
         created: p.generatedAt
       }));
       setPayrolls(normalizedData);
@@ -618,9 +622,9 @@ function useApiState() {
     }
   };
 
-  const setPayrollStatus = async (id: string, status: Payroll["status"]) => {
+  const setPayrollStatus = async (id: string, status: Payroll["status"], paymentReference?: string | null) => {
     try {
-      await apiClient.patch(`/payroll/${id}/status`, { status });
+      await apiClient.patch(`/payroll/${id}/status`, { status, paymentReference: paymentReference || undefined });
       await loadPayrolls();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update payroll status');

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Plus, Printer, Check, Trash2, Search, Download } from "lucide-react";
+import { Plus, Printer, Check, Trash2, Search, Download, RotateCcw } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import {
   Card,
@@ -21,7 +21,7 @@ import {
 import { PayrollBarChart, DonutChart, donutColors } from "@/components/hr/charts";
 import { useApi } from "@/lib/api-store";
 import { apiClient } from "@/lib/api-client";
-import { addDays, fmtDate, money, money2, todayISO } from "@/lib/hr-utils";
+import { addDays, fmtDate, fmtDateTime, money, money2, todayISO } from "@/lib/hr-utils";
 import type { Payroll } from "@/lib/mock-data";
 
 type PayrollPreview = {
@@ -290,12 +290,14 @@ function Payslip({ p, onClose }: { p: Payroll; onClose: () => void }) {
         </div>
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          {[
+          {([
             ["Worker", p.worker],
             ["Worker ID", p.workerId],
             ["Period", `${fmtDate(p.from)} – ${fmtDate(p.to)}`],
             ["Issued", fmtDate(p.created)],
-          ].map(([k, v]) => (
+            p.status === "Paid" && p.paidAt ? ["Paid", `${fmtDateTime(p.paidAt)}${p.paidBy ? ` by ${p.paidBy}` : ""}`] : null,
+            p.status === "Paid" && p.paymentReference ? ["Payment ref", p.paymentReference] : null,
+          ].filter(Boolean) as [string, string][]).map(([k, v]) => (
             <div key={k} className="rounded-lg bg-secondary/60 p-3">
               <p className="text-xs text-muted-foreground">{k}</p>
               <p className="text-sm font-medium">{v}</p>
@@ -467,7 +469,7 @@ function PayrollsPage() {
             >
               <option value="all">All Status</option>
               <option value="Pending">Pending</option>
-              <option value="Completed">Completed</option>
+              <option value="Paid">Paid</option>
             </select>
             <button className="flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm">
               <Download className="size-4" /> Export
@@ -512,7 +514,11 @@ function PayrollsPage() {
                   {p.advance ? `-${money2(p.advance)}` : "—"}
                 </Td>
                 <Td className="font-semibold">{money2(p.net)}</Td>
-                <Td><StatusBadge status={p.status} /></Td>
+                <Td>
+                  <span title={p.status === "Paid" && p.paidAt ? `Paid ${fmtDateTime(p.paidAt)}${p.paidBy ? ` by ${p.paidBy}` : ""}${p.paymentReference ? ` · ref ${p.paymentReference}` : ""}` : undefined}>
+                    <StatusBadge status={p.status} />
+                  </span>
+                </Td>
                 <Td>
                   <div className="flex justify-end gap-1 text-muted-foreground">
                     <button title="View payslip" onClick={() => setSlip(p)} className="rounded-md p-1.5 hover:bg-secondary hover:text-primary">
@@ -520,11 +526,23 @@ function PayrollsPage() {
                     </button>
                     {p.status === "Pending" && (
                       <button
-                        title="Mark completed"
-                        onClick={() => setPayrollStatus(p.id, "Completed")}
+                        title="Mark paid"
+                        onClick={() => {
+                          const ref = window.prompt("Payment reference (optional — e.g. BACS ref):", "") ?? "";
+                          setPayrollStatus(p.id, "Paid", ref.trim() || null);
+                        }}
                         className="rounded-md p-1.5 hover:bg-secondary hover:text-success"
                       >
                         <Check className="size-4" />
+                      </button>
+                    )}
+                    {p.status === "Paid" && (
+                      <button
+                        title="Revert to pending"
+                        onClick={() => setPayrollStatus(p.id, "Pending")}
+                        className="rounded-md p-1.5 hover:bg-secondary hover:text-warning"
+                      >
+                        <RotateCcw className="size-4" />
                       </button>
                     )}
                     <button title="Delete" onClick={() => deletePayroll(p.id)} className="rounded-md p-1.5 hover:bg-secondary hover:text-danger">

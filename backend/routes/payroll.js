@@ -30,6 +30,35 @@ const getBankHolidaySet = async () => {
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
+// Permanent payment-status audit (Part 11): every status change is recorded in
+// payroll_payment_log with a snapshot of worker/period/net, so the record
+// survives even if the payroll row itself is deleted. Never throws.
+const logPaymentEvent = async (row, action, status, actor, paymentReference) => {
+  try {
+    await pool.query(
+      `INSERT INTO payroll_payment_log
+       (payroll_id, worker_id, worker, period_start, period_end, net_pay, action, status, actor, payment_reference)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        row.payroll_id ?? row.id,
+        row.worker_id ?? null,
+        row.worker ?? null,
+        row.period_start ? toLocalDateStr(row.period_start) : null,
+        row.period_end ? toLocalDateStr(row.period_end) : null,
+        row.net_pay != null ? Number(row.net_pay) : null,
+        action,
+        status,
+        actor ?? null,
+        paymentReference ?? null,
+      ]
+    );
+  } catch (error) {
+    console.error('[payroll-payment-log] failed to record event:', error.message);
+  }
+};
+
+const actorName = (req) => req.user?.name || req.user?.email || null;
+
 // Monthly-salary proration (Part 2): each calendar month the period touches
 // contributes monthlySalary × (days of the period inside that month / days in
 // that month). A period covering a whole calendar month therefore pays exactly
@@ -261,7 +290,12 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
       advanceDeduction: Number(p.advance_deduction),
       taxNi: Number(p.tax_ni),
       netPay: Number(p.net_pay),
-      status: p.status,
+      // Legacy rows may still read 'Completed' if the enum migration hasn't run
+      // on this database yet — surface them as 'Paid' so the vocabulary is consistent.
+      status: p.status === 'Completed' ? 'Paid' : p.status,
+      paidAt: p.paid_at || null,
+      paidBy: p.paid_by || null,
+      paymentReference: p.payment_reference || null,
       generatedAt: p.generated_at
     }));
     
@@ -346,6 +380,11 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
       [`N-${Date.now()}`, calculation.worker, calculation.workerId, `Payroll ${payrollId} generated`]
     );
 
+    await logPaymentEvent(
+      { id: payrollId, worker_id: calculation.workerId, worker: calculation.worker, period_start: calculation.from, period_end: calculation.to, net_pay: calculation.net },
+      'generated', 'Pending', actorName(req), null
+    );
+
     await logActionFromReq(req, 'generated_payroll', 'payroll', payrollId, {
       workerId: calculation.workerId,
       worker: calculation.worker,
@@ -361,21 +400,45 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// Admin: Update payroll status
+// Admin: Update payroll status — marking 'Paid' records who/when and an
+// optional payment reference; reverting to 'Pending' clears them. Every
+// transition is written to the permanent payroll_payment_log.
 router.patch('/:id/status', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { status } = req.body;
-    
-    if (!['Pending', 'Completed'].includes(status)) {
+    let { status, paymentReference } = req.body;
+    // 'Completed' is the legacy name for 'Paid' — accept it so older clients don't break
+    if (status === 'Completed') status = 'Paid';
+
+    if (!['Pending', 'Paid'].includes(status)) {
       return res.status(400).json({ error: 'Invalid status' });
     }
-    
+
+    const [rows] = await pool.query('SELECT * FROM payroll WHERE id = ?', [req.params.id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Payroll not found' });
+    }
+    const payroll = rows[0];
+    const reference = status === 'Paid' ? (paymentReference ?? payroll.payment_reference) : null;
+
     await pool.query(
-      'UPDATE payroll SET status = ? WHERE id = ?',
-      [status, req.params.id]
+      `UPDATE payroll SET status = ?, paid_at = ?, paid_by = ?, payment_reference = ? WHERE id = ?`,
+      [
+        status,
+        status === 'Paid' ? new Date() : null,
+        status === 'Paid' ? actorName(req) : null,
+        reference,
+        req.params.id,
+      ]
     );
 
-    await logActionFromReq(req, 'updated_payroll_status', 'payroll', req.params.id, { status });
+    await logPaymentEvent(
+      payroll,
+      status === 'Paid' ? 'marked_paid' : 'reverted_pending',
+      status,
+      actorName(req),
+      reference
+    );
+    await logActionFromReq(req, 'updated_payroll_status', 'payroll', req.params.id, { status, paymentReference: reference });
     res.json({ message: 'Payroll status updated successfully' });
   } catch (error) {
     console.error('Update payroll status error:', error);
@@ -386,7 +449,11 @@ router.patch('/:id/status', requireAuth, requireAdmin, async (req, res) => {
 // Admin: Delete payroll
 router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT worker_id, worker, period_start, period_end FROM payroll WHERE id = ?', [req.params.id]);
+    const [rows] = await pool.query('SELECT * FROM payroll WHERE id = ?', [req.params.id]);
+    if (rows[0]) {
+      // Permanent record of the payroll + its final status before deletion
+      await logPaymentEvent(rows[0], 'deleted', rows[0].status === 'Completed' ? 'Paid' : rows[0].status, actorName(req), rows[0].payment_reference);
+    }
     await pool.query('DELETE FROM payroll WHERE id = ?', [req.params.id]);
     await logActionFromReq(req, 'deleted_payroll', 'payroll', req.params.id, {
       workerId: rows[0]?.worker_id,
@@ -397,6 +464,32 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Delete payroll error:', error);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Admin: Permanent payment-status audit records (survive payroll deletion)
+router.get('/payment-log', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT * FROM payroll_payment_log ORDER BY created_at DESC LIMIT 500'
+    );
+    res.json(rows.map(r => ({
+      id: r.id,
+      payrollId: r.payroll_id,
+      workerId: r.worker_id,
+      worker: r.worker,
+      periodStart: toLocalDateStr(r.period_start),
+      periodEnd: toLocalDateStr(r.period_end),
+      netPay: r.net_pay != null ? Number(r.net_pay) : null,
+      action: r.action,
+      status: r.status,
+      actor: r.actor,
+      paymentReference: r.payment_reference,
+      createdAt: r.created_at,
+    })));
+  } catch (error) {
+    console.error('Get payroll payment log error:', error);
+    res.status(500).json({ error: 'Failed to load payment log' });
   }
 });
 

@@ -20,6 +20,7 @@ export function SectionTitle({ title, action }: { title: string; action?: ReactN
 const badgeTones: Record<string, string> = {
   Active: "bg-success-soft text-success",
   Completed: "bg-success-soft text-success",
+  Paid: "bg-success-soft text-success",
   Approved: "bg-success-soft text-success",
   "Full-time": "bg-success-soft text-success",
   Pending: "bg-warning-soft text-warning",

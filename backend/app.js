@@ -96,6 +96,45 @@ async function ensureSchema() {
     await addCol('ALTER TABLE signature_requests ADD COLUMN admin_signed_at TIMESTAMP NULL', 'signature_requests.admin_signed_at');
     await addCol('ALTER TABLE signature_requests ADD COLUMN admin_signer_ip VARCHAR(64) NULL', 'signature_requests.admin_signer_ip');
 
+    // Part 11: payroll payment status — who/when a run was paid plus an
+    // optional payment reference, and a permanent audit table that keeps a
+    // record of every status change even if the payroll row is later deleted.
+    await addCol('ALTER TABLE payroll ADD COLUMN paid_at DATETIME NULL', 'payroll.paid_at');
+    await addCol('ALTER TABLE payroll ADD COLUMN paid_by VARCHAR(255) NULL', 'payroll.paid_by');
+    await addCol('ALTER TABLE payroll ADD COLUMN payment_reference VARCHAR(255) NULL', 'payroll.payment_reference');
+    try {
+      // Widen the status enum, migrate legacy rows, then narrow to the new vocabulary
+      await pool.query("ALTER TABLE payroll MODIFY COLUMN status ENUM('Pending','Completed','Paid') NOT NULL DEFAULT 'Pending'");
+      await pool.query("UPDATE payroll SET status = 'Paid' WHERE status = 'Completed'");
+      await pool.query("ALTER TABLE payroll MODIFY COLUMN status ENUM('Pending','Paid') NOT NULL DEFAULT 'Pending'");
+      console.log('✅ payroll status migrated to Pending/Paid');
+    } catch (error) {
+      console.log('⚠️ Could not migrate payroll status enum:', error.message);
+    }
+    try {
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS payroll_payment_log (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          payroll_id VARCHAR(64) NOT NULL,
+          worker_id VARCHAR(64) NULL,
+          worker VARCHAR(255) NULL,
+          period_start DATE NULL,
+          period_end DATE NULL,
+          net_pay DECIMAL(12,2) NULL,
+          action VARCHAR(32) NOT NULL,
+          status VARCHAR(32) NOT NULL,
+          actor VARCHAR(255) NULL,
+          payment_reference VARCHAR(255) NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_payroll_payment_log_payroll (payroll_id),
+          INDEX idx_payroll_payment_log_created (created_at)
+        )`
+      );
+      console.log('✅ payroll_payment_log table ready');
+    } catch (error) {
+      console.log('⚠️ Could not create payroll_payment_log table:', error.message);
+    }
+
     // Action History audit log
     try {
       await pool.query(
