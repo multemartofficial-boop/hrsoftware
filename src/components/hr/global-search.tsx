@@ -22,7 +22,6 @@ const pages = [
   { to: "/admin/payrolls", label: "Payrolls" },
   { to: "/admin/approvals", label: "Registration Approvals" },
   { to: "/admin/locations", label: "Locations" },
-  { to: "/admin/finance", label: "Buyer & Profit/Loss" },
   { to: "/admin/notifications", label: "Notifications" },
   { to: "/admin/reports", label: "Reports" },
   { to: "/admin/settings", label: "Settings" },

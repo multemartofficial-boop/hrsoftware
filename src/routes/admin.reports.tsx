@@ -164,7 +164,7 @@ function ReportsPage() {
       map.set(a.location, cur);
     }
     return Array.from(map.entries())
-      .map(([name, v]) => ({ name, hours: r2(v.hours), cost: r2(v.cost), billing: r2(v.cost * (settings?.billingMultiplier ?? 1)) }))
+      .map(([name, v]) => ({ name, hours: r2(v.hours), cost: r2(v.cost) }))
       .sort((a, b) => b.hours - a.hours);
   }, [fAtt, workers, settings, rowsPerWorkerDay]);
 
@@ -202,8 +202,8 @@ function ReportsPage() {
       ...fPays.map((p) => [p.id, p.worker, `${p.from} to ${p.to}`, p.hours, p.gross, p.net, p.status].map(esc).join(",")),
       "",
       "BY LOCATION",
-      ["Location", "Hours", "Labour Cost", "Billing"].join(","),
-      ...byLocation.map((l) => [l.name, l.hours, l.cost, l.billing].map(esc).join(",")),
+      ["Location", "Hours", "Labour Cost"].join(","),
+      ...byLocation.map((l) => [l.name, l.hours, l.cost].map(esc).join(",")),
       "",
       "SIGNATURE REQUESTS",
       `Sent,${docStats.sent}`, `Signed,${docStats.signed}`, `Pending,${docStats.pending}`, `Declined,${docStats.declined}`,
@@ -242,7 +242,7 @@ function ReportsPage() {
     line(`Locations Used: ${locationsUsed}`);
     y += 4;
     line("By Location", { bold: true, size: 12 });
-    for (const l of byLocation) line(`  ${l.name}: ${l.hours} h — ${money(l.cost)} (billing ${money(l.billing)})`);
+    for (const l of byLocation) line(`  ${l.name}: ${l.hours} h — ${money(l.cost)}`);
     if (!byLocation.length) line("  No attendance in range.");
     y += 4;
     line("Signature Requests", { bold: true, size: 12 });
@@ -331,11 +331,6 @@ function ReportsPage() {
               ))}
             </select>
           </Field>
-          {settings && (
-            <span className="text-xs text-muted-foreground sm:pb-3">
-              Billing modelled at {settings.billingMultiplier}× labour cost
-            </span>
-          )}
         </Card>
 
         {/* stat cards — filtered */}
@@ -425,25 +420,21 @@ function ReportsPage() {
             <h2 className="text-base font-semibold">By Location</h2>
           </div>
           <DataTable
-            labels={["Location", "Hours", "Labour Cost", "Billing", "Profit"]}
+            labels={["Location", "Hours", "Labour Cost"]}
             head={
               <>
                 <Th>Location</Th>
                 <Th>Hours</Th>
                 <Th>Labour Cost</Th>
-                <Th>Billing</Th>
-                <Th>Profit</Th>
               </>
             }
           >
-            {(!byLocation || byLocation.length === 0) && <EmptyRow colSpan={5} text="No data for this range/location." />}
+            {(!byLocation || byLocation.length === 0) && <EmptyRow colSpan={3} text="No data for this range/location." />}
             {(byLocation || []).map((r) => (
               <tr key={r.name} className="hover:bg-secondary/40">
                 <Td className="font-medium">{r.name}</Td>
                 <Td>{r.hours.toFixed(1)} h</Td>
                 <Td>{money(r.cost)}</Td>
-                <Td>{money(r.billing)}</Td>
-                <Td className="font-semibold text-success">{money(r.billing - r.cost)}</Td>
               </tr>
             ))}
           </DataTable>

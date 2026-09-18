@@ -169,12 +169,6 @@ function SettingsPage() {
             onChange={(n) => set("overtimeThreshold", n)}
             step="1"
           />
-          <NumField
-            label="Client billing multiplier"
-            value={draft.billingMultiplier}
-            onChange={(n) => set("billingMultiplier", n)}
-            hint="Used in Reports to model client billing"
-          />
         </Section>
 
         <Section title="Bank Holiday Pay" desc="Extra pay for hours worked on UK bank holidays. Applied to payroll and summary views.">

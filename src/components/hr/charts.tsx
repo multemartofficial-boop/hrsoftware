@@ -166,39 +166,3 @@ export function BillingLineChart({
   );
 }
 
-export function IncomeVsCostChart({
-  data,
-}: {
-  data: { label: string; income: number; spend: number }[];
-}) {
-  return (
-    <ResponsiveContainer width="100%" height={280}>
-      <BarChart data={data} barCategoryGap={24}>
-        <CartesianGrid vertical={false} stroke="oklch(0.93 0.006 285)" />
-        <XAxis dataKey="label" axisLine={false} tickLine={false} {...axis} />
-        <YAxis
-          axisLine={false}
-          tickLine={false}
-          {...axis}
-          tickFormatter={(v: number) => (v >= 1000 ? `${v / 1000}k` : String(v))}
-        />
-        <Tooltip
-          cursor={{ fill: "oklch(0.55 0.23 291 / 0.06)" }}
-          contentStyle={tooltipStyle}
-          formatter={(v: number, n: string) => [money(v), n === "income" ? "Received from buyers" : "Workers + costs"]}
-        />
-        <Legend
-          iconType="circle"
-          iconSize={8}
-          formatter={(v: string) => (
-            <span className="text-xs text-muted-foreground">
-              {v === "income" ? "Received from buyers" : "Workers + costs"}
-            </span>
-          )}
-        />
-        <Bar dataKey="income" fill="oklch(0.55 0.23 291)" radius={[6, 6, 6, 6]} barSize={20} />
-        <Bar dataKey="spend" fill="oklch(0.72 0.12 195)" radius={[6, 6, 6, 6]} barSize={20} />
-      </BarChart>
-    </ResponsiveContainer>
-  );
-}

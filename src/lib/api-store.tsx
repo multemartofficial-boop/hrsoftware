@@ -6,8 +6,6 @@ import type {
   Attendance,
   Payroll,
   LocationItem,
-  BuyerIncome,
-  OtherCost,
   Settings,
   Notice,
 } from "./mock-data";
@@ -21,7 +19,6 @@ import {
   nowTime,
   rid,
   todayISO,
-  weekStart,
   MONTHS,
   money,
   money2,
@@ -48,8 +45,6 @@ function useApiState() {
   const [activity, setActivity] = useState<Notice[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [openShifts, setOpenShifts] = useState<any[]>([]);
-  const [buyerIncome, setBuyerIncome] = useState<BuyerIncome[]>([]);
-  const [otherCosts, setOtherCosts] = useState<OtherCost[]>([]);
   const [currentWorkerId, setCurrentWorkerId] = useState<string>("");
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
@@ -362,40 +357,6 @@ function useApiState() {
     }
   };
 
-  const loadBuyerIncome = async () => {
-    setLoading({ ...loading, buyerIncome: true });
-    setError(null);
-    try {
-      const data = await apiClient.get<BuyerIncome[]>('/api/buyer-income');
-      // MySQL DECIMAL returns strings — coerce so sums don't concatenate
-      setBuyerIncome((data || []).map((i) => ({ ...i, amount: Number(i.amount) || 0 })));
-    } catch (err) {
-      if (!(err instanceof Error && err.message.includes('401'))) {
-        console.error('Failed to load buyer income:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load buyer income');
-      }
-    } finally {
-      setLoading({ ...loading, buyerIncome: false });
-    }
-  };
-
-  const loadOtherCosts = async () => {
-    setLoading({ ...loading, otherCosts: true });
-    setError(null);
-    try {
-      const data = await apiClient.get<OtherCost[]>('/api/other-costs');
-      // MySQL DECIMAL returns strings — coerce so sums don't concatenate
-      setOtherCosts((data || []).map((c) => ({ ...c, amount: Number(c.amount) || 0 })));
-    } catch (err) {
-      if (!(err instanceof Error && err.message.includes('401'))) {
-        console.error('Failed to load other costs:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load other costs');
-      }
-    } finally {
-      setLoading({ ...loading, otherCosts: false });
-    }
-  };
-
   const loadNotifications = async () => {
     try {
       const data = await apiClient.get<Notice[]>('/api/notifications');
@@ -417,8 +378,6 @@ function useApiState() {
       loadPayrolls();
       loadLocations();
       loadSettings();
-      loadBuyerIncome();
-      loadOtherCosts();
       loadNotifications();
     } else if (session && session.role === 'worker' && authReady) {
       loadLocations();
@@ -706,63 +665,6 @@ function useApiState() {
     }
   };
 
-  /* ---------------- buyer income ---------------- */
-  const addBuyerIncome = async (input: Omit<BuyerIncome, "id">) => {
-    try {
-      await apiClient.post('/api/buyer-income', input);
-      await loadBuyerIncome();
-      await loadNotifications();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add buyer income');
-    }
-  };
-
-  const updateBuyerIncome = async (id: string, patch: Partial<BuyerIncome>) => {
-    try {
-      await apiClient.put(`/api/buyer-income/${id}`, patch);
-      await loadBuyerIncome();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update buyer income');
-    }
-  };
-
-  const deleteBuyerIncome = async (id: string) => {
-    try {
-      await apiClient.delete(`/api/buyer-income/${id}`);
-      await loadBuyerIncome();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete buyer income');
-    }
-  };
-
-  /* ---------------- other costs ---------------- */
-  const addOtherCost = async (input: Omit<OtherCost, "id">) => {
-    try {
-      await apiClient.post('/api/other-costs', input);
-      await loadOtherCosts();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add other cost');
-    }
-  };
-
-  const updateOtherCost = async (id: string, patch: Partial<OtherCost>) => {
-    try {
-      await apiClient.put(`/api/other-costs/${id}`, patch);
-      await loadOtherCosts();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update other cost');
-    }
-  };
-
-  const deleteOtherCost = async (id: string) => {
-    try {
-      await apiClient.delete(`/api/other-costs/${id}`);
-      await loadOtherCosts();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete other cost');
-    }
-  };
-
   /* ---------------- settings ---------------- */
   const updateSettings = async (patch: Partial<Settings>) => {
     try {
@@ -883,31 +785,6 @@ function useApiState() {
     if (w?.payType === "salary") return 0; // salaried cost is calendar-based, added separately
     return a.hours * (w?.rate ?? settings?.hourlyRate ?? 14.5);
   };
-  const salaryCostForRange = (from: string, to: string) =>
-    workers
-      .filter((w) => w.payType === "salary" && (w.monthlySalary ?? 0) > 0)
-      .reduce((t, w) => t + proratedMonthlySalary(Number(w.monthlySalary), from, to, w.joined).amount, 0);
-
-  const weeklyReport = useMemo(() => {
-    const starts: string[] = [];
-    for (let i = 5; i >= 0; i--) starts.push(weekStart(addDays(todayISO(), -7 * i)));
-    return starts.map((s, idx) => {
-      const end = addDays(s, 6);
-      const rows = attendance.filter((a) => a.date >= s && a.date <= end);
-      const hours = round(rows.reduce((t, a) => t + a.hours, 0));
-      const cost = round(
-        rows.reduce((t, a) => t + hourlyRowCost(a), 0) + salaryCostForRange(s, end),
-      );
-      return {
-        week: `W${idx + 1}`,
-        label: fmtDate(s),
-        hours,
-        cost,
-        billing: round(cost * (settings?.billingMultiplier || 1.45)),
-      };
-    });
-  }, [attendance, workers, settings]);
-
   const totals = useMemo(() => {
     const totalHours = round(attendance.reduce((t, a) => t + a.hours, 0));
     // All-time labour cost: hourly attendance cost + salaried workers' prorated
@@ -921,15 +798,12 @@ function useApiState() {
             return t + proratedMonthlySalary(Number(w.monthlySalary), from, todayISO(), w.joined).amount;
           }, 0),
     );
-    const billing = round(labourCost * (settings?.billingMultiplier || 1.45));
     const payrollCost = round(payrolls.reduce((t, p) => t + p.gross, 0));
     const pending = round(payrolls.filter((p) => p.status === "Pending").reduce((t, p) => t + p.net, 0));
     const expenses = round(payrolls.reduce((t, p) => t + p.tax + p.advance, 0));
     return {
       totalHours,
       labourCost,
-      billing,
-      profit: round(billing - labourCost),
       payrollCost,
       pending,
       pendingCount: payrolls.filter((p) => p.status === "Pending").length,
@@ -990,32 +864,19 @@ function useApiState() {
     notices,
     payrollChart,
     deductionsData,
-    weeklyReport,
     totals,
-    buyerIncome,
-    otherCosts,
-    addBuyerIncome,
-    updateBuyerIncome,
-    deleteBuyerIncome,
-    addOtherCost,
-    updateOtherCost,
-    deleteOtherCost,
     loadWorkers,
     loadApplications,
     loadAllApplications,
     loadAttendance,
     loadPayrolls,
     loadLocations,
-    loadBuyerIncome,
-    loadOtherCosts,
     refreshData: () => {
       if (session?.role === 'admin') {
         loadWorkers();
         loadApplications();
         loadAttendance();
         loadPayrolls();
-        loadBuyerIncome();
-        loadOtherCosts();
         loadNotifications();
       }
     },

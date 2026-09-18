@@ -22,7 +22,6 @@ import { Route as AdminAssignmentsRouteImport } from './routes/admin.assignments
 import { Route as AdminAttendanceRouteImport } from './routes/admin.attendance'
 import { Route as AdminClientsRouteImport } from './routes/admin.clients'
 import { Route as AdminDocumentsRouteImport } from './routes/admin.documents'
-import { Route as AdminFinanceRouteImport } from './routes/admin.finance'
 import { Route as AdminHelpRouteImport } from './routes/admin.help'
 import { Route as AdminIncidentsRouteImport } from './routes/admin.incidents'
 import { Route as AdminLiveMapRouteImport } from './routes/admin.live-map'
@@ -101,11 +100,6 @@ const AdminDocumentsRoute = AdminDocumentsRouteImport.update({
   path: '/admin/documents',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminFinanceRoute = AdminFinanceRouteImport.update({
-  id: '/admin/finance',
-  path: '/admin/finance',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AdminHelpRoute = AdminHelpRouteImport.update({
   id: '/admin/help',
   path: '/admin/help',
@@ -180,7 +174,6 @@ export interface FileRoutesByFullPath {
   '/admin/attendance': typeof AdminAttendanceRoute
   '/admin/clients': typeof AdminClientsRoute
   '/admin/documents': typeof AdminDocumentsRoute
-  '/admin/finance': typeof AdminFinanceRoute
   '/admin/help': typeof AdminHelpRoute
   '/admin/incidents': typeof AdminIncidentsRoute
   '/admin/live-map': typeof AdminLiveMapRoute
@@ -208,7 +201,6 @@ export interface FileRoutesByTo {
   '/admin/attendance': typeof AdminAttendanceRoute
   '/admin/clients': typeof AdminClientsRoute
   '/admin/documents': typeof AdminDocumentsRoute
-  '/admin/finance': typeof AdminFinanceRoute
   '/admin/help': typeof AdminHelpRoute
   '/admin/incidents': typeof AdminIncidentsRoute
   '/admin/live-map': typeof AdminLiveMapRoute
@@ -237,7 +229,6 @@ export interface FileRoutesById {
   '/admin/attendance': typeof AdminAttendanceRoute
   '/admin/clients': typeof AdminClientsRoute
   '/admin/documents': typeof AdminDocumentsRoute
-  '/admin/finance': typeof AdminFinanceRoute
   '/admin/help': typeof AdminHelpRoute
   '/admin/incidents': typeof AdminIncidentsRoute
   '/admin/live-map': typeof AdminLiveMapRoute
@@ -267,7 +258,6 @@ export interface FileRouteTypes {
     | '/admin/attendance'
     | '/admin/clients'
     | '/admin/documents'
-    | '/admin/finance'
     | '/admin/help'
     | '/admin/incidents'
     | '/admin/live-map'
@@ -295,7 +285,6 @@ export interface FileRouteTypes {
     | '/admin/attendance'
     | '/admin/clients'
     | '/admin/documents'
-    | '/admin/finance'
     | '/admin/help'
     | '/admin/incidents'
     | '/admin/live-map'
@@ -323,7 +312,6 @@ export interface FileRouteTypes {
     | '/admin/attendance'
     | '/admin/clients'
     | '/admin/documents'
-    | '/admin/finance'
     | '/admin/help'
     | '/admin/incidents'
     | '/admin/live-map'
@@ -352,7 +340,6 @@ export interface RootRouteChildren {
   AdminAttendanceRoute: typeof AdminAttendanceRoute
   AdminClientsRoute: typeof AdminClientsRoute
   AdminDocumentsRoute: typeof AdminDocumentsRoute
-  AdminFinanceRoute: typeof AdminFinanceRoute
   AdminHelpRoute: typeof AdminHelpRoute
   AdminIncidentsRoute: typeof AdminIncidentsRoute
   AdminLiveMapRoute: typeof AdminLiveMapRoute
@@ -458,13 +445,6 @@ declare module '@tanstack/react-router' {
       path: '/admin/documents'
       fullPath: '/admin/documents'
       preLoaderRoute: typeof AdminDocumentsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/admin/finance': {
-      id: '/admin/finance'
-      path: '/admin/finance'
-      fullPath: '/admin/finance'
-      preLoaderRoute: typeof AdminFinanceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/help': {
@@ -578,7 +558,6 @@ const rootRouteChildren: RootRouteChildren = {
   AdminAttendanceRoute: AdminAttendanceRoute,
   AdminClientsRoute: AdminClientsRoute,
   AdminDocumentsRoute: AdminDocumentsRoute,
-  AdminFinanceRoute: AdminFinanceRoute,
   AdminHelpRoute: AdminHelpRoute,
   AdminIncidentsRoute: AdminIncidentsRoute,
   AdminLiveMapRoute: AdminLiveMapRoute,

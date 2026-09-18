@@ -678,30 +678,3 @@ export const seedSettings: Settings = {
 };
 
 export const seedToday = toISO(new Date());
-
-/* ---------------- buyer income & other costs ---------------- */
-
-export type BuyerIncome = {
-  id: string;
-  buyer: string;
-  description: string;
-  amount: number;
-  date: string; // ISO
-  status: "Received" | "Pending";
-};
-
-export type OtherCost = { id: string; description: string; amount: number; date: string };
-
-export const seedBuyerIncome: BuyerIncome[] = [
-  { id: "BIN-1001", buyer: "Halstead Construction", description: "Camden site labour — monthly invoice", amount: 18500, date: addDays(todayISO(), -6), status: "Received" },
-  { id: "BIN-1002", buyer: "Northline Logistics", description: "Hackney depot night shifts", amount: 9400, date: addDays(todayISO(), -14), status: "Received" },
-  { id: "BIN-1003", buyer: "Brightway Facilities", description: "Stratford yard cleaning crew", amount: 6200, date: addDays(todayISO(), -21), status: "Pending" },
-  { id: "BIN-1004", buyer: "Halstead Construction", description: "Overtime supplement — previous period", amount: 4100, date: addDays(todayISO(), -38), status: "Received" },
-  { id: "BIN-1005", buyer: "Kestrel Retail Group", description: "Seasonal warehouse staffing", amount: 12750, date: addDays(todayISO(), -52), status: "Received" },
-];
-
-export const seedOtherCosts: OtherCost[] = [
-  { id: "COST-2001", description: "Crew transport & fuel", amount: 1350, date: addDays(todayISO(), -5) },
-  { id: "COST-2002", description: "PPE and site materials", amount: 880, date: addDays(todayISO(), -17) },
-  { id: "COST-2003", description: "Equipment hire", amount: 1600, date: addDays(todayISO(), -44) },
-];
