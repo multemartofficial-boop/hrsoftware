@@ -48,15 +48,6 @@ function NumField({
   );
 }
 
-function TextField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  return (
-    <label className="block">
-      <span className="text-sm font-medium">{label}</span>
-      <input value={value} onChange={(e) => onChange(e.target.value)} className={inputCls} />
-    </label>
-  );
-}
-
 function Section({ title, desc, children }: { title: string; desc: string; children: React.ReactNode }) {
   return (
     <Card>
@@ -263,11 +254,6 @@ function SettingsPage() {
             step="1"
             hint="Used on approval and reactivation"
           />
-        </Section>
-
-        <Section title="Organisation" desc="Basic company details shown on payslips.">
-          <TextField label="Company name" value={draft.companyName} onChange={(v) => set("companyName", v)} />
-          <TextField label="Payroll contact email" value={draft.payrollEmail} onChange={(v) => set("payrollEmail", v)} />
         </Section>
         </div>
       </div>
