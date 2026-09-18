@@ -518,6 +518,7 @@ export function ApplicationDetail({ app }: { app: Application }) {
                 ? [["Sub-contract company", app.subcontractCompany || getDetail("subcontractCompany", "")] as [string, string]]
                 : []),
               ["GDPR consent", gdpr === "Yes" ? "Yes" : "No"],
+              ["Terms & conditions agreed", getDetail("termsConsent", "No") === "Yes" ? "Yes" : "No"],
             ]}
           />
         </div>

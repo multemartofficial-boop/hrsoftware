@@ -229,7 +229,7 @@ router.post('/', upload.fields(appUploadFields), async (req, res) => {
       prevAddresses, employers, referees, skills,
       howHeard, subcontractCompany, passportCountry, passportNumber, passportIssueDate, passportExpiry,
       visaNumber, siaBadgeNumber, siaBadgeExpiry,
-      passportType, sortCode, accountNumber, gdprConsent
+      passportType, sortCode, accountNumber, gdprConsent, termsConsent
     } = req.body;
 
     // Direct vs Sub-contract: derived from the how-heard answer
@@ -286,7 +286,7 @@ router.post('/', upload.fields(appUploadFields), async (req, res) => {
       howHeard, subcontractCompany, workerType,
       passportCountry, passportNumber, passportIssueDate, passportExpiry,
       visaNumber, siaBadgeNumber, siaBadgeExpiry,
-      passportType, sortCode, accountNumber, gdprConsent
+      passportType, sortCode, accountNumber, gdprConsent, termsConsent
     };
 
     // Insert main application

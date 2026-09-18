@@ -14,10 +14,10 @@ import { apiClient } from "@/lib/api-client";
 export const Route = createFileRoute("/register")({
   head: () => ({
     meta: [
-      { title: "Worker Registration — WorkHR" },
-      { name: "description", content: "Complete the 5-step application form to apply for work. Applications go straight to the HR approvals queue." },
-      { property: "og:title", content: "Worker Registration — WorkHR" },
-      { property: "og:description", content: "Complete the 5-step application form to apply for work. Applications go straight to the HR approvals queue." },
+      { title: "Worker Registration — Sinha Security Services" },
+      { name: "description", content: "Complete the 5-step application form to apply for work with Sinha Security Services. Applications go straight to the HR approvals queue." },
+      { property: "og:title", content: "Worker Registration — Sinha Security Services" },
+      { property: "og:description", content: "Complete the 5-step application form to apply for work with Sinha Security Services. Applications go straight to the HR approvals queue." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -76,14 +76,15 @@ function IconInput({ icon, children }: { icon: React.ReactNode; children: React.
 
 const iconCls = "pl-9"; // extra left padding for inputs rendered inside IconInput
 
-function Section({ title, icon, children, cols = 2 }: { title: string; icon?: React.ReactNode; children: React.ReactNode; cols?: number }) {
+function Section({ title, icon, children, cols = 2, requiredHint }: { title: string; icon?: React.ReactNode; children: React.ReactNode; cols?: number; requiredHint?: string }) {
   return (
     <div className="mt-5 rounded-xl border border-border bg-secondary/30 p-4 first:mt-0 sm:p-5">
-      <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold tracking-tight text-primary">
+      <h3 className="flex items-center gap-2 text-sm font-semibold tracking-tight text-primary">
         {icon && <span className="grid size-6 place-items-center rounded-md bg-primary-soft text-primary [&>svg]:size-3.5">{icon}</span>}
         {title}
       </h3>
-      <div className={cols === 2 ? "grid gap-4 sm:grid-cols-2" : "grid gap-4"}>{children}</div>
+      {requiredHint && <p className="mt-1 text-xs text-muted-foreground">{requiredHint}</p>}
+      <div className={`mt-4 ${cols === 2 ? "grid gap-4 sm:grid-cols-2" : "grid gap-4"}`}>{children}</div>
     </div>
   );
 }
@@ -441,6 +442,7 @@ function RegisterPage() {
     beforeReason: "",
     availability: availabilityOptions[0]!,
     gdprConsent: "No",
+    termsConsent: "No",
   });
   const [prevAddresses, setPrevAddresses] = useState<Row[]>([]);
   const [employers, setEmployers] = useState<Row[]>([{ ...blankEmployer }]);
@@ -756,12 +758,11 @@ function RegisterPage() {
         need(e, "visaExpiry", "your visa expiry date", f.visaExpiry);
         need(e, "rtwShareCode", "your right-to-work share code", f.rtwShareCode);
       }
-      if (f.siaBadgeNumber.trim() || f.siaBadgeExpiry) {
-        need(e, "siaBadgeNumber", "your SIA badge number", f.siaBadgeNumber);
-        need(e, "siaBadgeExpiry", "your SIA badge expiry date", f.siaBadgeExpiry);
-        need(e, "siaDocFront", "the front of your SIA badge", f.siaDocFront);
-        need(e, "siaDocBack", "the back of your SIA badge", f.siaDocBack);
-      }
+      // SIA licence is mandatory for all applicants (security roles).
+      need(e, "siaBadgeNumber", "your SIA badge number", f.siaBadgeNumber);
+      need(e, "siaBadgeExpiry", "your SIA badge expiry date", f.siaBadgeExpiry);
+      need(e, "siaDocFront", "the front of your SIA badge", f.siaDocFront);
+      need(e, "siaDocBack", "the back of your SIA badge", f.siaDocBack);
       need(e, "bankName", "your bank name", f.bankName);
       need(e, "accountHolder", "the account holder name", f.accountHolder);
       if (!f.sortCode.trim()) e["sortCode"] = "Please enter your sort code";
@@ -843,7 +844,8 @@ function RegisterPage() {
     setValidationSummary(null);
     const newErrors: Record<string, string> = {};
     if (!confirmed) newErrors["confirmed"] = "Please confirm the information is accurate";
-    if (f.gdprConsent !== "Yes") newErrors["gdprConsent"] = "Please consent to WorkHR storing and processing your personal data";
+    if (f.gdprConsent !== "Yes") newErrors["gdprConsent"] = "Please consent to Sinha Security Services Limited storing and processing your personal data";
+    if (f.termsConsent !== "Yes") newErrors["termsConsent"] = "Please agree to the terms and conditions of engagement";
     if (Object.keys(newErrors).length) {
       setErrors(newErrors);
       return;
@@ -1270,37 +1272,33 @@ function RegisterPage() {
               )}
             </Section>
 
-            <Section title="SIA Badge" icon={<ShieldCheck />}>
-              <Field label="SIA Badge Number" hint="Leave blank if you don't hold an SIA badge" error={err("siaBadgeNumber")}>
+            <Section title="SIA Badge" icon={<ShieldCheck />} requiredHint="A valid SIA licence is required to work with us">
+              <Field label="SIA Badge Number *" error={err("siaBadgeNumber")}>
                 <input value={f.siaBadgeNumber} onChange={set("siaBadgeNumber")} className={`${inputCls} ${err("siaBadgeNumber") ? "border-danger" : ""}`} />
               </Field>
-              <Field label="SIA Badge Expiry Date" error={err("siaBadgeExpiry")}>
+              <Field label="SIA Badge Expiry Date *" error={err("siaBadgeExpiry")}>
                 <IconInput icon={<Calendar />}>
                   <input type="date" value={f.siaBadgeExpiry} onChange={set("siaBadgeExpiry")} className={`${inputCls} ${iconCls} ${err("siaBadgeExpiry") ? "border-danger" : ""}`} />
                 </IconInput>
               </Field>
-              {(f.siaBadgeNumber.trim() || f.siaBadgeExpiry) && (
-                <>
-                  <FileUpload
-                    label="SIA Badge Front"
-                    required
-                    fileName={f.siaDocFront}
-                    preview={docUrls["siaDocFront"]}
-                    onPick={pickFile("siaDocFront")}
-                    onClear={() => pickFile("siaDocFront")(null)}
-                    error={err("siaDocFront")}
-                  />
-                  <FileUpload
-                    label="SIA Badge Back"
-                    required
-                    fileName={f.siaDocBack}
-                    preview={docUrls["siaDocBack"]}
-                    onPick={pickFile("siaDocBack")}
-                    onClear={() => pickFile("siaDocBack")(null)}
-                    error={err("siaDocBack")}
-                  />
-                </>
-              )}
+              <FileUpload
+                label="SIA Badge Front"
+                required
+                fileName={f.siaDocFront}
+                preview={docUrls["siaDocFront"]}
+                onPick={pickFile("siaDocFront")}
+                onClear={() => pickFile("siaDocFront")(null)}
+                error={err("siaDocFront")}
+              />
+              <FileUpload
+                label="SIA Badge Back"
+                required
+                fileName={f.siaDocBack}
+                preview={docUrls["siaDocBack"]}
+                onPick={pickFile("siaDocBack")}
+                onClear={() => pickFile("siaDocBack")(null)}
+                error={err("siaDocBack")}
+              />
             </Section>
 
             <Section title="Bank Details (for payroll)" icon={<Landmark />}>
@@ -1717,11 +1715,43 @@ function RegisterPage() {
                 className="mt-0.5 size-4 accent-primary"
               />
               <span>
-                I consent to WorkHR storing and processing my personal data in accordance with the Privacy Policy and UK GDPR
+                I consent to Sinha Security Services Limited storing and processing my personal data in accordance with the Privacy Policy and UK GDPR
                 <Req />
               </span>
             </label>
             {err("gdprConsent") && <p className="mt-1 text-xs font-medium text-danger">{err("gdprConsent")}</p>}
+
+            <label className={`mt-3 flex items-start gap-3 rounded-xl border p-4 text-sm ${err("termsConsent") ? "border-danger" : "border-border"}`}>
+              <input
+                type="checkbox"
+                checked={f.termsConsent === "Yes"}
+                onChange={(e) => {
+                  setF((s) => ({ ...s, termsConsent: e.target.checked ? "Yes" : "No" }));
+                  setErrors((s) => {
+                    if (!s["termsConsent"]) return s;
+                    const { termsConsent: _d, ...rest } = s;
+                    return rest;
+                  });
+                }}
+                className="mt-0.5 size-4 accent-primary"
+              />
+              <span>
+                I agree to the terms and conditions of engagement
+                <Req />
+              </span>
+            </label>
+            {err("termsConsent") && <p className="mt-1 text-xs font-medium text-danger">{err("termsConsent")}</p>}
+            <details className="mt-3 rounded-xl border border-border bg-secondary/30 p-4 text-xs text-muted-foreground">
+              <summary className="cursor-pointer font-medium text-foreground">Terms &amp; conditions of engagement — read summary</summary>
+              <ul className="mt-2 list-disc space-y-1 pl-4">
+                <li>All information supplied in this application is true and complete; false or misleading statements may result in withdrawal of the application or termination of engagement.</li>
+                <li>You must hold a valid SIA licence for the duration of any engagement and produce it on request; your licence expiry date will be tracked for compliance.</li>
+                <li>Your right to work in the UK will be verified before any offer of work, and may be re-verified periodically.</li>
+                <li>Employment references and work history you provide may be contacted and checked.</li>
+                <li>Hours, locations and duties are assigned per site requirements; pay is processed via payroll using the bank details supplied.</li>
+                <li>You agree to follow site rules, company policies and any reasonable instructions from Sinha Security Services Limited and its clients while on duty.</li>
+              </ul>
+            </details>
             {err("submit") && <p className="mt-2 rounded-lg bg-danger-soft px-3 py-2 text-xs font-medium text-danger">{err("submit")}</p>}
           </>
         )}
