@@ -40,7 +40,7 @@ async function main() {
   check(up.status === 404, 'PDF upload endpoint removed', String(up.status));
 
   // ---- legacy uploaded_pdf doc cannot be sent ----
-  await pool.query("DELETE FROM signature_requests WHERE id = 'SIG-LEGACY-TEST'");
+  await pool.query("DELETE FROM signature_requests WHERE id IN ('SIG-LEGACY-TEST', 'SIG-LEGACY-PENDING', 'SIG-LEGACY-P2')");
   await pool.query("DELETE FROM documents WHERE id = 'DOC-LEGACY-TEST'");
   const [ins] = await pool.query(
     "INSERT INTO documents (id, name, type, file_path) VALUES ('DOC-LEGACY-TEST','Legacy PDF','uploaded_pdf','uploads/none.pdf')"
@@ -48,50 +48,69 @@ async function main() {
   const sendLegacy = await api('POST', '/api/documents/DOC-LEGACY-TEST/send', { workerId: WID });
   check(sendLegacy.status === 400, 'sending a non-template doc rejected', String(sendLegacy.status));
 
-  // ---- create template + send ----
+  // ---- create template — must be company-signed before it can be sent ----
   const tpl = await api('POST', '/api/documents/template', {
     name: 'Part7 Dual-Sign Test',
     content: 'Dear {{worker_name}} ({{worker_code}}), this confirms your assignment.',
   });
   check(tpl.status === 201 && tpl.data.type === 'template', 'template created', JSON.stringify(tpl.data).slice(0, 100));
+  const signTpl = await api('POST', `/api/documents/${tpl.data.id}/sign-template`, {
+    signatureType: 'type', signatureData: 'Template Admin',
+  });
+  check(signTpl.status === 200, 'template company-signed', JSON.stringify(signTpl.data));
   const send = await api('POST', `/api/documents/${tpl.data.id}/send`, { workerId: WID });
   check(send.status === 201 && send.data.status === 'pending', 'request sent (pending)');
   const reqId = send.data.id;
 
-  // ---- worker signs → worker_signed (NOT fully signed) ----
+  // ---- worker signs a company-signed request → fully signed immediately ----
   const sign = await api('POST', `/api/documents/requests/${reqId}/sign`, {
     signatureType: 'type', signatureData: 'Test Subbie',
   }, WTOKEN);
-  check(sign.status === 200 && sign.data.status === 'worker_signed', 'worker sign → worker_signed', JSON.stringify(sign.data));
+  check(sign.status === 200 && sign.data.status === 'signed', 'worker sign → signed (company pre-signed)', JSON.stringify(sign.data));
   const [r1] = await pool.query('SELECT status, admin_signed_at FROM signature_requests WHERE id = ?', [reqId]);
-  check(r1[0].status === 'worker_signed' && r1[0].admin_signed_at === null, 'awaiting countersign (admin sig null)');
+  check(r1[0].status === 'signed' && r1[0].admin_signed_at !== null, 'completed with company signature on file');
+
+  // ---- legacy pending request (no company signature) still needs countersign ----
+  await pool.query(
+    `INSERT INTO signature_requests (id, document_id, worker_id, status, rendered_content)
+     VALUES ('SIG-LEGACY-PENDING', ?, ?, 'pending', 'Legacy body for countersign')`,
+    [tpl.data.id, WID]
+  );
+  const legSign = await api('POST', '/api/documents/requests/SIG-LEGACY-PENDING/sign', {
+    signatureType: 'type', signatureData: 'Test Subbie',
+  }, WTOKEN);
+  check(legSign.status === 200 && legSign.data.status === 'worker_signed', 'legacy request: worker sign → worker_signed');
+  const counter = await api('POST', '/api/documents/requests/SIG-LEGACY-PENDING/countersign', {
+    signatureType: 'type', signatureData: 'Ashraf Milon',
+  });
+  check(counter.status === 200 && counter.data.status === 'signed', 'legacy request: countersign → signed');
+  const [rL] = await pool.query(
+    'SELECT status, admin_signed_by, admin_signature_type, admin_signature_data, signed_content FROM signature_requests WHERE id = ?',
+    ['SIG-LEGACY-PENDING']
+  );
+  check(rL[0].status === 'signed' && rL[0].admin_signature_data === 'Ashraf Milon', 'legacy countersign stored admin signature');
+  check(/Countersigned for the company by/.test(rL[0].signed_content), 'legacy signed_content has countersign block');
 
   // ---- double sign rejected ----
   const reSign = await api('POST', `/api/documents/requests/${reqId}/sign`, { signatureType: 'type', signatureData: 'x' }, WTOKEN);
   check(reSign.status === 400, 're-sign rejected');
 
-  // ---- admin countersigns → signed, both sigs stored ----
-  const counter = await api('POST', `/api/documents/requests/${reqId}/countersign`, {
-    signatureType: 'type', signatureData: 'Ashraf Milon',
-  });
-  check(counter.status === 200 && counter.data.status === 'signed', 'countersign → signed', JSON.stringify(counter.data));
-  const [r2] = await pool.query(
-    'SELECT status, admin_signed_by, admin_signature_type, admin_signature_data, admin_signed_at, signed_content FROM signature_requests WHERE id = ?',
-    [reqId]
-  );
-  const row = r2[0];
-  check(row.status === 'signed' && row.admin_signed_at !== null, 'status signed + admin_signed_at set');
-  check(row.admin_signature_type === 'type' && row.admin_signature_data === 'Ashraf Milon', 'admin signature stored');
-  check(/Countersigned for the company by/.test(row.signed_content), 'signed_content has countersign block');
-  check(row.signed_content.includes(`Signed by ${WID}`), 'signed_content has worker block');
+  // ---- countersign rejected on a company-signed (complete) request ----
+  const reCounter0 = await api('POST', `/api/documents/requests/${reqId}/countersign`, { signatureType: 'type', signatureData: 'x' });
+  check(reCounter0.status === 400, 'countersign on already-signed request rejected');
 
-  // ---- audit log has both events ----
-  const [r3] = await pool.query('SELECT audit_log FROM signature_requests WHERE id = ?', [reqId]);
+  // ---- completed request carries both labelled signature blocks ----
+  const [r2] = await pool.query('SELECT signed_content FROM signature_requests WHERE id = ?', [reqId]);
+  check(/Signed by Company: .+ on \d{4}-/.test(r2[0].signed_content), 'signed_content has labelled company block');
+  check(/Signed by Worker: .+ on \d{4}-/.test(r2[0].signed_content), 'signed_content has labelled worker block');
+
+  // ---- audit log on the legacy countersigned request has both events ----
+  const [r3] = await pool.query('SELECT audit_log FROM signature_requests WHERE id = ?', ['SIG-LEGACY-PENDING']);
   const audit = typeof r3[0].audit_log === 'string' ? JSON.parse(r3[0].audit_log) : r3[0].audit_log;
   check(audit.some(e => e.event === 'worker_signed') && audit.some(e => e.event === 'admin_signed'), 'audit log has both signature events');
 
   // ---- double countersign rejected ----
-  const reCounter = await api('POST', `/api/documents/requests/${reqId}/countersign`, { signatureType: 'type', signatureData: 'x' });
+  const reCounter = await api('POST', '/api/documents/requests/SIG-LEGACY-PENDING/countersign', { signatureType: 'type', signatureData: 'x' });
   check(reCounter.status === 400, 'double countersign rejected');
 
   // ---- request detail exposes both signatures ----
@@ -103,10 +122,14 @@ async function main() {
   const cancelDone = await api('POST', `/api/documents/requests/${reqId}/cancel`, {});
   check(cancelDone.status === 400, 'fully-signed request not cancellable', String(cancelDone.status));
 
-  // ---- cancel works on worker_signed ----
-  const send2 = await api('POST', `/api/documents/${tpl.data.id}/send`, { workerId: WID });
-  await api('POST', `/api/documents/requests/${send2.data.id}/sign`, { signatureType: 'type', signatureData: 'T' }, WTOKEN);
-  const cancelWs = await api('POST', `/api/documents/requests/${send2.data.id}/cancel`, {});
+  // ---- cancel works on worker_signed (legacy flow) ----
+  await pool.query(
+    `INSERT INTO signature_requests (id, document_id, worker_id, status, rendered_content)
+     VALUES ('SIG-LEGACY-P2', ?, ?, 'pending', 'Legacy body')`,
+    [tpl.data.id, WID]
+  );
+  await api('POST', '/api/documents/requests/SIG-LEGACY-P2/sign', { signatureType: 'type', signatureData: 'T' }, WTOKEN);
+  const cancelWs = await api('POST', '/api/documents/requests/SIG-LEGACY-P2/cancel', {});
   check(cancelWs.status === 200, 'worker_signed request cancellable');
 
   // ---- decline still works ----
@@ -133,7 +156,7 @@ async function main() {
   check(inList?.admin_signed_at && inList?.admin_signed_by, 'list exposes admin_signed_at/by');
 
   // ---- cleanup ----
-  await pool.query("DELETE FROM signature_requests WHERE id IN (?, ?, ?, 'SIG-LEGACY-TEST')", [reqId, send2.data.id, send3.data.id]);
+  await pool.query("DELETE FROM signature_requests WHERE id IN (?, ?, 'SIG-LEGACY-PENDING', 'SIG-LEGACY-P2', 'SIG-LEGACY-TEST')", [reqId, send3.data.id]);
   await pool.query('DELETE FROM documents WHERE id IN (?, ?)', [tpl.data.id, 'DOC-LEGACY-TEST']);
   await pool.query("DELETE FROM notifications WHERE id LIKE 'SGN-%'");
   const [leftover] = await pool.query("SELECT COUNT(*) c FROM signature_requests WHERE id LIKE 'SIG-LEGACY-TEST' OR document_id IN (?, ?)", [tpl.data.id, 'DOC-LEGACY-TEST']);

@@ -32,11 +32,14 @@ function LocationMapPicker({
   lat,
   lng,
   radius,
+  focus,
   onPick,
 }: {
   lat: number | null;
   lng: number | null;
   radius: number;
+  /** Zoom the map to a point WITHOUT placing the pin (postcode Search). */
+  focus?: { lat: number; lng: number; zoom: number; seq: number } | null;
   onPick: (lat: number, lng: number) => void;
 }) {
   const mapDiv = useRef<HTMLDivElement | null>(null);
@@ -112,8 +115,17 @@ function LocationMapPicker({
     circleRef.current?.setRadius(radius > 0 ? radius : 1);
   }, [radius]);
 
-  const search = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Postcode Search: zoom to the area without moving/placing the pin —
+  // the admin then clicks the exact building.
+  useEffect(() => {
+    if (focus && mapObj.current) {
+      mapObj.current.flyTo([focus.lat, focus.lng], focus.zoom);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.seq]);
+
+  const search = async (e?: { preventDefault?: () => void }) => {
+    e?.preventDefault?.();
     const q = query.trim();
     if (!q) return;
     setSearching(true);
@@ -142,23 +154,30 @@ function LocationMapPicker({
 
   return (
     <div>
-      <form onSubmit={search} className="relative">
+      <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void search();
+            }
+          }}
           className={`${inputCls} mt-0 pl-9 pr-10`}
           placeholder="Search an address or place…"
         />
         <button
-          type="submit"
+          type="button"
+          onClick={() => void search()}
           disabled={searching}
           className="absolute right-1.5 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-md bg-primary text-primary-foreground disabled:opacity-60"
           aria-label="Search address"
         >
           {searching ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
         </button>
-      </form>
+      </div>
       {searchErr && <p className="mt-1 text-xs font-medium text-danger">{searchErr}</p>}
       <div ref={mapDiv} className="mt-3 h-64 w-full rounded-xl border border-border" />
       <p className="mt-1.5 text-xs text-muted-foreground">
@@ -196,11 +215,74 @@ function LocationForm({ editing, onClose }: { editing: LocationItem | null; onCl
   const [longitude, setLongitude] = useState(editing?.longitude != null ? String(editing.longitude) : "");
   const [radiusMeters, setRadiusMeters] = useState(String(editing?.radiusMeters ?? 100));
   const [geoErr, setGeoErr] = useState<string | null>(null);
+  const [focus, setFocus] = useState<{ lat: number; lng: number; zoom: number; seq: number } | null>(null);
+  const [pcSearching, setPcSearching] = useState(false);
+  const [pcErr, setPcErr] = useState<string | null>(null);
+  const [zoomedHint, setZoomedHint] = useState<string | null>(null);
+  const [resolving, setResolving] = useState(false);
 
   const latNum = latitude !== "" && !Number.isNaN(Number(latitude)) ? Number(latitude) : null;
   const lngNum = longitude !== "" && !Number.isNaN(Number(longitude)) ? Number(longitude) : null;
   const radNum = radiusMeters !== "" && !Number.isNaN(Number(radiusMeters)) ? Number(radiusMeters) : 100;
   const address = [building, street, city, postcode].filter(Boolean).join(", ");
+
+  // Primary flow: postcode + Search — geocode via postcodes.io and zoom the
+  // map to a small radius so the admin just clicks the exact building.
+  const searchPostcode = async () => {
+    const q = postcode.trim();
+    if (!q) return;
+    setPcSearching(true);
+    setPcErr(null);
+    setZoomedHint(null);
+    try {
+      const res = await fetch(`https://api.postcodes.io/postcodes/${encodeURIComponent(q)}`);
+      const data = await res.json();
+      if (!res.ok || !data.result) {
+        setPcErr("Postcode not found — check it and try again.");
+        return;
+      }
+      const r = data.result as { postcode: string; latitude: number; longitude: number };
+      setPostcode(r.postcode);
+      setFocus({ lat: r.latitude, lng: r.longitude, zoom: 17, seq: Date.now() });
+      setZoomedHint(`Map zoomed to ${r.postcode} — click the exact building to place the pin.`);
+    } catch {
+      setPcErr("Postcode lookup failed — check your connection and try again.");
+    } finally {
+      setPcSearching(false);
+    }
+  };
+
+  // Auto-fill the address fields from wherever the pin lands (map click or
+  // drag). Fields stay editable afterwards.
+  const reverseGeocode = async (la: number, lo: number) => {
+    setResolving(true);
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${la}&lon=${lo}&addressdetails=1&zoom=18`,
+        { headers: { "Accept-Language": "en" } },
+      );
+      const data = await res.json();
+      const a = (data.address ?? {}) as Record<string, string | undefined>;
+      const bld = a.house_number || a.building || a.house_name || a.amenity || a.shop || "";
+      const st = a.road || a.pedestrian || a.footway || a.street || "";
+      const ct = a.city || a.town || a.village || a.suburb || a.county || "";
+      if (bld) setBuilding(bld);
+      if (st) setStreet(st);
+      if (ct) setCity(ct);
+      if (a.postcode) setPostcode(String(a.postcode).toUpperCase());
+    } catch {
+      // Non-fatal — the fields can still be filled by hand.
+    } finally {
+      setResolving(false);
+    }
+  };
+
+  const handlePick = (la: number, lo: number) => {
+    setLatitude(la.toFixed(6));
+    setLongitude(lo.toFixed(6));
+    setGeoErr(null);
+    void reverseGeocode(la, lo);
+  };
 
   const lookupPostcode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -271,87 +353,121 @@ function LocationForm({ editing, onClose }: { editing: LocationItem | null; onCl
   return (
     <Modal
       title={editing ? "Edit location" : "Add location"}
-      description="Find the exact building by UK postcode, then fine-tune the pin on the map if needed."
+      description="Enter the name and postcode, press Search, then click the exact building on the map."
       onClose={onClose}
       wide
     >
       <form onSubmit={submit} className="space-y-4">
-        <Field label="Find by UK postcode" hint="Search a postcode, then pick the exact building.">
+        <Field label="Location name">
+          <input required value={name} onChange={(e) => setName(e.target.value)} className={inputCls} placeholder="Camden Site" />
+        </Field>
+
+        <Field label="Postcode" hint="Enter a UK postcode and click Search — the map zooms to that area so you can click the exact building.">
           <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <MapPin className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <input
-              value={pcQuery}
-              onChange={(e) => setPcQuery(e.target.value)}
+              value={postcode}
+              onChange={(e) => { setPostcode(e.target.value); setZoomedHint(null); setPcErr(null); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void searchPostcode();
+                }
+              }}
               className={`${inputCls} mt-0 pl-9 pr-24`}
               placeholder="e.g. E9 6LH"
             />
             <button
               type="button"
-              onClick={lookupPostcode}
-              disabled={searching || !pcQuery.trim()}
+              onClick={() => void searchPostcode()}
+              disabled={pcSearching || !postcode.trim()}
               className="absolute right-1.5 top-1/2 flex h-7 -translate-y-1/2 items-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground disabled:opacity-60"
             >
-              {searching ? <Loader2 className="size-3.5 animate-spin" /> : null}
-              Find
+              {pcSearching ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              Search
             </button>
           </div>
         </Field>
-        {searchErr && <p className="text-xs font-medium text-danger">{searchErr}</p>}
-        {hits && hits.length > 0 && (
-          <div className="max-h-48 overflow-y-auto rounded-xl border border-border">
-            {hits.map((h, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => pickHit(h)}
-                className="flex w-full items-start gap-2 border-b border-border px-3 py-2 text-left text-sm last:border-b-0 hover:bg-secondary/60"
-              >
-                <MapPin className="mt-0.5 size-3.5 shrink-0 text-primary" />
-                <span>
-                  {h.label}
-                  {!h.exactPostcode && h.distanceMeters != null && (
-                    <span className="ml-1 text-xs text-muted-foreground">(~{h.distanceMeters} m away)</span>
-                  )}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-        {hits !== null && pcCentre && (
-          <button type="button" onClick={useCentre} className="text-xs font-medium text-primary hover:underline">
-            Use postcode area centre instead
-          </button>
-        )}
+        {pcErr && <p className="text-xs font-medium text-danger">{pcErr}</p>}
+        {zoomedHint && <p className="text-xs font-medium text-primary">{zoomedHint}</p>}
 
-        <Field label="Location name">
-          <input required value={name} onChange={(e) => setName(e.target.value)} className={inputCls} placeholder="Camden Site" />
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Building / No.">
-            <input value={building} onChange={(e) => setBuilding(e.target.value)} className={inputCls} placeholder="24 or Building name" />
-          </Field>
-          <Field label="Street">
-            <input value={street} onChange={(e) => setStreet(e.target.value)} className={inputCls} placeholder="Camden High St" />
-          </Field>
-          <Field label="City / Town">
-            <input value={city} onChange={(e) => setCity(e.target.value)} className={inputCls} placeholder="London" />
-          </Field>
-          <Field label="Postcode">
-            <input value={postcode} onChange={(e) => setPostcode(e.target.value)} className={inputCls} placeholder="NW1 0JH" />
-          </Field>
-        </div>
         <Field label="Location on map" error={geoErr ?? undefined}>
           <LocationMapPicker
             lat={latNum}
             lng={lngNum}
             radius={radNum}
-            onPick={(la, lo) => {
-              setLatitude(la.toFixed(6));
-              setLongitude(lo.toFixed(6));
-              setGeoErr(null);
-            }}
+            focus={focus}
+            onPick={handlePick}
           />
         </Field>
+        {resolving && <p className="text-xs text-muted-foreground">Resolving address from pin…</p>}
+
+        <div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Building / No.">
+              <input value={building} onChange={(e) => setBuilding(e.target.value)} className={inputCls} placeholder="Auto-filled from map" />
+            </Field>
+            <Field label="Street">
+              <input value={street} onChange={(e) => setStreet(e.target.value)} className={inputCls} placeholder="Auto-filled from map" />
+            </Field>
+            <Field label="City / Town">
+              <input value={city} onChange={(e) => setCity(e.target.value)} className={inputCls} placeholder="Auto-filled from map" />
+            </Field>
+          </div>
+          <p className="mt-1.5 text-xs text-muted-foreground">Address fields are auto-filled from the pin — edit if needed.</p>
+        </div>
+
+        <details className="rounded-xl border border-border bg-secondary/30 p-3">
+          <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+            Optional: browse the list of addresses in a postcode
+          </summary>
+          <div className="mt-3">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={pcQuery}
+                onChange={(e) => setPcQuery(e.target.value)}
+                className={`${inputCls} mt-0 pl-9 pr-24`}
+                placeholder="e.g. E9 6LH"
+              />
+              <button
+                type="button"
+                onClick={lookupPostcode}
+                disabled={searching || !pcQuery.trim()}
+                className="absolute right-1.5 top-1/2 flex h-7 -translate-y-1/2 items-center gap-1 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground disabled:opacity-60"
+              >
+                {searching ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                Find
+              </button>
+            </div>
+            {searchErr && <p className="mt-1.5 text-xs font-medium text-danger">{searchErr}</p>}
+            {hits && hits.length > 0 && (
+              <div className="mt-2 max-h-48 overflow-y-auto rounded-xl border border-border bg-card">
+                {hits.map((h, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => pickHit(h)}
+                    className="flex w-full items-start gap-2 border-b border-border px-3 py-2 text-left text-sm last:border-b-0 hover:bg-secondary/60"
+                  >
+                    <MapPin className="mt-0.5 size-3.5 shrink-0 text-primary" />
+                    <span>
+                      {h.label}
+                      {!h.exactPostcode && h.distanceMeters != null && (
+                        <span className="ml-1 text-xs text-muted-foreground">(~{h.distanceMeters} m away)</span>
+                      )}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {hits !== null && pcCentre && (
+              <button type="button" onClick={useCentre} className="mt-2 text-xs font-medium text-primary hover:underline">
+                Use postcode area centre instead
+              </button>
+            )}
+          </div>
+        </details>
         <Field label="Geofence radius" hint="Workers must be within this distance to check in.">
           <div className="mt-1.5 flex items-center gap-3">
             <input

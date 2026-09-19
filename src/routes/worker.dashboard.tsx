@@ -656,6 +656,20 @@ function SignModal({ request, onClose, onDone }: { request: any; onClose: () => 
             <embed src={fileUrl} type="application/pdf" className="h-80 w-full rounded-lg border border-border" />
           )}
 
+          {detail?.admin_signed_at && (
+            <div className="rounded-lg border border-border bg-secondary/40 p-3">
+              <p className="text-xs font-semibold text-muted-foreground">
+                Signed by Company — {detail.admin_signed_by || 'Company'}
+                {` · ${new Date(detail.admin_signed_at).toLocaleString('en-GB', { hour12: false })}`}
+              </p>
+              {detail.admin_signature_type !== 'type' && detail.admin_signature_data ? (
+                <img src={detail.admin_signature_data} alt="Company signature" className="mt-2 max-h-16 rounded border border-border bg-white" />
+              ) : detail.admin_signature_type === 'type' && detail.admin_signature_data ? (
+                <p className="mt-1 text-xl italic" style={{ fontFamily: 'cursive' }}>{detail.admin_signature_data}</p>
+              ) : null}
+            </div>
+          )}
+
           <div>
             <p className="text-sm font-medium mb-2">Sign with:</p>
             <div className="flex gap-2 mb-3">

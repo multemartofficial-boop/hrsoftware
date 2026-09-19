@@ -24,6 +24,9 @@ export const Route = createFileRoute("/admin/documents")({
 type Doc = {
   id: string; name: string; type: "uploaded_pdf" | "template";
   file_path?: string | null; content?: string | null; created_at: string;
+  admin_signature_type?: string | null; admin_signature_data?: string | null;
+  admin_signed_by?: string | null; admin_signed_at?: string | null;
+  signed_content_hash?: string | null;
 };
 
 type SigRequest = {
@@ -148,19 +151,20 @@ const downloadSignedPdf = async (req: SigRequest) => {
       doc.text(String(sigData), margin, y + 8);
       y += 12;
     }
-    write(`Signed by ${signer}${at ? ` on ${fmtTs(at)}` : ""}${ip ? ` · IP ${ip}` : ""}`, 9);
+    write(`${signer}${at ? ` — ${fmtTs(at)}` : ""}${ip ? ` · IP ${ip}` : ""}`, 9);
     y += 4;
   };
 
-  sigBlock("Worker signature", d.worker_name || d.worker_id, d.signed_at, d.signer_ip, d.signature_type, d.signature_data);
+  // Company signed at template creation — its block goes first chronologically.
   if (d.admin_signed_at) {
-    sigBlock("Company countersignature", d.admin_signed_by || "Company", d.admin_signed_at, d.admin_signer_ip, d.admin_signature_type, d.admin_signature_data);
+    sigBlock("Signed by Company", d.admin_signed_by || "Company", d.admin_signed_at, d.admin_signer_ip, d.admin_signature_type, d.admin_signature_data);
   }
+  sigBlock("Signed by Worker", d.worker_name || d.worker_id, d.signed_at, d.signer_ip, d.signature_type, d.signature_data);
 
   doc.save(`${(d.document_name || "document").replace(/[^\w-]+/g, "_")}-signed.pdf`);
 };
 
-function TemplateModal({ editing, onClose, onSaved }: { editing?: Doc | null; onClose: () => void; onSaved: () => void }) {
+function TemplateModal({ editing, onClose, onSaved }: { editing?: Doc | null; onClose: () => void; onSaved: (doc: Doc, needsSignature: boolean) => void }) {
   const [name, setName] = useState(editing?.name ?? "");
   const [content, setContent] = useState(editing?.content ?? "");
   const [busy, setBusy] = useState(false);
@@ -173,10 +177,14 @@ function TemplateModal({ editing, onClose, onSaved }: { editing?: Doc | null; on
     try {
       if (editing) {
         await apiClient.put(`/api/documents/${editing.id}`, { name, content });
+        // Editing the content of a signed template invalidates the signature —
+        // the admin must re-sign before it can be sent again.
+        const invalidated = !!editing.admin_signed_at && content !== (editing.content ?? "");
+        onSaved({ ...editing, name, content, ...(invalidated ? { admin_signed_at: null } : {}) }, invalidated);
       } else {
-        await apiClient.post("/api/documents/template", { name, content });
+        const res = await apiClient.post<{ id: string }>("/api/documents/template", { name, content });
+        onSaved({ id: res.id, name, content, type: "template", created_at: new Date().toISOString() }, true);
       }
-      onSaved();
       onClose();
     } catch (e: any) {
       setErr(e.message || "Failed to save template");
@@ -188,7 +196,7 @@ function TemplateModal({ editing, onClose, onSaved }: { editing?: Doc | null; on
   return (
     <Modal
       title={editing ? "Edit template" : "New template"}
-      description="Reusable text — placeholders are auto-filled from the worker's record when sent. Already-sent requests keep their original content."
+      description="Reusable text — placeholders are auto-filled from the worker's record when sent. After saving you'll be asked to add the company signature, which is required before the template can be sent."
       onClose={onClose}
     >
       <form onSubmit={submit} className="space-y-4">
@@ -313,6 +321,93 @@ function CountersignModal({ req, onClose, onDone }: { req: SigRequest; onClose: 
   );
 }
 
+/* ---------- Company signature on the template itself ---------- */
+function SignTemplateModal({ doc, onClose, onDone }: { doc: Doc; onClose: () => void; onDone: () => void }) {
+  const [method, setMethod] = useState<"draw" | "type">("draw");
+  const [drawData, setDrawData] = useState<string | null>(null);
+  const [typedName, setTypedName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const signatureData = method === "draw" ? drawData : typedName.trim();
+  const ready = method === "draw" ? !!drawData : typedName.trim().length > 0;
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      await apiClient.post(`/api/documents/${doc.id}/sign-template`, {
+        signatureType: method,
+        signatureData,
+      });
+      onDone();
+      onClose();
+    } catch (e: any) {
+      setErr(e.message || "Failed to sign template");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      title={`Sign template — ${doc.name}`}
+      description="Add the company signature to this template. It must be signed before it can be sent to workers, and is reused for every send until the content changes."
+      onClose={onClose}
+      wide
+    >
+      <form onSubmit={submit} className="space-y-4">
+        {doc.content && (
+          <pre className="max-h-52 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border bg-secondary/50 p-3 text-sm">
+            {doc.content}
+          </pre>
+        )}
+        <Field label="Company signature" hint="Draw or type the authorised signatory's name — this signature will appear on every document sent from this template.">
+          <div>
+            <div className="mb-2 flex gap-2">
+              {(["draw", "type"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMethod(m)}
+                  className={`px-3 py-1.5 rounded-lg text-sm capitalize ${method === m ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"}`}
+                >
+                  {m === "draw" ? "Draw" : "Type"}
+                </button>
+              ))}
+            </div>
+            {method === "draw" ? (
+              <DrawPad onChange={setDrawData} />
+            ) : (
+              <div>
+                <input
+                  value={typedName}
+                  onChange={(e) => setTypedName(e.target.value)}
+                  placeholder="Type the signatory's full name"
+                  className={inputCls}
+                />
+                {typedName.trim() && (
+                  <p className="mt-2 rounded-lg border border-border bg-white px-3 py-2 text-2xl italic" style={{ fontFamily: "cursive" }}>
+                    {typedName}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </Field>
+        {err && <p className="text-sm text-danger">{err}</p>}
+        <div className="flex justify-end gap-2">
+          <GhostButton type="button" onClick={onClose}>Not now</GhostButton>
+          <PrimaryButton type="submit" disabled={busy || !ready}>
+            <PenLine className="size-4" /> {busy ? "Signing..." : "Sign template"}
+          </PrimaryButton>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 function SendModal({ doc, onClose, onSaved }: { doc: Doc; onClose: () => void; onSaved: () => void }) {
   const { workers } = useApi();
   const [workerId, setWorkerId] = useState("");
@@ -403,7 +498,7 @@ function ViewModal({ req, onClose }: { req: SigRequest; onClose: () => void }) {
               <p><span className="font-medium">Sent:</span> {fmtTs(detail.sent_at)}</p>
               <p><span className="font-medium">Viewed:</span> {fmtTs(detail.viewed_at)}</p>
               {detail.signed_at && <p><span className="font-medium">Worker signed:</span> {fmtTs(detail.signed_at)}{detail.signer_ip ? ` · IP ${detail.signer_ip}` : ""}</p>}
-              {detail.admin_signed_at && <p><span className="font-medium">Countersigned:</span> {fmtTs(detail.admin_signed_at)} by {detail.admin_signed_by || "admin"}{detail.admin_signer_ip ? ` · IP ${detail.admin_signer_ip}` : ""}</p>}
+              {detail.admin_signed_at && <p><span className="font-medium">Company signed:</span> {fmtTs(detail.admin_signed_at)} by {detail.admin_signed_by || "admin"}{detail.admin_signer_ip ? ` · IP ${detail.admin_signer_ip}` : ""}</p>}
               {detail.declined_at && <p><span className="font-medium text-danger">Declined:</span> {fmtTs(detail.declined_at)}</p>}
               {audit.length > 0 && (
                 <details className="text-xs text-muted-foreground">
@@ -426,13 +521,13 @@ function ViewModal({ req, onClose }: { req: SigRequest; onClose: () => void }) {
               <div className="mt-2 flex flex-wrap gap-4">
                 {detail.signature_type !== "type" && detail.signature_data ? (
                   <div>
-                    <p className="text-xs text-muted-foreground">Worker</p>
+                    <p className="text-xs text-muted-foreground">Signed by Worker{detail.signed_at ? ` · ${fmtTs(detail.signed_at)}` : ""}</p>
                     <img src={detail.signature_data} alt="Worker signature" className="max-h-20 rounded border border-border bg-white" />
                   </div>
                 ) : null}
                 {detail.admin_signature_type !== "type" && detail.admin_signature_data ? (
                   <div>
-                    <p className="text-xs text-muted-foreground">Company — {detail.admin_signed_by}</p>
+                    <p className="text-xs text-muted-foreground">Signed by Company — {detail.admin_signed_by}{detail.admin_signed_at ? ` · ${fmtTs(detail.admin_signed_at)}` : ""}</p>
                     <img src={detail.admin_signature_data} alt="Company signature" className="max-h-20 rounded border border-border bg-white" />
                   </div>
                 ) : null}
@@ -467,6 +562,7 @@ function DocumentsPage() {
   const [modal, setModal] = useState<"template" | null>(null);
   const [editing, setEditing] = useState<Doc | null>(null);
   const [sending, setSending] = useState<Doc | null>(null);
+  const [signing, setSigning] = useState<Doc | null>(null);
   const [viewing, setViewing] = useState<SigRequest | null>(null);
   const [countersigning, setCountersigning] = useState<SigRequest | null>(null);
   const [pdfBusy, setPdfBusy] = useState<string | null>(null);
@@ -531,26 +627,49 @@ function DocumentsPage() {
       <Card>
         <SectionTitle title="Signature templates" />
         <p className="-mt-3 mb-4 text-xs text-muted-foreground">
-          Every signature request is generated from a reusable template — the worker signs first, then the company countersigns.
+          Every signature request is generated from a reusable template — sign the template once for the company, then send it to workers; each worker's signature completes their copy.
         </p>
         <DataTable
           labels={["Name", "Type", "Created", ""]}
           head={<><Th>Name</Th><Th>Type</Th><Th>Created</Th><Th className="text-right">Actions</Th></>}
         >
           {docs.length === 0 && <EmptyRow colSpan={4} text="No templates yet — create your first reusable template." />}
-          {docs.map((d) => (
+          {docs.map((d) => {
+            const templateSigned = d.type === "template" && !!d.admin_signed_at;
+            return (
             <tr key={d.id}>
               <Td>
                 <div className="flex items-center gap-2">
                   <FileText className="size-4 text-muted-foreground" />
-                  <span className="font-medium">{d.name}</span>
+                  <div>
+                    <span className="font-medium">{d.name}</span>
+                    {templateSigned && (
+                      <p className="text-xs text-muted-foreground">Signed by {d.admin_signed_by} · {fmtDate(d.admin_signed_at)}</p>
+                    )}
+                  </div>
                 </div>
               </Td>
-              <Td><StatusBadge status={d.type === "template" ? "Template" : "Legacy PDF"} /></Td>
+              <Td>
+                <div className="flex items-center gap-1.5">
+                  <StatusBadge status={d.type === "template" ? "Template" : "Legacy PDF"} />
+                  {d.type === "template" && (
+                    <StatusBadge status={templateSigned ? "Signed" : "Needs signature"} />
+                  )}
+                </div>
+              </Td>
               <Td>{fmtDate(d.created_at)}</Td>
               <Td className="text-right">
                 <div className="flex items-center justify-end gap-1">
-                  {d.type === "template" && (
+                  {d.type === "template" && !templateSigned && (
+                    <button
+                      onClick={() => setSigning(d)}
+                      title="Add the company signature — required before this template can be sent"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-primary px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary-soft"
+                    >
+                      <PenLine className="size-3.5" /> Sign template
+                    </button>
+                  )}
+                  {d.type === "template" && templateSigned && (
                     <button
                       onClick={() => setSending(d)}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
@@ -577,7 +696,8 @@ function DocumentsPage() {
                 </div>
               </Td>
             </tr>
-          ))}
+            );
+          })}
         </DataTable>
       </Card>
 
@@ -636,8 +756,26 @@ function DocumentsPage() {
         </DataTable>
       </Card>
 
-      {modal === "template" && <TemplateModal onClose={() => setModal(null)} onSaved={load} />}
-      {editing && <TemplateModal editing={editing} onClose={() => setEditing(null)} onSaved={load} />}
+      {modal === "template" && (
+        <TemplateModal
+          onClose={() => setModal(null)}
+          onSaved={(doc, needsSignature) => {
+            void load();
+            if (needsSignature) setSigning(doc);
+          }}
+        />
+      )}
+      {editing && (
+        <TemplateModal
+          editing={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(doc, needsSignature) => {
+            void load();
+            if (needsSignature) setSigning(doc);
+          }}
+        />
+      )}
+      {signing && <SignTemplateModal doc={signing} onClose={() => setSigning(null)} onDone={load} />}
       {countersigning && <CountersignModal req={countersigning} onClose={() => setCountersigning(null)} onDone={load} />}
       {sending && <SendModal doc={sending} onClose={() => setSending(null)} onSaved={load} />}
       {viewing && <ViewModal req={viewing} onClose={() => setViewing(null)} />}

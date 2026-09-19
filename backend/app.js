@@ -96,6 +96,16 @@ async function ensureSchema() {
     await addCol('ALTER TABLE signature_requests ADD COLUMN admin_signed_at TIMESTAMP NULL', 'signature_requests.admin_signed_at');
     await addCol('ALTER TABLE signature_requests ADD COLUMN admin_signer_ip VARCHAR(64) NULL', 'signature_requests.admin_signer_ip');
 
+    // The company signs the TEMPLATE itself before it can be sent — the
+    // signature is reused across sends, and is invalidated (via
+    // signed_content_hash) when the template content changes.
+    await addCol('ALTER TABLE documents ADD COLUMN admin_signature_type VARCHAR(20) NULL', 'documents.admin_signature_type');
+    await addCol('ALTER TABLE documents ADD COLUMN admin_signature_data MEDIUMTEXT NULL', 'documents.admin_signature_data');
+    await addCol('ALTER TABLE documents ADD COLUMN admin_signed_by VARCHAR(255) NULL', 'documents.admin_signed_by');
+    await addCol('ALTER TABLE documents ADD COLUMN admin_signed_at TIMESTAMP NULL', 'documents.admin_signed_at');
+    await addCol('ALTER TABLE documents ADD COLUMN admin_signer_ip VARCHAR(64) NULL', 'documents.admin_signer_ip');
+    await addCol('ALTER TABLE documents ADD COLUMN signed_content_hash CHAR(64) NULL', 'documents.signed_content_hash');
+
     // Part 11: payroll payment status — who/when a run was paid plus an
     // optional payment reference, and a permanent audit table that keeps a
     // record of every status change even if the payroll row is later deleted.

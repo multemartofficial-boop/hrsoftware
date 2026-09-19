@@ -1,11 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const fs = require('fs');
+const crypto = require('crypto');
 const pool = require('../config/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { sendEmail } = require('../utils/email');
 
 const generateId = (prefix) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+
+// Fingerprint of a template's content — the stored company signature is only
+// valid while the content still hashes to signed_content_hash.
+const contentHash = (c) => crypto.createHash('sha256').update(String(c ?? '')).digest('hex');
 
 // Part 7: signature requests are template-based only — no arbitrary PDF
 // uploads. Legacy uploaded_pdf rows/files stay for already-sent requests.
@@ -64,6 +69,11 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     if (doc.type === 'template' && content !== undefined) {
       sets.push('content = ?');
       params.push(content);
+      // Content changed after signing → the company must re-sign before the
+      // template can be sent again.
+      if (doc.admin_signed_at && contentHash(content) !== doc.signed_content_hash) {
+        sets.push('admin_signature_type = NULL, admin_signature_data = NULL, admin_signed_by = NULL, admin_signed_at = NULL, admin_signer_ip = NULL, signed_content_hash = NULL');
+      }
     }
     params.push(req.params.id);
     await pool.query(`UPDATE documents SET ${sets.join(', ')} WHERE id = ?`, params);
@@ -71,6 +81,40 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
   } catch (e) {
     console.error('Update document error:', e);
     res.status(500).json({ error: 'Failed to update document' });
+  }
+});
+
+// Company signature on the TEMPLATE itself — required before the template can
+// be sent to any worker, and reused for every send until the content changes.
+router.post('/:id/sign-template', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [docs] = await pool.query('SELECT * FROM documents WHERE id = ?', [req.params.id]);
+    if (docs.length === 0) return res.status(404).json({ error: 'Document not found' });
+    const doc = docs[0];
+    if (doc.type !== 'template') {
+      return res.status(400).json({ error: 'Only templates can be signed' });
+    }
+
+    const { signatureType, signatureData } = req.body;
+    if (!['draw', 'type', 'upload'].includes(signatureType) || !signatureData) {
+      return res.status(400).json({ error: 'signatureType (draw|type|upload) and signatureData are required' });
+    }
+
+    const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress || null;
+    const adminName = req.user.name || `Admin #${req.user.userId}`;
+
+    await pool.query(
+      `UPDATE documents
+       SET admin_signature_type=?, admin_signature_data=?, admin_signed_by=?,
+           admin_signed_at=NOW(), admin_signer_ip=?, signed_content_hash=?
+       WHERE id = ?`,
+      [signatureType, signatureData, adminName, ip, contentHash(doc.content), req.params.id]
+    );
+
+    res.json({ message: 'Template signed — it can now be sent for signature', adminSignedBy: adminName });
+  } catch (e) {
+    console.error('Sign template error:', e);
+    res.status(500).json({ error: 'Failed to sign template' });
   }
 });
 
@@ -129,6 +173,13 @@ router.post('/:id/send', requireAuth, requireAdmin, async (req, res) => {
     if (doc.type !== 'template') {
       return res.status(400).json({ error: 'Only reusable templates can be sent for signature' });
     }
+    // The company must have signed the template itself, and that signature is
+    // only valid while the content is unchanged.
+    if (!doc.admin_signed_at || doc.signed_content_hash !== contentHash(doc.content)) {
+      return res.status(400).json({
+        error: 'This template must be signed by an admin before it can be sent — add the company signature to the template first.'
+      });
+    }
 
     const [workers] = await pool.query('SELECT * FROM workers WHERE id = ?', [workerId]);
     if (workers.length === 0) return res.status(404).json({ error: 'Worker not found' });
@@ -139,11 +190,15 @@ router.post('/:id/send', requireAuth, requireAdmin, async (req, res) => {
 
     const reqId = generateId('SIG');
     const rendered = renderTemplate(doc.content || '', worker, locationsByName);
+    // Snapshot the template's company signature onto the request so the final
+    // document carries both signatures.
     await pool.query(
       `INSERT INTO signature_requests
-       (id, document_id, worker_id, status, rendered_content, file_path, created_by_admin_id)
-       VALUES (?, ?, ?, 'pending', ?, ?, ?)`,
-      [reqId, doc.id, workerId, rendered, doc.file_path, req.user.userId || null]
+       (id, document_id, worker_id, status, rendered_content, file_path, created_by_admin_id,
+        admin_signature_type, admin_signature_data, admin_signed_by, admin_signed_at, admin_signer_ip)
+       VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [reqId, doc.id, workerId, rendered, doc.file_path, req.user.userId || null,
+       doc.admin_signature_type, doc.admin_signature_data, doc.admin_signed_by, doc.admin_signed_at, doc.admin_signer_ip]
     );
 
     // Notify the worker by email
@@ -228,8 +283,10 @@ router.post('/requests/:id/view', requireAuth, async (req, res) => {
   }
 });
 
-// Sign a request (worker) — Part 7: the company must countersign afterwards,
-// so the status moves to 'worker_signed' rather than 'signed'.
+// Sign a request (worker). Requests sent from a company-signed template carry
+// the admin signature already, so the worker's signature completes the
+// document ('signed'). Legacy requests without a company signature still move
+// to 'worker_signed' and await the admin countersignature.
 router.post('/requests/:id/sign', requireAuth, async (req, res) => {
   try {
     const r = await loadRequestForWorker(req.params.id, req.user.workerId);
@@ -242,33 +299,45 @@ router.post('/requests/:id/sign', requireAuth, async (req, res) => {
     }
 
     const ip = clientIp(req);
+    const [w] = await pool.query('SELECT name FROM workers WHERE id = ?', [r.worker_id]);
+    const workerName = w[0]?.name || r.worker_id;
+    const companySigned = !!r.admin_signed_at;
 
-    const signedBlock =
-      `\n\n---\nSigned by ${r.worker_id} on ${new Date().toISOString()}` +
+    // Company block first (it was signed at template creation), then the worker's.
+    let signedContent = r.rendered_content || `[Document: ${r.document_name}]`;
+    if (companySigned) {
+      signedContent +=
+        `\n\n---\nSigned by Company: ${r.admin_signed_by || 'Company'} on ${new Date(r.admin_signed_at).toISOString()}` +
+        (r.admin_signature_type === 'type'
+          ? `\nSignature (typed): ${r.admin_signature_data}`
+          : `\nSignature: [captured ${r.admin_signature_type} image — stored in admin_signature_data]`);
+    }
+    signedContent +=
+      `\n\nSigned by Worker: ${workerName} on ${new Date().toISOString()}` +
       (signatureType === 'type'
         ? `\nSignature (typed): ${signatureData}`
         : `\nSignature: [captured ${signatureType} image — stored in signature_data]`) +
       (ip ? `\nSigner IP: ${ip}` : '');
-    const signedContent = (r.rendered_content || `[Document: ${r.document_name}]`) + signedBlock;
 
+    const newStatus = companySigned ? 'signed' : 'worker_signed';
     await pool.query(
       `UPDATE signature_requests
-       SET status='worker_signed', signed_at=NOW(), signature_type=?, signature_data=?, signer_ip=?, signed_content=?
+       SET status=?, signed_at=NOW(), signature_type=?, signature_data=?, signer_ip=?, signed_content=?
        WHERE id = ?`,
-      [signatureType, signatureData, ip, signedContent, req.params.id]
+      [newStatus, signatureType, signatureData, ip, signedContent, req.params.id]
     );
     await logAudit(req.params.id, 'worker_signed', ip);
 
-    // Notify admin — countersignature now required
-    const [w] = await pool.query('SELECT name FROM workers WHERE id = ?', [r.worker_id]);
     await pool.query(
       'INSERT INTO notifications (id, worker, worker_id, message, urgency) VALUES (?, ?, ?, ?, ?)',
-      [`SGN-${req.params.id}`, w[0]?.name || r.worker_id, r.worker_id,
-       `[Signature] ${w[0]?.name || r.worker_id} signed "${r.document_name}" — awaiting company countersignature.`,
+      [`SGN-${req.params.id}`, workerName, r.worker_id,
+       companySigned
+         ? `[Signature] ${workerName} signed "${r.document_name}" — document complete (company signature already on file).`
+         : `[Signature] ${workerName} signed "${r.document_name}" — awaiting company countersignature.`,
        'info']
     );
 
-    res.json({ status: 'worker_signed', signedAt: new Date().toISOString() });
+    res.json({ status: newStatus, signedAt: new Date().toISOString() });
   } catch (e) {
     console.error('Sign error:', e);
     res.status(500).json({ error: 'Failed to sign' });

@@ -24,6 +24,7 @@ const badgeTones: Record<string, string> = {
   Approved: "bg-success-soft text-success",
   "Full-time": "bg-success-soft text-success",
   Pending: "bg-warning-soft text-warning",
+  "Needs signature": "bg-warning-soft text-warning",
   Signed: "bg-success-soft text-success",
   Declined: "bg-danger-soft text-danger",
   Matched: "bg-success-soft text-success",
