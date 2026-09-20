@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const { requireAuth, requireAdmin, requireWorker } = require('../middleware/auth');
-const { getHolidayAccrualRate, accrueHolidayHours } = require('../utils/holiday-accrual');
+const { accrueForWorker } = require('../utils/holiday-accrual');
 const { logActionFromReq } = require('../utils/action-log');
 
 // Helper: Calculate hours between time strings
@@ -95,7 +95,7 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
     
     const finalTimeOut = timeOut || null;
     const hours = calculateHours(timeIn, finalTimeOut);
-    const holidayAccrued = accrueHolidayHours(hours, await getHolidayAccrualRate());
+    const holidayAccrued = await accrueForWorker(workerId, hours);
     const attendanceId = generateAttendanceId();
     
     await pool.query(
@@ -176,7 +176,7 @@ router.post('/checkout', requireAuth, requireWorker, async (req, res) => {
     
     const record = attendance[0];
     const hours = calculateHours(record.check_in_time, timeOut);
-    const holidayAccrued = accrueHolidayHours(hours, await getHolidayAccrualRate());
+    const holidayAccrued = await accrueForWorker(req.user.workerId, hours);
     
     // Update check-out time, hours and statutory holiday accrual
     await pool.query(
@@ -207,7 +207,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     const finalTimeOut = timeOut || null;
     const hours = calculateHours(timeIn, finalTimeOut);
     // Times changed, so the accrual is recomputed at the CURRENT configured rate
-    const holidayAccrued = accrueHolidayHours(hours, await getHolidayAccrualRate());
+    const holidayAccrued = await accrueForWorker(workerId, hours);
     
     await pool.query(
       `UPDATE attendance 

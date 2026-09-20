@@ -43,6 +43,15 @@ export type Worker = {
   siaBadgeExpiry?: string | Date;
   workerType?: string;
   subcontractCompany?: string;
+  /** Contract basis: 'full_time' = permanent (28-day statutory holiday),
+   * 'irregular' = zero-hours/casual (12.07% rolled-up accrual) */
+  employmentType?: "full_time" | "irregular";
+  holiday?: {
+    type: "statutory_days" | "accrual_hours";
+    annualDays?: number; entitlementDays?: number; accruedDays?: number; monthsRemaining?: number;
+    leaveYearStart?: string; leaveYearEnd?: string; startedThisYear?: boolean;
+    ratePercent?: number; accruedHours?: number;
+  };
   /** Count of BS7858 checks marked complete (0–8), from backend (Phase E) */
   complianceDone?: number;
 };

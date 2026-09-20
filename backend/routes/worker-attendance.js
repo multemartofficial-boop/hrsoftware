@@ -3,7 +3,7 @@ const router = express.Router();
 const pool = require('../config/database');
 const { requireAuth, requireWorker } = require('../middleware/auth');
 const { sendEmail } = require('../utils/email');
-const { getHolidayAccrualRate, accrueHolidayHours } = require('../utils/holiday-accrual');
+const { accrueForWorker } = require('../utils/holiday-accrual');
 
 // Helper: Calculate hours between time strings
 const calculateHours = (timeIn, timeOut) => {
@@ -254,8 +254,9 @@ router.post('/checkout', requireAuth, requireWorker, async (req, res) => {
       return res.status(500).json({ error: 'Invalid hours calculation' });
     }
     
-    // Statutory holiday accrual (12.07% by default) — stored at check-out time
-    const holidayAccrued = accrueHolidayHours(hours, await getHolidayAccrualRate());
+    // Statutory holiday accrual — irregular/zero-hours workers accrue 12.07%
+    // of hours; full-time staff accrue 0 (they get statutory days instead).
+    const holidayAccrued = await accrueForWorker(req.user.workerId, hours);
 
     // Update check-out time, hours and accrual
     await pool.query(

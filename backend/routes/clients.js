@@ -28,7 +28,30 @@ const loadClientLocations = async (clientIds) => {
   return map;
 };
 
-const serialize = (row, locMap) => ({
+// Workers "under" a client = workers whose base location is one of the
+// client's linked locations, or who have any assignment at them.
+const loadClientWorkerCounts = async (clientIds) => {
+  if (!clientIds.length) return {};
+  const ph = clientIds.map(() => '?').join(',');
+  const [rows] = await pool.query(
+    `SELECT client_id, COUNT(DISTINCT worker_id) AS count FROM (
+       SELECT cl.client_id, w.id AS worker_id
+       FROM client_locations cl
+       JOIN locations l ON l.id = cl.location_id
+       JOIN workers w ON w.location = l.name
+       UNION
+       SELECT cl.client_id, a.worker_id
+       FROM client_locations cl
+       JOIN worker_location_assignments a ON a.location_id = cl.location_id
+     ) t WHERE client_id IN (${ph}) GROUP BY client_id`,
+    clientIds
+  );
+  const map = {};
+  for (const r of rows) map[r.client_id] = Number(r.count);
+  return map;
+};
+
+const serialize = (row, locMap, workerCounts) => ({
   id: row.id,
   userId: row.user_id,
   name: row.name,
@@ -40,6 +63,7 @@ const serialize = (row, locMap) => ({
   notes: row.notes,
   buyerName: row.buyer_name ?? null,
   locations: locMap[row.id] || [],
+  workerCount: workerCounts[row.id] || 0,
   createdAt: row.created_at,
 });
 
@@ -88,7 +112,8 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM clients ORDER BY created_at DESC');
     const locMap = await loadClientLocations(rows.map(r => r.id));
-    res.json(rows.map(r => serialize(r, locMap)));
+    const workerCounts = await loadClientWorkerCounts(rows.map(r => r.id));
+    res.json(rows.map(r => serialize(r, locMap, workerCounts)));
   } catch (error) {
     console.error('Get clients error:', error);
     res.status(500).json({ error: 'Failed to load clients' });

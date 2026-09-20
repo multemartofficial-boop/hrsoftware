@@ -72,11 +72,12 @@ function RateConfirmModal({
   onCancel,
 }: {
   app: Application;
-  onConfirm: (pay: { payType: "hourly" | "salary"; rate?: number; monthlySalary?: number }) => Promise<void>;
+  onConfirm: (pay: { payType: "hourly" | "salary"; rate?: number; monthlySalary?: number; employmentType?: "full_time" | "irregular" }) => Promise<void>;
   onCancel: () => void;
 }) {
   const expected = Number(app.rate) || 0;
   const [payType, setPayType] = useState<"hourly" | "salary">("hourly");
+  const [employmentType, setEmploymentType] = useState<"full_time" | "irregular">("irregular");
   const [rate, setRate] = useState(expected > 0 ? expected.toFixed(2) : "");
   const [saving, setSaving] = useState(false);
   const parsed = Number(rate);
@@ -91,8 +92,8 @@ function RateConfirmModal({
       const amount = Math.round(parsed * 100) / 100;
       await onConfirm(
         payType === "salary"
-          ? { payType, monthlySalary: amount }
-          : { payType, rate: amount },
+          ? { payType, monthlySalary: amount, employmentType }
+          : { payType, rate: amount, employmentType },
       );
     } finally {
       setSaving(false);
@@ -136,6 +137,34 @@ function RateConfirmModal({
                 }`}
               >
                 {t === "hourly" ? "Hourly" : "Monthly Salary"}
+              </button>
+            ))}
+          </div>
+        </Field>
+        <Field
+          label="Contract type"
+          hint={
+            employmentType === "full_time"
+              ? "Permanent staff — statutory 28-day holiday entitlement, pro-rated from their join date (1/12th per month)."
+              : "Zero-hours / casual staff — holiday accrues at 12.07% of hours worked (rolled-up)."
+          }
+        >
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              ["irregular", "Irregular · Zero-hours"],
+              ["full_time", "Full-time Permanent"],
+            ] as const).map(([t, label]) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setEmploymentType(t)}
+                className={`h-10 rounded-lg border text-sm font-medium transition-colors ${
+                  employmentType === t
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:bg-secondary"
+                }`}
+              >
+                {label}
               </button>
             ))}
           </div>
@@ -206,7 +235,7 @@ function Approvals() {
   const approve = (id: string) => setConfirmingId(id);
 
   // Step 2: admin confirmed the pay type and amount — now actually approve.
-  const confirmApprove = async (id: string, pay: { payType: "hourly" | "salary"; rate?: number; monthlySalary?: number }) => {
+  const confirmApprove = async (id: string, pay: { payType: "hourly" | "salary"; rate?: number; monthlySalary?: number; employmentType?: "full_time" | "irregular" }) => {
     const result = await approveApplication(id, pay);
     setConfirmingId(null);
     setSelectedId(null);
@@ -216,7 +245,8 @@ function Approvals() {
       const payLabel = pay.payType === "salary"
         ? `Salary £${Number(result.monthlySalary ?? pay.monthlySalary).toFixed(2)}/month`
         : `Rate £${Number(result.rate ?? pay.rate).toFixed(2)}/h`;
-      setFlash(`Application approved — Worker Code: ${result.workerId} · ${payLabel} · Setup link sent to email.`);
+      const contractLabel = pay.employmentType === "full_time" ? "Full-time" : "Zero-hours";
+      setFlash(`Application approved — Worker Code: ${result.workerId} · ${contractLabel} · ${payLabel} · Setup link sent to email.`);
     }
   };
 

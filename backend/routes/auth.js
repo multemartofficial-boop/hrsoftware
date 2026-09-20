@@ -406,8 +406,8 @@ router.post('/setup-password', async (req, res) => {
       (id, name, phone, email, location, role, rate, pay_type, monthly_salary, joined, expiry, address, nid, status, password_hash,
        passport_country, passport_number, passport_expiry,
        visa_number, visa_expiry, sia_badge_number, sia_badge_expiry,
-       worker_type, subcontract_company)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       worker_type, subcontract_company, employment_type)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [application.worker_id, application.name, application.phone, application.email, application.location,
        application.applied_for, appPayType === 'salary' ? 0 : application.rate,
        appPayType, appPayType === 'salary' ? (Number(application.monthly_salary) || null) : null,
@@ -416,7 +416,8 @@ router.post('/setup-password', async (req, res) => {
        application.passport_country || null, application.passport_number || null, application.passport_expiry || null,
        application.visa_number || null, application.visa_expiry || null,
        application.sia_badge_number || null, application.sia_badge_expiry || null,
-       application.worker_type || 'Direct', application.subcontract_company || null]
+       application.worker_type || 'Direct', application.subcontract_company || null,
+       application.employment_type === 'full_time' ? 'full_time' : 'irregular']
     );
 
     // Move related data from application to worker

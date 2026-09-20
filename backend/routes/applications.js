@@ -93,6 +93,7 @@ const transformApplication = (app) => {
     howHeard: app.how_heard,
     subcontractCompany: app.subcontract_company,
     workerType: app.worker_type || 'Direct',
+    employmentType: app.employment_type === 'full_time' ? 'full_time' : 'irregular',
     payType: app.pay_type === 'salary' ? 'salary' : 'hourly',
     monthlySalary: app.monthly_salary != null ? Number(app.monthly_salary) : null,
     passportCountry: app.passport_country,
@@ -556,6 +557,11 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'A valid hourly rate greater than 0 is required' });
     }
 
+    // Contract type (Part 12): 'irregular' (zero-hours → 12.07% accrual) or
+    // 'full_time' (permanent → 28-day statutory entitlement).
+    const employmentType = (req.body.employmentType || req.body.employment_type) === 'full_time'
+      ? 'full_time' : 'irregular';
+
     // Generate worker code
     const year = new Date().getFullYear();
     const [workers] = await pool.query(
@@ -602,10 +608,11 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
           approval_token = ?,
           rate = ?,
           pay_type = ?,
-          monthly_salary = ?
+          monthly_salary = ?,
+          employment_type = ?
       WHERE id = ?`,
       [workerId, joined, expiry, setupToken,
-       payType === 'salary' ? 0 : confirmedRate, payType, monthlySalary, req.params.id]
+       payType === 'salary' ? 0 : confirmedRate, payType, monthlySalary, employmentType, req.params.id]
     );
 
     // Send email with setup link
@@ -641,6 +648,7 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
       rate: payType === 'salary' ? null : confirmedRate,
       payType,
       monthlySalary,
+      employmentType,
     });
     res.json({
       id: workerId,

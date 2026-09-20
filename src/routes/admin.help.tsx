@@ -122,13 +122,14 @@ const ADMIN_TOPICS: Topic[] = [
       "Click a pending application to open the full detail view.",
       "Check every section: personal details, addresses, eligibility, work history, referees, skills.",
       "Click any document tile to view it in the secure viewer (images and PDFs).",
-      "Approve → a worker record and worker code are created and a password-setup email is sent automatically.",
+      "Approve → confirm pay type and Contract type (Irregular · Zero-hours or Full-time Permanent) — a worker record and worker code are created and a password-setup email is sent automatically.",
       "Reject → the application moves to the Rejected tab with the date recorded.",
       "Use Resend setup link if the worker never received or lost their email.",
     ],
     notes: [
       "Uploads are capped at 3 MB per file (JPG/PNG/PDF).",
       "Approve/reject actions are recorded in Action History with your name.",
+      "Contract type drives holiday: Irregular/Zero-hours accrues 12.07% of hours; Full-time Permanent gets the statutory 28-day entitlement pro-rated from their join date (1/12th per month remaining, rounded up to a half day).",
     ],
   },
   {

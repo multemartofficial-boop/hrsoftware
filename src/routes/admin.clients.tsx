@@ -31,6 +31,7 @@ type Client = {
   status: "Active" | "Inactive";
   notes: string | null;
   buyerName: string | null;
+  workerCount: number;
   locations: { id: string; name: string; address: string }[];
   createdAt: string;
 };
@@ -232,13 +233,14 @@ function ClientsPage() {
           Company details, linked locations and client portal access.
         </p>
         <DataTable
-          labels={["Company", "Contact", "Address", "Locations", "Portal", "Status", "Created", ""]}
+          labels={["Company", "Contact", "Address", "Locations", "Workers", "Portal", "Status", "Created", ""]}
           head={
             <>
               <Th>Company</Th>
               <Th>Contact</Th>
               <Th>Address</Th>
               <Th>Locations</Th>
+              <Th>Workers</Th>
               <Th>Portal</Th>
               <Th>Status</Th>
               <Th>Created</Th>
@@ -247,9 +249,9 @@ function ClientsPage() {
           }
         >
           {loading ? (
-            <EmptyRow colSpan={8} text="Loading clients…" />
+            <EmptyRow colSpan={9} text="Loading clients…" />
           ) : clients.length === 0 ? (
-            <EmptyRow colSpan={8} text="No client records yet — add your first client company." />
+            <EmptyRow colSpan={9} text="No client records yet — add your first client company." />
           ) : (
             clients.map((c) => (
               <tr key={c.id}>
@@ -283,6 +285,11 @@ function ClientsPage() {
                       ))}
                     </div>
                   )}
+                </Td>
+                <Td>
+                  <span className="inline-flex items-center gap-1 text-sm font-medium" title="Workers based at or assigned to this client's locations">
+                    {c.workerCount} worker{c.workerCount === 1 ? "" : "s"}
+                  </span>
                 </Td>
                 <Td>
                   {c.userId ? (

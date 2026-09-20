@@ -250,6 +250,8 @@ router.get('/my', requireAuth, requireWorker, async (req, res) => {
     );
     res.json(payrolls.map(p => ({
       id: p.id,
+      workerId: p.worker_id,
+      worker: p.worker,
       periodStart: p.period_start,
       periodEnd: p.period_end,
       payType: p.pay_type === 'salary' ? 'salary' : 'hourly',

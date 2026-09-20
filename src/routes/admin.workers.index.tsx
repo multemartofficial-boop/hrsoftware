@@ -167,7 +167,7 @@ function WorkerDirectory() {
                 <Td>
                   <Person
                     name={w.name}
-                    sub={`${w.role} · ${w.payType === "salary" ? "Monthly Salary" : "Hourly"}`}
+                    sub={`${w.role} · ${w.payType === "salary" ? "Monthly Salary" : "Hourly"} · ${w.employmentType === "full_time" ? "Full-time" : "Zero-hours"}`}
                   />
                 </Td>
                 <Td>

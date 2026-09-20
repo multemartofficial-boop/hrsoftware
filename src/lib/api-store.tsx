@@ -501,7 +501,7 @@ function useApiState() {
 
   const approveApplication = async (
     id: string,
-    pay?: { rate?: number; payType?: "hourly" | "salary"; monthlySalary?: number },
+    pay?: { rate?: number; payType?: "hourly" | "salary"; monthlySalary?: number; employmentType?: "full_time" | "irregular" },
   ) => {
     try {
       const response = await apiClient.post<{ id: string; expiry: string; workerId: string; rate: number; payType?: string; monthlySalary?: number | null; message: string; setupLink: string }>(

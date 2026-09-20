@@ -274,6 +274,7 @@ type EditForm = {
   location: string; role: string; joined: string; expiry: string;
   payType: PayType; rate: string; monthlySalary: string;
   workerType: string; subcontractCompany: string;
+  employmentType: "full_time" | "irregular";
   passportCountry: string; passportNumber: string; passportExpiry: string;
   visaNumber: string; visaExpiry: string;
   siaBadgeNumber: string; siaBadgeExpiry: string;
@@ -299,6 +300,7 @@ function EditWorkerForm({ worker, onDone }: { worker: Worker; onDone: () => void
     monthlySalary: worker.monthlySalary ? String(worker.monthlySalary) : "",
     workerType: worker.workerType || "Direct",
     subcontractCompany: worker.subcontractCompany ?? "",
+    employmentType: worker.employmentType === "full_time" ? "full_time" : "irregular",
     passportCountry: worker.passportCountry ?? "",
     passportNumber: worker.passportNumber ?? "",
     passportExpiry: dateInput(worker.passportExpiry),
@@ -328,6 +330,7 @@ function EditWorkerForm({ worker, onDone }: { worker: Worker; onDone: () => void
       monthlySalary: f.payType === "salary" ? Number(f.monthlySalary) : null,
       workerType: f.workerType,
       subcontractCompany: f.workerType === "Sub-contract" ? f.subcontractCompany : null,
+      employmentType: f.employmentType,
       passportCountry: f.passportCountry, passportNumber: f.passportNumber,
       passportExpiry: f.passportExpiry || null,
       visaNumber: f.visaNumber, visaExpiry: f.visaExpiry || null,
@@ -411,7 +414,20 @@ function EditWorkerForm({ worker, onDone }: { worker: Worker; onDone: () => void
               onChange={(e) => set("rate", e.target.value)} className={inputCls} />
           </label>
         )}
+        <label className="block">
+          <span className="text-xs text-muted-foreground">Contract type</span>
+          <select value={f.employmentType} onChange={(e) => set("employmentType", e.target.value as "full_time" | "irregular")} className={inputCls}>
+            <option value="irregular">Irregular · Zero-hours (12.07% holiday accrual)</option>
+            <option value="full_time">Full-time Permanent (28-day statutory holiday)</option>
+          </select>
+        </label>
       </div>
+      {f.employmentType === "full_time" && (
+        <p className="text-xs text-muted-foreground">
+          Full-time permanent staff get the statutory 28-day holiday entitlement, pro-rated from their join
+          date (1/12th per month remaining in the leave year). They do not accrue rolled-up holiday pay.
+        </p>
+      )}
       {f.payType === "salary" && (
         <p className="text-xs text-muted-foreground">
           Payroll pays the monthly salary prorated by calendar days — recorded hours are kept for reference only.
@@ -581,6 +597,16 @@ function WorkerDetails() {
                   ["N.I. Number", worker.nid ?? "—"],
                   ["Location", worker.location],
                   ["Pay type", PAY_TYPE_LABELS[worker.payType ?? "hourly"]],
+                  ["Contract type", worker.employmentType === "full_time" ? "Full-time Permanent" : "Irregular · Zero-hours"],
+                  ...(worker.employmentType === "full_time" && worker.holiday?.type === "statutory_days"
+                    ? ([
+                        ["Holiday entitlement", `${worker.holiday.entitlementDays} days (${worker.holiday.leaveYearStart?.slice(0,4)} leave year)`],
+                        ["Accrued so far", `${worker.holiday.accruedDays} days`],
+                      ] as [string, string][])
+                    : []),
+                  ...(worker.employmentType !== "full_time" && worker.holiday?.type === "accrual_hours"
+                    ? ([["Holiday accrued", `${worker.holiday.accruedHours} h (${worker.holiday.ratePercent}% of hours)`]] as [string, string][])
+                    : []),
                   ...((worker.payType ?? "hourly") === "salary"
                     ? ([
                         ["Monthly salary", money2(worker.monthlySalary ?? 0)],

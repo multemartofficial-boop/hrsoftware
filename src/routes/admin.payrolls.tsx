@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Plus, Printer, Check, Trash2, Search, Download, RotateCcw } from "lucide-react";
+import { downloadPayslipPdf } from "@/lib/payslip-pdf";
 import { AdminShell } from "@/components/hr/admin-shell";
 import {
   Card,
@@ -346,6 +347,9 @@ function Payslip({ p, onClose }: { p: Payroll; onClose: () => void }) {
       <div className="mt-5 flex justify-end gap-2">
         <GhostButton onClick={() => window.print()}>
           <Printer className="size-4" /> Print
+        </GhostButton>
+        <GhostButton onClick={() => downloadPayslipPdf(p, settings?.companyName)}>
+          <Download className="size-4" /> PDF
         </GhostButton>
         <PrimaryButton onClick={onClose}>Close</PrimaryButton>
       </div>

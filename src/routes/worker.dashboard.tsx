@@ -4,6 +4,7 @@ import { useApi } from "@/lib/api-store";
 import { apiClient } from "@/lib/api-client";
 import { LogOut, Clock, LogIn, Calendar, MapPin, Navigation, FileSignature, Eraser, TriangleAlert, Paperclip, LayoutDashboard, Wallet, History, User, FileText, Download } from "lucide-react";
 import { downloadSignedPdf } from "@/lib/signed-pdf";
+import { downloadPayslipPdf } from "@/lib/payslip-pdf";
 
 export const Route = createFileRoute("/worker/dashboard")({
   head: () => ({
@@ -33,6 +34,9 @@ function WorkerDashboard() {
   // Payments + profile tabs
   const [payments, setPayments] = useState<any[]>([]);
   const [profile, setProfile] = useState<any | null>(null);
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [profileForm, setProfileForm] = useState({ phone: "", email: "", address: "" });
+  const [profileSaving, setProfileSaving] = useState(false);
   // Phase 2: incident reporting
   const [todayRecord, setTodayRecord] = useState<any | null>(null);
   const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
@@ -465,6 +469,7 @@ function WorkerDashboard() {
                     <th className="text-right py-3 px-4 font-medium">Net Pay</th>
                     <th className="text-left py-3 px-4 font-medium">Status</th>
                     <th className="text-left py-3 px-4 font-medium">Paid</th>
+                    <th className="text-right py-3 px-4 font-medium">Payslip</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -490,6 +495,14 @@ function WorkerDashboard() {
                       <td className="py-3 px-4 text-muted-foreground whitespace-nowrap">
                         {p.paidAt ? new Date(p.paidAt).toLocaleDateString("en-GB") : '—'}
                         {p.paymentReference && <div className="text-xs">{p.paymentReference}</div>}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          onClick={() => downloadPayslipPdf(p)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary"
+                        >
+                          <Download className="size-3.5" /> PDF
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -585,12 +598,92 @@ function WorkerDashboard() {
 
         {tab === 'profile' && (
         <div className="bg-card rounded-xl p-6">
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <User className="size-5" />
-            My Profile
-          </h2>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <User className="size-5" />
+              My Profile
+            </h2>
+            {profile && !profileEditing && (
+              <button
+                onClick={() => {
+                  setProfileForm({ phone: profile.phone ?? "", email: profile.email ?? "", address: profile.address ?? "" });
+                  setProfileEditing(true);
+                }}
+                className="flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-secondary"
+              >
+                Edit contact details
+              </button>
+            )}
+          </div>
           {!profile ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : profileEditing ? (
+            <form
+              className="space-y-4"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setProfileSaving(true);
+                try {
+                  await apiClient.put('/api/workers/me', profileForm);
+                  await loadProfile();
+                  setProfileEditing(false);
+                } catch (err: any) {
+                  alert(err.message || 'Failed to save profile');
+                } finally {
+                  setProfileSaving(false);
+                }
+              }}
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="text-sm font-medium">Phone</label>
+                  <input
+                    value={profileForm.phone}
+                    onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                    className="mt-1.5 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary"
+                    placeholder="07000 000000"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Email</label>
+                  <input
+                    type="email"
+                    value={profileForm.email}
+                    onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })}
+                    className="mt-1.5 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary"
+                    placeholder="you@example.com"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Home address</label>
+                <input
+                  value={profileForm.address}
+                  onChange={(e) => setProfileForm({ ...profileForm, address: e.target.value })}
+                  className="mt-1.5 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-primary"
+                  placeholder="1 Example Street, London, E1 1AA"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Pay rate, work location and documents are managed by your administrator — contact them to change those.
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setProfileEditing(false)}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-secondary"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={profileSaving}
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {profileSaving ? 'Saving…' : 'Save changes'}
+                </button>
+              </div>
+            </form>
           ) : (
             <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
               {[
@@ -598,10 +691,20 @@ function WorkerDashboard() {
                 ['Name', profile.name],
                 ['Email', profile.email],
                 ['Phone', profile.phone],
+                ['Home Address', profile.address],
                 ['Work Location', profile.location],
                 ['Role', profile.role],
                 ['Worker Type', profile.workerType === 'Subcontract' ? `Subcontract — ${profile.subcontractCompany || ''}` : profile.workerType],
                 ['Pay Type', profile.payType === 'salary' ? `Monthly salary${profile.monthlySalary ? ` — ${money(profile.monthlySalary)}` : ''}` : `Hourly — ${money(profile.rate)}/h`],
+                ['Contract Type', profile.employmentType === 'full_time' ? 'Full-time Permanent' : 'Irregular · Zero-hours'],
+                ...(profile.holiday?.type === 'statutory_days'
+                  ? [
+                      ['Holiday entitlement', `${profile.holiday.entitlementDays} days (${new Date().getFullYear()} leave year)`],
+                      ['Holiday accrued', `${profile.holiday.accruedDays} days so far`],
+                    ]
+                  : profile.holiday?.type === 'accrual_hours'
+                    ? [['Holiday accrued', `${profile.holiday.accruedHours}h (${profile.holiday.ratePercent}% of hours)`]]
+                    : []),
                 ['Joined', profile.joined ? new Date(profile.joined).toLocaleDateString("en-GB") : '—'],
                 ['Contract Expiry', profile.expiry ? new Date(profile.expiry).toLocaleDateString("en-GB") : '—'],
                 ['Visa Expiry', profile.visaExpiry ? new Date(profile.visaExpiry).toLocaleDateString("en-GB") : '—'],

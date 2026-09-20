@@ -106,6 +106,13 @@ async function ensureSchema() {
     await addCol('ALTER TABLE documents ADD COLUMN admin_signer_ip VARCHAR(64) NULL', 'documents.admin_signer_ip');
     await addCol('ALTER TABLE documents ADD COLUMN signed_content_hash CHAR(64) NULL', 'documents.signed_content_hash');
 
+    // Contract type (Part 12): 'irregular' = zero-hours / casual → 12.07%
+    // rolled-up holiday accrual; 'full_time' = permanent → 28-day statutory
+    // entitlement pro-rated on join. Defaults to 'irregular' so existing
+    // workers keep current behaviour.
+    await addCol("ALTER TABLE workers ADD COLUMN employment_type VARCHAR(20) NOT NULL DEFAULT 'irregular'", 'workers.employment_type');
+    await addCol("ALTER TABLE registration_applications ADD COLUMN employment_type VARCHAR(20) NULL", 'registration_applications.employment_type');
+
     // Part 11: payroll payment status — who/when a run was paid plus an
     // optional payment reference, and a permanent audit table that keeps a
     // record of every status change even if the payroll row is later deleted.

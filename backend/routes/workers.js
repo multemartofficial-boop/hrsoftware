@@ -3,6 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const pool = require('../config/database');
 const { requireAuth, requireAdmin, requireWorker } = require('../middleware/auth');
+const { normalizeEmploymentType, workerHoliday } = require('../utils/holiday-accrual');
 const { logActionFromReq } = require('../utils/action-log');
 
 // Generate unique worker code
@@ -77,6 +78,7 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
       siaBadgeExpiry: w.sia_badge_expiry,
       workerType: w.worker_type || 'Direct',
       subcontractCompany: w.subcontract_company,
+      employmentType: normalizeEmploymentType(w.employment_type),
       payType: w.pay_type === 'salary' ? 'salary' : 'hourly',
       monthlySalary: w.monthly_salary != null ? Number(w.monthly_salary) : null,
       complianceDone: complianceByWorker[w.id]?.done || 0
@@ -102,6 +104,7 @@ router.get('/me', requireAuth, requireWorker, async (req, res) => {
       name: w.name,
       email: w.email,
       phone: w.phone,
+      address: w.address,
       location: w.location,
       role: w.role,
       rate: Number(w.rate),
@@ -112,12 +115,37 @@ router.get('/me', requireAuth, requireWorker, async (req, res) => {
       visaExpiry: w.visa_expiry,
       workerType: w.worker_type || 'Direct',
       subcontractCompany: w.subcontract_company,
+      employmentType: normalizeEmploymentType(w.employment_type),
       status: w.status,
       onLeave: w.on_leave === 1,
+      holiday: await workerHoliday(w),
     });
   } catch (error) {
     console.error('Get my profile error:', error);
     res.status(500).json({ error: 'Failed to load profile' });
+  }
+});
+
+// Worker: update own contact details (pay, location and compliance fields
+// stay admin-controlled)
+router.put('/me', requireAuth, requireWorker, async (req, res) => {
+  try {
+    const { phone, email, address } = req.body;
+    await pool.query(
+      'UPDATE workers SET phone = ?, email = ?, address = ? WHERE id = ?',
+      [phone ?? null, email ?? null, address ?? null, req.user.workerId]
+    );
+    // Keep the login email in sync if the worker has a users row
+    if (email) {
+      await pool.query(
+        'UPDATE users SET email = ? WHERE worker_id = ?',
+        [String(email).trim().toLowerCase(), req.user.workerId]
+      );
+    }
+    res.json({ message: 'Profile updated' });
+  } catch (error) {
+    console.error('Update my profile error:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
   }
 });
 
@@ -168,12 +196,14 @@ router.get('/:id', requireAuth, requireAdmin, async (req, res) => {
       siaBadgeExpiry: w.sia_badge_expiry,
       workerType: w.worker_type || 'Direct',
       subcontractCompany: w.subcontract_company,
+      employmentType: normalizeEmploymentType(w.employment_type),
       payType: w.pay_type === 'salary' ? 'salary' : 'hourly',
       monthlySalary: w.monthly_salary != null ? Number(w.monthly_salary) : null
     };
 
     res.json({
       ...normalizedWorker,
+      holiday: await workerHoliday(w),
       prevAddresses,
       employmentHistory,
       referees,
@@ -200,6 +230,7 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
       return res.status(400).json({ error: 'A monthly salary greater than 0 is required for salaried workers' });
     }
     const rateValue = payType === 'salary' ? 0 : (Number(rate) || 0);
+    const employmentType = normalizeEmploymentType(req.body.employmentType || req.body.employment_type);
 
     const workerId = await generateWorkerCode();
     const joined = new Date();
@@ -208,9 +239,9 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
 
     await pool.query(
       `INSERT INTO workers
-      (id, name, phone, email, location, role, rate, pay_type, monthly_salary, joined, expiry, address, nid, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
-      [workerId, name, phone, email, location, role, rateValue, payType, monthlySalary, joined, expiry, address, nid]
+      (id, name, phone, email, location, role, rate, pay_type, monthly_salary, joined, expiry, address, nid, status, employment_type)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+      [workerId, name, phone, email, location, role, rateValue, payType, monthlySalary, joined, expiry, address, nid, employmentType]
     );
 
     await logActionFromReq(req, 'created_worker', 'worker', workerId, { name, email, location, role, rate: rateValue, payType, monthlySalary });
@@ -289,6 +320,9 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       sia_badge_expiry: keep(dateStr(pick('siaBadgeExpiry', 'sia_badge_expiry')), dateStr(cur.sia_badge_expiry)),
       worker_type: keep(pick('workerType', 'worker_type'), cur.worker_type),
       subcontract_company: keep(pick('subcontractCompany', 'subcontract_company'), cur.subcontract_company),
+      employment_type: pick('employmentType', 'employment_type') !== undefined
+        ? normalizeEmploymentType(pick('employmentType', 'employment_type'))
+        : normalizeEmploymentType(cur.employment_type),
     };
 
     await pool.query(
@@ -299,7 +333,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
           passport_country = ?, passport_number = ?, passport_expiry = ?,
           visa_number = ?, visa_expiry = ?,
           sia_badge_number = ?, sia_badge_expiry = ?,
-          worker_type = ?, subcontract_company = ?
+          worker_type = ?, subcontract_company = ?, employment_type = ?
       WHERE id = ?`,
       [merged.name, merged.phone, merged.email, merged.location, merged.role, merged.rate,
        merged.pay_type, merged.monthly_salary, merged.address, merged.nid, merged.on_leave,
@@ -307,7 +341,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
        merged.passport_country, merged.passport_number, merged.passport_expiry,
        merged.visa_number, merged.visa_expiry,
        merged.sia_badge_number, merged.sia_badge_expiry,
-       merged.worker_type, merged.subcontract_company, req.params.id]
+       merged.worker_type, merged.subcontract_company, merged.employment_type, req.params.id]
     );
 
     // Before/after audit trail — only fields whose value actually changed.
@@ -320,6 +354,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       visa_number: 'Visa number', visa_expiry: 'Visa expiry',
       sia_badge_number: 'SIA badge number', sia_badge_expiry: 'SIA badge expiry',
       worker_type: 'Employment type', subcontract_company: 'Sub-contract company',
+      employment_type: 'Contract type',
     };
     const norm = (k, v) => {
       if (v === null || v === undefined) return null;
