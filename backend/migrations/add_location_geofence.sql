@@ -4,7 +4,7 @@
 ALTER TABLE locations
   ADD COLUMN latitude DECIMAL(10,7) NULL,
   ADD COLUMN longitude DECIMAL(10,7) NULL,
-  ADD COLUMN radius_meters INT NOT NULL DEFAULT 200;
+  ADD COLUMN radius_meters INT NOT NULL DEFAULT 25;
 
 ALTER TABLE attendance
   ADD COLUMN check_in_lat DECIMAL(10,7) NULL,

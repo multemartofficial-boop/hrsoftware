@@ -51,6 +51,7 @@ function LocationMapPicker({
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchErr, setSearchErr] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<{ lat: number; lng: number; label: string }[]>([]);
 
   const placePin = (la: number, lo: number, fly = false) => {
     const map = mapObj.current;
@@ -124,26 +125,32 @@ function LocationMapPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus?.seq]);
 
+  const pickSuggestion = (s: { lat: number; lng: number; label: string }) => {
+    placePin(s.lat, s.lng, true);
+    onPickRef.current(s.lat, s.lng);
+    setSuggestions([]);
+  };
+
   const search = async (e?: { preventDefault?: () => void }) => {
     e?.preventDefault?.();
     const q = query.trim();
     if (!q) return;
     setSearching(true);
     setSearchErr(null);
+    setSuggestions([]);
     try {
       const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`,
+        `https://nominatim.openstreetmap.org/search?format=json&limit=5&addressdetails=1&q=${encodeURIComponent(q)}`,
         { headers: { "Accept-Language": "en" } },
       );
       const data = (await res.json()) as { lat: string; lon: string; display_name: string }[];
       if (!data.length) {
-        setSearchErr("No results found — try a more specific address.");
+        setSearchErr("No results found — try a more specific address, or search a postcode above.");
+      } else if (data.length === 1) {
+        pickSuggestion({ lat: Number(data[0]!.lat), lng: Number(data[0]!.lon), label: data[0]!.display_name });
       } else {
-        const first = data[0]!;
-        const la = Number(first.lat);
-        const lo = Number(first.lon);
-        placePin(la, lo, true);
-        onPickRef.current(la, lo);
+        // Multiple candidates — let the admin pick the exact address.
+        setSuggestions(data.map((d) => ({ lat: Number(d.lat), lng: Number(d.lon), label: d.display_name })));
       }
     } catch {
       setSearchErr("Search failed — check your connection and try again.");
@@ -179,9 +186,24 @@ function LocationMapPicker({
         </button>
       </div>
       {searchErr && <p className="mt-1 text-xs font-medium text-danger">{searchErr}</p>}
+      {suggestions.length > 0 && (
+        <div className="mt-2 max-h-40 overflow-y-auto rounded-xl border border-border bg-card">
+          {suggestions.map((s, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => pickSuggestion(s)}
+              className="flex w-full items-start gap-2 border-b border-border px-3 py-2 text-left text-xs last:border-b-0 hover:bg-secondary/60"
+            >
+              <MapPin className="mt-0.5 size-3.5 shrink-0 text-primary" />
+              <span>{s.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div ref={mapDiv} className="mt-3 h-64 w-full rounded-xl border border-border" />
       <p className="mt-1.5 text-xs text-muted-foreground">
-        Click the map or drag the pin to set the location. The circle shows the geofence radius.
+        Search an address, click the map, or drag the pin to set the exact location. The circle shows the geofence radius.
       </p>
     </div>
   );
@@ -213,7 +235,7 @@ function LocationForm({ editing, onClose }: { editing: LocationItem | null; onCl
   const [searchErr, setSearchErr] = useState<string | null>(null);
   const [latitude, setLatitude] = useState(editing?.latitude != null ? String(editing.latitude) : "");
   const [longitude, setLongitude] = useState(editing?.longitude != null ? String(editing.longitude) : "");
-  const [radiusMeters, setRadiusMeters] = useState(String(editing?.radiusMeters ?? 100));
+  const [radiusMeters, setRadiusMeters] = useState(String(editing?.radiusMeters ?? 25));
   const [geoErr, setGeoErr] = useState<string | null>(null);
   const [focus, setFocus] = useState<{ lat: number; lng: number; zoom: number; seq: number } | null>(null);
   const [pcSearching, setPcSearching] = useState(false);
@@ -223,7 +245,7 @@ function LocationForm({ editing, onClose }: { editing: LocationItem | null; onCl
 
   const latNum = latitude !== "" && !Number.isNaN(Number(latitude)) ? Number(latitude) : null;
   const lngNum = longitude !== "" && !Number.isNaN(Number(longitude)) ? Number(longitude) : null;
-  const radNum = radiusMeters !== "" && !Number.isNaN(Number(radiusMeters)) ? Number(radiusMeters) : 100;
+  const radNum = radiusMeters !== "" && !Number.isNaN(Number(radiusMeters)) ? Number(radiusMeters) : 25;
   const address = [building, street, city, postcode].filter(Boolean).join(", ");
 
   // Primary flow: postcode + Search — geocode via postcodes.io and zoom the
@@ -343,7 +365,7 @@ function LocationForm({ editing, onClose }: { editing: LocationItem | null; onCl
       postcode: postcode ? postcode.toUpperCase() : null,
       latitude: latNum,
       longitude: lngNum,
-      radiusMeters: radNum > 0 ? radNum : 100,
+      radiusMeters: radNum > 0 ? radNum : 25,
     };
     if (editing) updateLocation(editing.id, payload);
     else addLocation(payload);

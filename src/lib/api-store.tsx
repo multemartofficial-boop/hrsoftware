@@ -151,8 +151,36 @@ function useApiState() {
     }
   };
 
-  // Client portal login removed (Part 6) — clients are internal reference
-  // records with no sign-in.
+  const clientLogin = async (email: string, password: string): Promise<Session | null> => {
+    setLoading({ ...loading, login: true });
+    setError(null);
+
+    try {
+      const response = await apiClient.post<{ token: string; user: Session }>('/api/auth/client/login', {
+        email,
+        password,
+      });
+
+      apiClient.setToken(response.token);
+      const next = response.user;
+      setSession(next);
+
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+        }
+      } catch {
+        /* ignore */
+      }
+
+      return next;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed');
+      return null;
+    } finally {
+      setLoading({ ...loading, login: false });
+    }
+  };
 
   const logout = () => {
     setSession(null);
@@ -324,7 +352,7 @@ function useApiState() {
         ...l,
         latitude: l.latitude != null ? Number(l.latitude) : null,
         longitude: l.longitude != null ? Number(l.longitude) : null,
-        radiusMeters: l.radiusMeters != null ? Number(l.radiusMeters) : 200
+        radiusMeters: l.radiusMeters != null ? Number(l.radiusMeters) : 25
       })));
     } catch (err) {
       if (!(err instanceof Error && err.message.includes('401'))) {
@@ -587,7 +615,7 @@ function useApiState() {
 
   const workerCheckIn = async (coords: { latitude: number; longitude: number }) => {
     try {
-      const response = await apiClient.post<{ id: string; timeIn: string; location: string; locationMismatch?: boolean; distanceMeters?: number | null; nearestLocation?: string | null; assignmentStatus?: string; message: string }>(
+      const response = await apiClient.post<{ id: string; timeIn: string; location: string; locationMismatch?: boolean; distanceMeters?: number | null; nearestLocation?: string | null; assignmentStatus?: string; assignedLocation?: string | null; message: string }>(
         '/api/worker/attendance/checkin',
         { latitude: coords.latitude, longitude: coords.longitude }
       );
@@ -825,6 +853,7 @@ function useApiState() {
     authReady,
     login,
     workerLogin,
+    clientLogin,
     logout,
     workers,
     applications,
@@ -865,6 +894,7 @@ function useApiState() {
     workerStatus,
     updateSettings,
     expiryNotices,
+    visaNotices,
     notices,
     payrollChart,
     deductionsData,

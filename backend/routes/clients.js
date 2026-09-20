@@ -1,14 +1,17 @@
 const express = require('express');
 const router = express.Router();
+const bcrypt = require('bcryptjs');
 const pool = require('../config/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { sendEmail } = require('../utils/email');
+const { appBaseUrl } = require('../utils/app-url');
 const { logActionFromReq } = require('../utils/action-log');
 
 const generateClientId = () => `CLT-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
-// Clients are internal admin-only reference records (Part 6): company details
-// plus which locations belong to them. They have no login or portal access —
-// legacy user_id links are kept on old rows but new records get NULL.
+// Clients hold company details plus which locations belong to them. When a
+// password is supplied the client also gets a portal login (users row, role
+// 'client') — leave it blank for an internal reference record only.
 const loadClientLocations = async (clientIds) => {
   if (!clientIds.length) return {};
   const ph = clientIds.map(() => '?').join(',');
@@ -27,6 +30,7 @@ const loadClientLocations = async (clientIds) => {
 
 const serialize = (row, locMap) => ({
   id: row.id,
+  userId: row.user_id,
   name: row.name,
   company: row.company,
   email: row.email,
@@ -34,9 +38,50 @@ const serialize = (row, locMap) => ({
   address: row.address,
   status: row.status || 'Active',
   notes: row.notes,
+  buyerName: row.buyer_name ?? null,
   locations: locMap[row.id] || [],
   createdAt: row.created_at,
 });
+
+// Provision (or reset) the portal login for a client record. Returns the
+// users.id linked to the client.
+const provisionLogin = async (connection, { userId, name, email, password }) => {
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const passwordHash = await bcrypt.hash(String(password), 10);
+  if (userId) {
+    await connection.query(
+      'UPDATE users SET name = ?, email = ?, password_hash = ? WHERE id = ?',
+      [name, normalizedEmail, passwordHash, userId]
+    );
+    return userId;
+  }
+  const [result] = await connection.query(
+    'INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, "client")',
+    [name, normalizedEmail, passwordHash]
+  );
+  return result.insertId;
+};
+
+const sendWelcomeEmail = async (req, { name, company, email }) => {
+  try {
+    await sendEmail({
+      to: email,
+      subject: 'Your WorkHR client portal account',
+      html: `
+        <h2>Welcome to the WorkHR Client Portal</h2>
+        <p>Hi ${name},</p>
+        <p>An account has been created for <strong>${company}</strong>. You can sign in with this email
+        and the password provided by your WorkHR contact.</p>
+        <p><a href="${appBaseUrl(req)}">Open the client portal</a>
+        and choose the <strong>Client</strong> tab.</p>
+        <p>If you did not expect this, please ignore this email.</p>
+      `,
+      text: `A WorkHR client portal account was created for ${company}. Sign in with this email and the password provided by your WorkHR contact.`,
+    });
+  } catch (e) {
+    console.error('Client welcome email failed:', e.message);
+  }
+};
 
 // Admin: list all client records
 router.get('/', requireAuth, requireAdmin, async (req, res) => {
@@ -58,15 +103,30 @@ const validateLocations = async (locationIds) => {
   return locs.length === locIds.length ? locIds : null;
 };
 
-// Admin: create a client reference record
+// Admin: create a client record (+ optional portal login when password given)
 router.post('/', requireAuth, requireAdmin, async (req, res) => {
   const connection = await pool.getConnection();
   try {
-    const { company, name, email, phone, address, notes } = req.body;
+    const { company, name, email, phone, address, notes, password, buyerName } = req.body;
     const status = req.body.status === 'Inactive' ? 'Inactive' : 'Active';
 
     if (!company || !String(company).trim()) {
       return res.status(400).json({ error: 'Company name is required' });
+    }
+
+    const wantsLogin = Boolean(password && String(password).length);
+    if (wantsLogin) {
+      if (!email || !String(email).trim()) {
+        return res.status(400).json({ error: 'Email is required to create a portal login' });
+      }
+      if (String(password).length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters' });
+      }
+      const normalizedEmail = String(email).trim().toLowerCase();
+      const [existing] = await pool.query('SELECT id FROM users WHERE email = ?', [normalizedEmail]);
+      if (existing.length > 0) {
+        return res.status(400).json({ error: 'An account with this email already exists' });
+      }
     }
 
     const locIds = await validateLocations(req.body.locationIds);
@@ -77,9 +137,19 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
     await connection.beginTransaction();
 
     const clientId = generateClientId();
+    let userId = null;
+    if (wantsLogin) {
+      userId = await provisionLogin(connection, {
+        userId: null,
+        name: name || company,
+        email,
+        password,
+      });
+    }
+
     await connection.query(
-      'INSERT INTO clients (id, user_id, name, company, email, phone, address, status, notes) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?)',
-      [clientId, name || company, company, email || null, phone || null, address || null, status, notes || null]
+      'INSERT INTO clients (id, user_id, name, company, email, phone, address, status, notes, buyer_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [clientId, userId, name || company, company, email || null, phone || null, address || null, status, notes || null, buyerName || null]
     );
 
     for (const locId of locIds) {
@@ -90,10 +160,15 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
     }
 
     await connection.commit();
+
+    if (wantsLogin) {
+      await sendWelcomeEmail(req, { name: name || company, company, email: String(email).trim().toLowerCase() });
+    }
+
     await logActionFromReq(req, 'created_client', 'client', clientId, {
-      company, email: email || null, status, locations: locIds,
+      company, email: email || null, status, locations: locIds, portalLogin: wantsLogin,
     });
-    res.status(201).json({ id: clientId, message: 'Client record created' });
+    res.status(201).json({ id: clientId, portalLogin: wantsLogin, message: 'Client record created' });
   } catch (error) {
     await connection.rollback();
     console.error('Create client error:', error);
@@ -123,7 +198,30 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       address: pick('address') ?? prev.address,
       status,
       notes: pick('notes') ?? prev.notes,
+      buyer_name: pick('buyerName') !== undefined ? (req.body.buyerName || null) : prev.buyer_name,
     };
+
+    // Portal password: provided → create or reset the login.
+    const newPassword = pick('password');
+    if (newPassword !== undefined && newPassword !== '') {
+      if (String(newPassword).length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters' });
+      }
+      if (!merged.email || !String(merged.email).trim()) {
+        return res.status(400).json({ error: 'Email is required to create a portal login' });
+      }
+    }
+    // Keep the login email unique when a login exists or will be created.
+    if ((prev.user_id || (newPassword && newPassword !== '')) && merged.email) {
+      const normalizedEmail = String(merged.email).trim().toLowerCase();
+      const [dup] = await pool.query(
+        'SELECT id FROM users WHERE email = ? AND id != ?',
+        [normalizedEmail, prev.user_id ?? -1]
+      );
+      if (dup.length > 0) {
+        return res.status(400).json({ error: 'An account with this email already exists' });
+      }
+    }
 
     const locIds = req.body.locationIds === undefined
       ? null
@@ -133,9 +231,26 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     }
 
     await connection.beginTransaction();
+
+    let userId = prev.user_id;
+    if (newPassword !== undefined && newPassword !== '') {
+      userId = await provisionLogin(connection, {
+        userId: prev.user_id,
+        name: merged.name,
+        email: merged.email,
+        password: newPassword,
+      });
+    } else if (prev.user_id) {
+      // Login exists — keep its name/email in sync with the record.
+      await connection.query(
+        'UPDATE users SET name = ?, email = ? WHERE id = ?',
+        [merged.name, String(merged.email).trim().toLowerCase(), prev.user_id]
+      );
+    }
+
     await connection.query(
-      'UPDATE clients SET name = ?, company = ?, email = ?, phone = ?, address = ?, status = ?, notes = ? WHERE id = ?',
-      [merged.name, merged.company, merged.email, merged.phone, merged.address, merged.status, merged.notes, req.params.id]
+      'UPDATE clients SET user_id = ?, name = ?, company = ?, email = ?, phone = ?, address = ?, status = ?, notes = ?, buyer_name = ? WHERE id = ?',
+      [userId, merged.name, merged.company, merged.email, merged.phone, merged.address, merged.status, merged.notes, merged.buyer_name, req.params.id]
     );
 
     if (locIds !== null) {
@@ -147,6 +262,12 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
     }
 
     await connection.commit();
+
+    // Welcome email only when a login was newly created (not on password resets)
+    if (!prev.user_id && userId) {
+      await sendWelcomeEmail(req, { name: merged.name, company: merged.company, email: String(merged.email).trim().toLowerCase() });
+    }
+
     const changes = {};
     for (const [label, col] of [['Company', 'company'], ['Name', 'name'], ['Email', 'email'], ['Phone', 'phone'], ['Address', 'address'], ['Status', 'status'], ['Notes', 'notes']]) {
       const before = prev[col] ?? null;
@@ -154,8 +275,10 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       if (String(before) !== String(after)) changes[label] = { from: before ?? '—', to: after ?? '—' };
     }
     if (locIds !== null) changes['Locations'] = { from: 'updated', to: `${locIds.length} linked` };
+    if (!prev.user_id && userId) changes['Portal login'] = { from: 'none', to: 'created' };
+    else if (newPassword) changes['Portal login'] = { from: 'password', to: 'reset' };
     await logActionFromReq(req, 'updated_client', 'client', req.params.id, { company: merged.company, changes });
-    res.json({ message: 'Client updated' });
+    res.json({ message: 'Client updated', portalLogin: userId != null });
   } catch (error) {
     await connection.rollback();
     console.error('Update client error:', error);

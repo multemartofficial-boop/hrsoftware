@@ -19,6 +19,8 @@ function WorkerDashboard() {
   const { session, logout, workerCheckIn, workerCheckOut, attendance } = useApi();
   const [checkedIn, setCheckedIn] = useState(false);
   const [visaExpired, setVisaExpired] = useState(false);
+  const [assignment, setAssignment] = useState<{ location: string; address: string | null } | null>(null);
+  const [checkInMsg, setCheckInMsg] = useState<{ text: string; mismatch: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   // Phase G Part 2: pending signature requests
@@ -46,9 +48,9 @@ function WorkerDashboard() {
   const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [geoStatus, setGeoStatus] = useState<"idle" | "requesting" | "granted" | "denied">("idle");
 
-  const loadTodayAttendance = async (): Promise<{ checkedIn: boolean; record: any; visaExpired?: boolean }> => {
+  const loadTodayAttendance = async (): Promise<{ checkedIn: boolean; record: any; visaExpired?: boolean; assignment?: { location: string; address: string | null } | null }> => {
     try {
-      return await apiClient.get<{ checkedIn: boolean; record: any; visaExpired?: boolean }>('/api/worker/attendance/today');
+      return await apiClient.get<{ checkedIn: boolean; record: any; visaExpired?: boolean; assignment?: { location: string; address: string | null } | null }>('/api/worker/attendance/today');
     } catch (err) {
       console.error('Failed to load today attendance:', err);
       return { checkedIn: false, record: null };
@@ -70,6 +72,7 @@ function WorkerDashboard() {
       setCheckedIn(todayData.checkedIn);
       setTodayRecord(todayData.record);
       setVisaExpired(Boolean(todayData.visaExpired));
+      setAssignment(todayData.assignment ?? null);
       setLoading(false);
     }).catch(err => {
       console.error('Failed to load worker data:', err);
@@ -100,8 +103,22 @@ function WorkerDashboard() {
     }
     setActionLoading(true);
     try {
-      await workerCheckIn(coords);
+      const res = await workerCheckIn(coords);
       setCheckedIn(true);
+      setTodayRecord((prev: any) => ({ ...(prev ?? {}), location: res.location }));
+      if (res.assignmentStatus === 'mismatch' && res.assignedLocation) {
+        setCheckInMsg({
+          text: `You checked in at ${res.location}, but your assigned location today is ${res.assignedLocation}.`,
+          mismatch: true,
+        });
+      } else {
+        setCheckInMsg({
+          text: res.assignedLocation
+            ? `Checked in at ${res.location} — matches your assignment.`
+            : `Checked in at ${res.location}.`,
+          mismatch: false,
+        });
+      }
     } catch (err: any) {
       alert(err.message || 'Failed to check in');
     } finally {
@@ -135,6 +152,20 @@ function WorkerDashboard() {
   }
 
   const myAttendance = attendance?.filter(a => a.workerId === session?.workerId) || [];
+
+  // Hours summary — this month, this week (Mon–Sun) and all-time.
+  const now = new Date();
+  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const monthRecords = myAttendance.filter(a => String(a.date).slice(0, 7) === monthKey);
+  const monthHours = monthRecords.reduce((t, a) => t + a.hours, 0);
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+  monday.setHours(0, 0, 0, 0);
+  const weekHours = myAttendance
+    .filter(a => new Date(a.date) >= monday)
+    .reduce((t, a) => t + a.hours, 0);
+  const totalHours = myAttendance.reduce((t, a) => t + a.hours, 0);
+  const monthName = now.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 
   return (
     <div className="min-h-screen bg-background">
@@ -170,11 +201,39 @@ function WorkerDashboard() {
             Today's Attendance
           </h2>
 
+          {assignment ? (
+            <div className="mb-4 flex items-start gap-3 rounded-lg border border-primary/30 bg-primary-soft px-4 py-3">
+              <MapPin className="size-5 shrink-0 text-primary" />
+              <div>
+                <p className="text-sm font-medium">
+                  Today's shift: <span className="text-primary">{assignment.location}</span>
+                </p>
+                {assignment.address && (
+                  <p className="text-xs text-muted-foreground">{assignment.address}</p>
+                )}
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Please check in from this location.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p className="mb-4 text-sm text-muted-foreground">
+              No shift assigned today — check in from any registered work site.
+            </p>
+          )}
+
           {checkedIn ? (
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3 text-green-600">
-                <div className="w-3 h-3 rounded-full bg-green-600" />
-                <span className="font-medium">You are checked in</span>
+              <div>
+                <div className="flex items-center gap-3 text-green-600">
+                  <div className="w-3 h-3 rounded-full bg-green-600" />
+                  <span className="font-medium">You are checked in</span>
+                </div>
+                {(todayRecord?.location || checkInMsg) && (
+                  <p className={`mt-1 text-sm ${checkInMsg?.mismatch ? 'text-warning' : 'text-muted-foreground'}`}>
+                    {checkInMsg?.text ?? `Location: ${todayRecord?.location}`}
+                  </p>
+                )}
               </div>
               <button
                 onClick={handleCheckOut}
@@ -238,6 +297,23 @@ function WorkerDashboard() {
               </div>
             </div>
           )}
+        </div>
+
+        {/* Hours worked summary */}
+        <div className="grid grid-cols-3 gap-3 mb-6">
+          <div className="bg-card rounded-xl p-4">
+            <p className="text-xs text-muted-foreground">This week</p>
+            <p className="mt-1 text-2xl font-bold">{weekHours.toFixed(1)}h</p>
+          </div>
+          <div className="bg-card rounded-xl p-4">
+            <p className="text-xs text-muted-foreground">{monthName}</p>
+            <p className="mt-1 text-2xl font-bold">{monthHours.toFixed(1)}h</p>
+            <p className="text-xs text-muted-foreground">{monthRecords.length} shift{monthRecords.length === 1 ? "" : "s"}</p>
+          </div>
+          <div className="bg-card rounded-xl p-4">
+            <p className="text-xs text-muted-foreground">All time</p>
+            <p className="mt-1 text-2xl font-bold">{totalHours.toFixed(1)}h</p>
+          </div>
         </div>
 
         {/* Documents to Sign */}

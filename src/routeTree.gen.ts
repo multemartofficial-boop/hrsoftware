@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ClientRouteImport } from './routes/client'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
@@ -31,6 +32,7 @@ import { Route as AdminPayrollsRouteImport } from './routes/admin.payrolls'
 import { Route as AdminReportsRouteImport } from './routes/admin.reports'
 import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
 import { Route as AdminTeamRouteImport } from './routes/admin.team'
+import { Route as ClientDashboardRouteImport } from './routes/client.dashboard'
 import { Route as WorkerDashboardRouteImport } from './routes/worker.dashboard'
 import { Route as AdminWorkersIndexRouteImport } from './routes/admin.workers.index'
 import { Route as AdminWorkersIdRouteImport } from './routes/admin.workers.$id'
@@ -38,6 +40,11 @@ import { Route as AdminWorkersIdRouteImport } from './routes/admin.workers.$id'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClientRoute = ClientRouteImport.update({
+  id: '/client',
+  path: '/client',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
@@ -145,6 +152,11 @@ const AdminTeamRoute = AdminTeamRouteImport.update({
   path: '/admin/team',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ClientDashboardRoute = ClientDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => ClientRoute,
+} as any)
 const WorkerDashboardRoute = WorkerDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -163,6 +175,7 @@ const AdminWorkersIdRoute = AdminWorkersIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/client': typeof ClientRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -183,6 +196,7 @@ export interface FileRoutesByFullPath {
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/team': typeof AdminTeamRoute
+  '/client/dashboard': typeof ClientDashboardRoute
   '/worker/dashboard': typeof WorkerDashboardRoute
   '/admin/': typeof AdminIndexRoute
   '/admin/workers/$id': typeof AdminWorkersIdRoute
@@ -190,6 +204,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/client': typeof ClientRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -210,6 +225,7 @@ export interface FileRoutesByTo {
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/team': typeof AdminTeamRoute
+  '/client/dashboard': typeof ClientDashboardRoute
   '/worker/dashboard': typeof WorkerDashboardRoute
   '/admin': typeof AdminIndexRoute
   '/admin/workers/$id': typeof AdminWorkersIdRoute
@@ -218,6 +234,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/client': typeof ClientRouteWithChildren
   '/forgot-password': typeof ForgotPasswordRoute
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -238,6 +255,7 @@ export interface FileRoutesById {
   '/admin/reports': typeof AdminReportsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/team': typeof AdminTeamRoute
+  '/client/dashboard': typeof ClientDashboardRoute
   '/worker/dashboard': typeof WorkerDashboardRoute
   '/admin/': typeof AdminIndexRoute
   '/admin/workers/$id': typeof AdminWorkersIdRoute
@@ -247,6 +265,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/client'
     | '/forgot-password'
     | '/register'
     | '/reset-password'
@@ -267,6 +286,7 @@ export interface FileRouteTypes {
     | '/admin/reports'
     | '/admin/settings'
     | '/admin/team'
+    | '/client/dashboard'
     | '/worker/dashboard'
     | '/admin/'
     | '/admin/workers/$id'
@@ -274,6 +294,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/client'
     | '/forgot-password'
     | '/register'
     | '/reset-password'
@@ -294,6 +315,7 @@ export interface FileRouteTypes {
     | '/admin/reports'
     | '/admin/settings'
     | '/admin/team'
+    | '/client/dashboard'
     | '/worker/dashboard'
     | '/admin'
     | '/admin/workers/$id'
@@ -301,6 +323,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/client'
     | '/forgot-password'
     | '/register'
     | '/reset-password'
@@ -321,6 +344,7 @@ export interface FileRouteTypes {
     | '/admin/reports'
     | '/admin/settings'
     | '/admin/team'
+    | '/client/dashboard'
     | '/worker/dashboard'
     | '/admin/'
     | '/admin/workers/$id'
@@ -329,6 +353,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ClientRoute: typeof ClientRouteWithChildren
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   RegisterRoute: typeof RegisterRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
@@ -361,6 +386,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/client': {
+      id: '/client'
+      path: '/client'
+      fullPath: '/client'
+      preLoaderRoute: typeof ClientRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/forgot-password': {
@@ -510,6 +542,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminTeamRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/client/dashboard': {
+      id: '/client/dashboard'
+      path: '/dashboard'
+      fullPath: '/client/dashboard'
+      preLoaderRoute: typeof ClientDashboardRouteImport
+      parentRoute: typeof ClientRoute
+    }
     '/worker/dashboard': {
       id: '/worker/dashboard'
       path: '/dashboard'
@@ -534,6 +573,17 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface ClientRouteChildren {
+  ClientDashboardRoute: typeof ClientDashboardRoute
+}
+
+const ClientRouteChildren: ClientRouteChildren = {
+  ClientDashboardRoute: ClientDashboardRoute,
+}
+
+const ClientRouteWithChildren =
+  ClientRoute._addFileChildren(ClientRouteChildren)
+
 interface WorkerRouteChildren {
   WorkerDashboardRoute: typeof WorkerDashboardRoute
 }
@@ -547,6 +597,7 @@ const WorkerRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ClientRoute: ClientRouteWithChildren,
   ForgotPasswordRoute: ForgotPasswordRoute,
   RegisterRoute: RegisterRoute,
   ResetPasswordRoute: ResetPasswordRoute,

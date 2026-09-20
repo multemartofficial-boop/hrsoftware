@@ -26,6 +26,8 @@ import {
   KeyRound,
   ShieldCheck,
   CheckCircle2,
+  PoundSterling,
+  Eye,
 } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import { Card } from "@/components/hr/bits";
@@ -35,9 +37,9 @@ export const Route = createFileRoute("/admin/help")({
   head: () => ({
     meta: [
       { title: "Help & Center — WorkHR" },
-      { name: "description", content: "Complete A–Z guide to every WorkHR feature across the Admin and Worker panels." },
+      { name: "description", content: "Complete A–Z guide to every WorkHR feature across the Admin, Worker and Client panels." },
       { property: "og:title", content: "Help & Center — WorkHR" },
-      { property: "og:description", content: "Complete A–Z guide to every WorkHR feature across the Admin and Worker panels." },
+      { property: "og:description", content: "Complete A–Z guide to every WorkHR feature across the Admin, Worker and Client panels." },
     ],
   }),
   component: HelpPage,
@@ -166,14 +168,17 @@ const ADMIN_TOPICS: Topic[] = [
   },
   {
     icon: Building2,
-    title: "Clients (reference records)",
+    title: "Clients (Client Portal accounts)",
     where: "Sidebar → Clients",
-    what: "Internal admin-only records of the companies you supply workers to: company name, address, phone, email, which locations belong to them, Active/Inactive status and free-text notes. Clients never sign in — this page is for your records only.",
+    what: "Give your buyers their own read-only portal. Each client record holds company details and linked locations (what they can see); set a portal password to give them a login, and a buyer name to connect their billing.",
     steps: [
-      "Add Client → company name plus any contact details (email, phone, address).",
-      "Tick the locations that belong to the client, set a status, add notes, then save.",
-      "Use the row actions to edit or delete a record.",
+      "Add Client → company plus contact details; set a Portal password to create their login.",
+      "Buyer name must match the buyer name used on Buyer Income rows for billing to appear in their portal.",
+      "Tick the locations this client may see, then save.",
+      "The client signs in on the Client tab of the login page.",
+      "Use the row actions to edit details/locations, reset their password or delete the record (deleting also removes the login).",
     ],
+    notes: ["Clients can never see payroll, other buyers, compliance data or worker personal details — only names, schedules and their own invoices."],
   },
   {
     icon: FileText,
@@ -306,9 +311,45 @@ const WORKER_TOPICS: Topic[] = [
   },
 ];
 
+const CLIENT_TOPICS: Topic[] = [
+  {
+    icon: KeyRound,
+    title: "Logging in",
+    where: "Login page → Client tab",
+    what: "Your WorkHR contact creates your account and gives you the email + password. Sign in on the Client tab.",
+    steps: [
+      "Choose the Client tab on the login page.",
+      "Enter your email and password.",
+      "Use 'Forgot password?' or ask your WorkHR contact to reset it.",
+    ],
+  },
+  {
+    icon: Eye,
+    title: "Coverage overview",
+    where: "Client Dashboard (top)",
+    what: "Live snapshot of your sites: how many locations you have, how many workers are scheduled today, and who is physically on site right now (auto-refreshes every minute).",
+    steps: ["The three stat cards and the 'Currently on site' list update automatically — use the refresh icon to force an update."],
+  },
+  {
+    icon: CalendarCheck,
+    title: "Schedule",
+    where: "Client Dashboard → Schedule",
+    what: "The next 14 days of worker assignments at your locations, with live status per shift: Scheduled, On site, Completed, or Checked in elsewhere.",
+    steps: ["Scroll the schedule table — workers are shown by name only; personal details are never exposed."],
+  },
+  {
+    icon: PoundSterling,
+    title: "Billing",
+    where: "Client Dashboard → Billing",
+    what: "Your invoices only — description, amount, date and Received/Pending status, with running totals.",
+    steps: ["Review the totals bar (Received vs Pending) and the invoice list below."],
+    notes: ["You only ever see your own billing — other clients' data is never visible."],
+  },
+];
+
 /* Feature status checklist — everything shipped */
 const FEATURE_STATUS: [string, string][] = [
-  ["Admin / Worker login (JWT)", "Active"],
+  ["Admin / Worker / Client login (JWT)", "Active"],
   ["Public 5-step registration + drafts + 3MB uploads", "Active"],
   ["Approval → worker creation → setup email", "Active"],
   ["GPS geofenced check-in/out + mismatch flags", "Active"],
@@ -325,7 +366,7 @@ const FEATURE_STATUS: [string, string][] = [
   ["Incident reporting + triage + PDF export", "Active"],
   ["Action History audit log", "Active"],
   ["Notifications + contract/visa expiry alerts", "Active"],
-  ["Client reference records (admin-only)", "Active"],
+  ["Client portal (scoped schedule + billing)", "Active"],
   ["Auto-logout on expired session", "Active"],
 ];
 
@@ -334,7 +375,7 @@ const FAQS: [string, string][] = [
   ["How is net pay calculated?", "Attendance hours × hourly rate, plus overtime above the threshold and bank-holiday uplift, plus statutory holiday accrual pay, minus tax, NI and any advance — all rates from Settings."],
   ["Why is a check-in flagged 'Location Mismatch'?", "The worker's GPS position was outside every configured geofence. The nearest site and distance are stored so you can judge whether it's legitimate."],
   ["A worker can't check in — why?", "Most commonly: their visa has expired (hard block), their contract has expired, or they denied location access in the browser. Check their Worker Details page."],
-  ["Can a client sign in to see their own data?", "No — Clients are internal reference records (company details + linked locations). There is no client login or portal."],
+  ["Why don't a client's invoices show in their portal?", "The client's 'Buyer name' must exactly match the buyer name used on Buyer Income rows. Edit the client in Admin → Clients to fix the spelling."],
   ["Who deleted or changed something?", "Action History (SYSTEM section) records every meaningful action with the actor's name and timestamp — filter by action type or date."],
   ["When are expiry alerts sent?", "Contract: 30 days and 7 days before expiry (configurable in Settings). Visa: from 90 days before expiry, escalating to critical at 7 days."],
   ["What's the maximum upload size?", "3 MB per file everywhere (registration documents and incident attachments). JPG, PNG and PDF are accepted."],
@@ -349,6 +390,7 @@ const FAQS: [string, string][] = [
 const PANELS = [
   { key: "admin", label: "Admin Panel", topics: ADMIN_TOPICS },
   { key: "worker", label: "Worker Portal", topics: WORKER_TOPICS },
+  { key: "client", label: "Client Portal", topics: CLIENT_TOPICS },
 ] as const;
 
 function TopicCard({ topic, forceOpen }: { topic: Topic; forceOpen: boolean }) {

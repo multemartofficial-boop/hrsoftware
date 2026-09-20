@@ -28,16 +28,14 @@ const urgencyTone = {
 } as const;
 
 function Dashboard() {
-  const { totals, applications, payrollChart, deductionsData, notices, loading, session } = useApi();
+  const { totals, applications, payrollChart, deductionsData, notices, expiryNotices, visaNotices, loading, session } = useApi();
   const deductionTotal = deductionsData.reduce((t, d) => t + d.value, 0);
   const [dismissedUrgent, setDismissedUrgent] = useState<string[]>([]);
 
-  // Check for urgent notifications (critical expiry warnings)
-  const urgentNotifications = (notices || []).filter(n => 
-    (n.urgency === 'critical' || n.urgency === 'warning') && 
-    n.message.includes('expires') && 
-    !dismissedUrgent.includes(n.id)
-  );
+  // Urgent expiry warnings — computed live from current worker records so only
+  // workers actually nearing expiry show up (no stale/demo entries).
+  const urgentNotifications = [...(expiryNotices || []), ...(visaNotices || [])]
+    .filter(n => !dismissedUrgent.includes(n.id));
 
   if (loading.workers || loading.applications) {
     return (
@@ -58,7 +56,7 @@ function Dashboard() {
             to="/register"
             className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground"
           >
-            <UserPlus className="size-4" /> Registration form
+            <UserPlus className="size-4" /> Worker Registration
           </Link>
         </div>
 

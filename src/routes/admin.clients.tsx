@@ -22,6 +22,7 @@ export const Route = createFileRoute("/admin/clients")({
 
 type Client = {
   id: string;
+  userId: number | null;
   name: string;
   company: string;
   email: string | null;
@@ -29,6 +30,7 @@ type Client = {
   address: string | null;
   status: "Active" | "Inactive";
   notes: string | null;
+  buyerName: string | null;
   locations: { id: string; name: string; address: string }[];
   createdAt: string;
 };
@@ -72,6 +74,8 @@ function ClientForm({
   const [address, setAddress] = useState(existing?.address ?? "");
   const [status, setStatus] = useState<"Active" | "Inactive">(existing?.status ?? "Active");
   const [notes, setNotes] = useState(existing?.notes ?? "");
+  const [password, setPassword] = useState("");
+  const [buyerName, setBuyerName] = useState(existing?.buyerName ?? "");
   const [locIds, setLocIds] = useState<Set<string>>(new Set((existing?.locations ?? []).map(l => l.id)));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -84,7 +88,9 @@ function ClientForm({
       const payload = {
         company, name: company, email: email || null, phone: phone || null,
         address: address || null, status, notes: notes || null,
+        buyerName: buyerName || null,
         locationIds: [...locIds],
+        ...(password ? { password } : {}),
       };
       if (existing) await apiClient.put(`/api/clients/${existing.id}`, payload);
       else await apiClient.post("/api/clients", payload);
@@ -100,7 +106,11 @@ function ClientForm({
   return (
     <Modal
       title={existing ? `Edit ${existing.company}` : "Add client"}
-      description="Internal reference record — clients do not sign in; this is for admin records only."
+      description={
+        existing
+          ? "Update the client's details, linked sites, and portal access."
+          : "Company record — set a password to also give them a client portal login."
+      }
       onClose={onClose}
       wide
     >
@@ -120,6 +130,28 @@ function ClientForm({
           </Field>
           <Field label="Phone number">
             <input value={phone} onChange={(e) => setPhone(e.target.value)} className={inputCls} placeholder="020 7946 0000" />
+          </Field>
+          <Field
+            label={existing ? "Portal password" : "Portal password (optional)"}
+            hint={
+              existing
+                ? existing.userId
+                  ? "Login active — enter a new password to reset it, or leave blank to keep it."
+                  : "No login yet — set a password to give this client portal access."
+                : "Set one to let the client sign in on the Client tab; leave blank for an internal record only."
+            }
+          >
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={inputCls}
+              placeholder="Min. 6 characters"
+            />
+          </Field>
+          <Field label="Buyer name (billing)" hint="Links this client to buyer_income rows so they see billing in the portal.">
+            <input value={buyerName} onChange={(e) => setBuyerName(e.target.value)} className={inputCls} placeholder={company || "Buyer name"} />
           </Field>
         </div>
         <Field label="Address">
@@ -197,16 +229,17 @@ function ClientsPage() {
       <Card>
         <SectionTitle title="Client records" />
         <p className="-mt-3 mb-4 text-xs text-muted-foreground">
-          Internal admin reference — company details and which locations belong to each client.
+          Company details, linked locations and client portal access.
         </p>
         <DataTable
-          labels={["Company", "Contact", "Address", "Locations", "Status", "Created", ""]}
+          labels={["Company", "Contact", "Address", "Locations", "Portal", "Status", "Created", ""]}
           head={
             <>
               <Th>Company</Th>
               <Th>Contact</Th>
               <Th>Address</Th>
               <Th>Locations</Th>
+              <Th>Portal</Th>
               <Th>Status</Th>
               <Th>Created</Th>
               <Th className="text-right">Actions</Th>
@@ -214,9 +247,9 @@ function ClientsPage() {
           }
         >
           {loading ? (
-            <EmptyRow colSpan={7} text="Loading clients…" />
+            <EmptyRow colSpan={8} text="Loading clients…" />
           ) : clients.length === 0 ? (
-            <EmptyRow colSpan={7} text="No client records yet — add your first client company." />
+            <EmptyRow colSpan={8} text="No client records yet — add your first client company." />
           ) : (
             clients.map((c) => (
               <tr key={c.id}>
@@ -249,6 +282,13 @@ function ClientsPage() {
                         </span>
                       ))}
                     </div>
+                  )}
+                </Td>
+                <Td>
+                  {c.userId ? (
+                    <span className="rounded-full bg-success-soft px-2 py-0.5 text-xs font-medium text-success">Login</span>
+                  ) : (
+                    <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-muted-foreground">None</span>
                   )}
                 </Td>
                 <Td><StatusBadge status={c.status} /></Td>

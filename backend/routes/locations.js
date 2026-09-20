@@ -17,7 +17,7 @@ router.get('/', async (req, res) => {
       ...l,
       latitude: l.latitude !== null && l.latitude !== undefined ? Number(l.latitude) : null,
       longitude: l.longitude !== null && l.longitude !== undefined ? Number(l.longitude) : null,
-      radiusMeters: l.radius_meters !== null && l.radius_meters !== undefined ? Number(l.radius_meters) : 100
+      radiusMeters: l.radius_meters !== null && l.radius_meters !== undefined ? Number(l.radius_meters) : 25
     })));
   } catch (error) {
     console.error('Get locations error:', error);
@@ -153,7 +153,7 @@ router.post('/', requireAuth, requireAdmin, async (req, res) => {
       [locationId, name, address, building, street, city, postcode,
        latitude != null && latitude !== '' ? Number(latitude) : null,
        longitude != null && longitude !== '' ? Number(longitude) : null,
-       radiusMeters != null && radiusMeters !== '' ? Number(radiusMeters) : 100]
+       radiusMeters != null && radiusMeters !== '' ? Number(radiusMeters) : 25]
     );
 
     await logActionFromReq(req, 'added_location', 'location', locationId, { name, address });
@@ -197,7 +197,7 @@ router.put('/:id', requireAuth, requireAdmin, async (req, res) => {
       [name, address, building, street, city, postcode,
        latitude != null && latitude !== '' ? Number(latitude) : null,
        longitude != null && longitude !== '' ? Number(longitude) : null,
-       radiusMeters != null && radiusMeters !== '' ? Number(radiusMeters) : 100,
+       radiusMeters != null && radiusMeters !== '' ? Number(radiusMeters) : 25,
        req.params.id]
     );
     

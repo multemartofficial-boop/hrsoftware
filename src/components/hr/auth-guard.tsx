@@ -24,10 +24,9 @@ export function RequireRole({ role, children }: { role: Role; children: ReactNod
   }
 
   if (session.role !== role) {
-    // Stale 'client' sessions (portal removed in Part 6) fall through to the
-    // login page — they can't reach any dashboard.
     const home = session.role === "admin" ? "/admin"
       : session.role === "worker" ? "/worker/dashboard"
+      : session.role === "client" ? "/client/dashboard"
       : "/";
     return (
       <div className="grid min-h-screen place-items-center bg-background px-6">

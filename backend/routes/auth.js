@@ -131,9 +131,61 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Client portal login removed (Part 6): clients are internal admin-only
-// reference records with no sign-in. Legacy client-role user rows may still
-// exist in the database but have no login endpoint.
+// Client login (email + password against client-role user accounts)
+router.post('/client/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const [users] = await pool.query(
+      `SELECT u.*, c.id AS client_id, c.company FROM users u
+       JOIN clients c ON c.user_id = u.id
+       WHERE u.email = ? AND u.role = 'client'`,
+      [normalizedEmail]
+    );
+
+    if (users.length === 0) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    const user = users[0];
+    const isValidPassword = await bcrypt.compare(password, user.password_hash);
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    const token = jwt.sign(
+      {
+        userId: user.id,
+        email: user.email,
+        name: user.name,
+        role: 'client',
+        clientId: user.client_id
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: 'client',
+        clientId: user.client_id,
+        company: user.company
+      }
+    });
+  } catch (error) {
+    console.error('Client login error:', error);
+    res.status(500).json({ error: 'Server error during login' });
+  }
+});
 
 // Get current user info
 router.get('/me', requireAuth, async (req, res) => {

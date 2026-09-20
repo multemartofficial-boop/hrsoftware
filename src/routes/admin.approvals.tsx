@@ -273,7 +273,7 @@ function Approvals() {
           to="/register"
           className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground"
         >
-          <ExternalLink className="size-4" /> Public form
+          <ExternalLink className="size-4" /> Worker Registration
         </Link>
       }
     >

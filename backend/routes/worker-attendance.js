@@ -58,14 +58,28 @@ router.get('/today', requireAuth, requireWorker, async (req, res) => {
     const visaExpiry = wrows[0]?.visa_expiry;
     const visaExpired = Boolean(visaExpiry) && String(visaExpiry).slice(0, 10) <= today;
 
+    // Today's shift assignment — the worker must know which site they're
+    // expected at before checking in.
+    const [asgn] = await pool.query(
+      `SELECT l.name AS location_name, l.address
+       FROM worker_location_assignments a
+       JOIN locations l ON l.id = a.location_id
+       WHERE a.worker_id = ? AND a.assigned_date = ?
+       ORDER BY a.created_at DESC LIMIT 1`,
+      [req.user.workerId, today]
+    );
+    const assignment = asgn[0]
+      ? { location: asgn[0].location_name, address: asgn[0].address || null }
+      : null;
+
     if (attendance.length === 0) {
-      return res.json({ checkedIn: false, record: null, visaExpired });
+      return res.json({ checkedIn: false, record: null, visaExpired, assignment });
     }
 
     const record = attendance[0];
     const checkedIn = record.check_out_time === null;
 
-    res.json({ checkedIn, record, visaExpired });
+    res.json({ checkedIn, record, visaExpired, assignment });
   } catch (error) {
     console.error('Get today attendance error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -141,7 +155,7 @@ router.post('/checkin', requireAuth, requireWorker, async (req, res) => {
         .map(l => ({
           name: l.name,
           d: distanceMeters(lat, lng, Number(l.latitude), Number(l.longitude)),
-          radius: l.radius_meters ?? 200
+          radius: l.radius_meters ?? 25
         }))
         .sort((a, b) => a.d - b.d);
       const nearest = ranked[0];
