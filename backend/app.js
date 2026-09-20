@@ -5,7 +5,9 @@ const path = require('path');
 const fs = require('fs');
 const pool = require('./config/database');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { checkExpiringWorkers } = require('./utils/expiry');
+const { stripSignaturePlaceholders } = require('./utils/document-text');
 
 // Validate required environment variables
 const requiredEnvVars = ['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'JWT_SECRET'];
@@ -112,6 +114,65 @@ async function ensureSchema() {
     // workers keep current behaviour.
     await addCol("ALTER TABLE workers ADD COLUMN employment_type VARCHAR(20) NOT NULL DEFAULT 'irregular'", 'workers.employment_type');
     await addCol("ALTER TABLE registration_applications ADD COLUMN employment_type VARCHAR(20) NULL", 'registration_applications.employment_type');
+
+    // Part 13: authorised company signatory — the name shown under
+    // "Signed by Company" on documents (Settings → company_signatory).
+    await addCol('ALTER TABLE settings ADD COLUMN company_signatory VARCHAR(255) NULL', 'settings.company_signatory');
+    try {
+      await pool.query(
+        "UPDATE settings SET company_signatory = 'Abdullah Mohammad Abubakar' WHERE id = 1 AND (company_signatory IS NULL OR company_signatory = '')"
+      );
+      const [sRows] = await pool.query('SELECT company_signatory FROM settings WHERE id = 1');
+      const signatory = sRows[0]?.company_signatory;
+      if (signatory) {
+        // Point existing company signatures at the authorised signatory
+        await pool.query('UPDATE documents SET admin_signed_by = ? WHERE admin_signed_by IS NOT NULL AND admin_signed_by != ?', [signatory, signatory]);
+        await pool.query('UPDATE signature_requests SET admin_signed_by = ? WHERE admin_signed_by IS NOT NULL AND admin_signed_by != ?', [signatory, signatory]);
+        // Rewrite the "Signed by Company: <name> on ..." line inside signed_content
+        const [sigRows] = await pool.query(
+          "SELECT id, signed_content FROM signature_requests WHERE signed_content LIKE '%Signed by Company:%'"
+        );
+        for (const r of sigRows) {
+          const fixed = String(r.signed_content)
+            .replace(/Signed by Company: [^\n]*? on /g, `Signed by Company: ${signatory} on `)
+            .replace(/Countersigned for the company by [^\n]*? on /g, `Countersigned for the company by ${signatory} on `);
+          if (fixed !== r.signed_content) {
+            await pool.query('UPDATE signature_requests SET signed_content = ? WHERE id = ?', [fixed, r.id]);
+          }
+        }
+      }
+    } catch (error) {
+      console.log('⚠️ Could not set company signatory:', error.message);
+    }
+
+    // Strip blank "Signed ____" placeholder lines pasted into template bodies —
+    // real signature blocks are appended by the system, so the manual lines
+    // should never appear in the final document.
+    try {
+      const [tpls] = await pool.query('SELECT id, content, signed_content_hash FROM documents WHERE content IS NOT NULL');
+      for (const d of tpls) {
+        const cleaned = stripSignaturePlaceholders(d.content);
+        if (cleaned !== d.content) {
+          const hash = crypto.createHash('sha256').update(String(cleaned ?? '')).digest('hex');
+          await pool.query('UPDATE documents SET content = ?, signed_content_hash = ? WHERE id = ?', [cleaned, hash, d.id]);
+        }
+      }
+      const [reqs] = await pool.query(
+        'SELECT id, rendered_content, signed_content FROM signature_requests WHERE rendered_content IS NOT NULL OR signed_content IS NOT NULL'
+      );
+      for (const r of reqs) {
+        const rendered = r.rendered_content == null ? null : stripSignaturePlaceholders(r.rendered_content);
+        const signed = r.signed_content == null ? null : stripSignaturePlaceholders(r.signed_content);
+        if (rendered !== r.rendered_content || signed !== r.signed_content) {
+          await pool.query(
+            'UPDATE signature_requests SET rendered_content = ?, signed_content = ? WHERE id = ?',
+            [rendered, signed, r.id]
+          );
+        }
+      }
+    } catch (error) {
+      console.log('⚠️ Could not strip signature placeholders:', error.message);
+    }
 
     // Part 11: payroll payment status — who/when a run was paid plus an
     // optional payment reference, and a permanent audit table that keeps a

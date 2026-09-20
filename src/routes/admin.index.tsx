@@ -3,7 +3,6 @@ import { MoreHorizontal, Users, Wallet, UserPlus, Clock, X, AlertTriangle } from
 import { AdminShell } from "@/components/hr/admin-shell";
 import { Card, SectionTitle, StatCard, Person } from "@/components/hr/bits";
 import { PayrollBarChart, DonutChart, donutColors } from "@/components/hr/charts";
-import { admin } from "@/lib/mock-data";
 import { useApi } from "@/lib/api-store";
 import { money } from "@/lib/hr-utils";
 import { cn } from "@/lib/utils";
@@ -51,7 +50,7 @@ function Dashboard() {
     <AdminShell title="Dashboard">
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-3">
-          <h2 className="mr-auto text-2xl font-bold tracking-tight">Good Morning, {admin.name}</h2>
+          <h2 className="mr-auto text-2xl font-bold tracking-tight">Welcome to SSSL</h2>
           <Link
             to="/register"
             className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground"

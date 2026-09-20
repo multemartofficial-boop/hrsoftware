@@ -386,6 +386,7 @@ export function ApplicationDetail({ app }: { app: Application }) {
           items={[
             ["Place of Birth", getDetail("birthPlace", "")],
             ["Nationality", getDetail("nationality", "British")],
+            ["Religion", getDetail("religion", "—")],
             ["Permitted to work in UK", getDetail("rtw", "Yes")],
           ]}
         />

@@ -32,6 +32,7 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
         firstReminderDays: newSettings[0].first_reminder_days,
         finalReminderDays: newSettings[0].final_reminder_days,
         companyName: newSettings[0].company_name,
+        companySignatory: newSettings[0].company_signatory || null,
         payrollEmail: newSettings[0].payroll_email,
         billingMultiplier: newSettings[0].billing_multiplier,
         holidayPayMultiplier: newSettings[0].holiday_pay_multiplier,
@@ -54,6 +55,7 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
       firstReminderDays: settings[0].first_reminder_days,
       finalReminderDays: settings[0].final_reminder_days,
       companyName: settings[0].company_name,
+      companySignatory: settings[0].company_signatory || null,
       payrollEmail: settings[0].payroll_email,
       billingMultiplier: settings[0].billing_multiplier,
       holidayPayMultiplier: settings[0].holiday_pay_multiplier,
@@ -82,6 +84,7 @@ router.put('/', requireAuth, requireAdmin, async (req, res) => {
       firstReminderDays,
       finalReminderDays,
       companyName,
+      companySignatory,
       payrollEmail,
       billingMultiplier,
       holidayPayMultiplier,
@@ -104,6 +107,7 @@ router.put('/', requireAuth, requireAdmin, async (req, res) => {
       taxRate: 'tax_rate', niRate: 'ni_rate', pensionRate: 'pension_rate',
       maxAdvance: 'max_advance', firstReminderDays: 'first_reminder_days',
       finalReminderDays: 'final_reminder_days', companyName: 'company_name',
+      companySignatory: 'company_signatory',
       payrollEmail: 'payroll_email', billingMultiplier: 'billing_multiplier',
       holidayPayMultiplier: 'holiday_pay_multiplier', holidayAccrualRate: 'holiday_accrual_rate',
     };
@@ -122,6 +126,7 @@ router.put('/', requireAuth, requireAdmin, async (req, res) => {
       SET hourly_rate = ?, overtime_multiplier = ?, overtime_threshold = ?, contract_months = ?,
           tax_rate = ?, ni_rate = ?, pension_rate = ?, max_advance = ?,
           first_reminder_days = ?, final_reminder_days = ?, company_name = ?,
+          company_signatory = COALESCE(?, company_signatory),
           payroll_email = ?, billing_multiplier = ?, holiday_pay_multiplier = ?,
           holiday_accrual_rate = COALESCE(?, holiday_accrual_rate)
       WHERE id = 1`,
@@ -129,6 +134,7 @@ router.put('/', requireAuth, requireAdmin, async (req, res) => {
         hourlyRate, overtimeMultiplier, overtimeThreshold, contractMonths,
         taxRate, niRate, pensionRate, maxAdvance,
         firstReminderDays, finalReminderDays, companyName,
+        companySignatory !== undefined ? companySignatory : null,
         payrollEmail, billingMultiplier, holidayPayMultiplier,
         accrualRate
       ]

@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const pool = require('../config/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { sendEmail } = require('../utils/email');
+const { stripSignaturePlaceholders, getCompanySignatory } = require('../utils/document-text');
 
 const generateId = (prefix) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
@@ -101,7 +102,9 @@ router.post('/:id/sign-template', requireAuth, requireAdmin, async (req, res) =>
     }
 
     const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket?.remoteAddress || null;
-    const adminName = req.user.name || `Admin #${req.user.userId}`;
+    // The name shown under "Signed by Company" is the authorised signatory
+    // from Settings (company_signatory), not the logged-in admin.
+    const adminName = await getCompanySignatory(req.user.name || `Admin #${req.user.userId}`);
 
     await pool.query(
       `UPDATE documents
@@ -154,7 +157,7 @@ router.get('/:id/preview/:workerId', requireAuth, requireAdmin, async (req, res)
     if (workers.length === 0) return res.status(404).json({ error: 'Worker not found' });
     const [locs] = await pool.query('SELECT id, name FROM locations');
     const locationsByName = Object.fromEntries(locs.map(l => [l.name, l]));
-    res.json({ rendered: doc.type === 'template' ? renderTemplate(doc.content || '', workers[0], locationsByName) : null });
+    res.json({ rendered: doc.type === 'template' ? stripSignaturePlaceholders(renderTemplate(doc.content || '', workers[0], locationsByName)) : null });
   } catch (e) {
     console.error('Preview error:', e);
     res.status(500).json({ error: 'Failed to render preview' });
@@ -189,7 +192,7 @@ router.post('/:id/send', requireAuth, requireAdmin, async (req, res) => {
     const locationsByName = Object.fromEntries(locs.map(l => [l.name, l]));
 
     const reqId = generateId('SIG');
-    const rendered = renderTemplate(doc.content || '', worker, locationsByName);
+    const rendered = stripSignaturePlaceholders(renderTemplate(doc.content || '', worker, locationsByName));
     // Snapshot the template's company signature onto the request so the final
     // document carries both signatures.
     await pool.query(
@@ -401,7 +404,7 @@ router.post('/requests/:id/countersign', requireAuth, requireAdmin, async (req, 
     }
 
     const ip = clientIp(req);
-    const adminName = req.user.name || `Admin #${req.user.userId}`;
+    const adminName = await getCompanySignatory(req.user.name || `Admin #${req.user.userId}`);
 
     const counterBlock =
       `\n\nCountersigned for the company by ${adminName} on ${new Date().toISOString()}` +

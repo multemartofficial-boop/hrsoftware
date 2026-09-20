@@ -234,6 +234,22 @@ function SettingsPage() {
           <NumField label="Max advance per month (£)" value={draft.maxAdvance} onChange={(n) => set("maxAdvance", n)} step="50" />
         </Section>
 
+        <Section title="Company" desc="Details used on generated documents and emails.">
+          <div className="sm:col-span-2">
+            <span className="text-sm font-medium">Authorised signatory</span>
+            <p className="mt-0.5 mb-2 text-xs text-muted-foreground">
+              Shown under "Signed by Company" when a template or document is signed — e.g. Abdullah Mohammad Abubakar.
+            </p>
+            <input
+              type="text"
+              value={draft.companySignatory ?? ""}
+              onChange={(e) => set("companySignatory", e.target.value)}
+              placeholder="Name of the person who signs for the company"
+              className={inputCls}
+            />
+          </div>
+        </Section>
+
         <Section title="Notification Timing" desc="When contract expiry alerts are raised in the Notifications Center.">
           <NumField
             label="First reminder (days before)"

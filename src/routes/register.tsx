@@ -397,6 +397,7 @@ function RegisterPage() {
     addressFrom: "",
     birthPlace: "",
     nationality: "",
+    religion: "",
     ni: "",
     rtw: "Yes",
     kinForename: "",
@@ -1083,6 +1084,20 @@ function RegisterPage() {
               <Field label="Nationality *" error={err("nationality")}>
                 <CountrySelect value={f.nationality} onChange={setVal("nationality")} invalid={!!err("nationality")} placeholder="Select nationality…" />
               </Field>
+              <Field label="Religion">
+                <select value={f.religion} onChange={set("religion")} className={inputCls}>
+                  <option value="">Select religion…</option>
+                  <option>Christian</option>
+                  <option>Muslim</option>
+                  <option>Hindu</option>
+                  <option>Sikh</option>
+                  <option>Buddhist</option>
+                  <option>Jewish</option>
+                  <option>Other religion</option>
+                  <option>No religion</option>
+                  <option>Prefer not to say</option>
+                </select>
+              </Field>
               <Field label="Are you permitted to work in the UK? *">
                 <select value={f.rtw} onChange={set("rtw")} className={inputCls}>
                   <option>Yes</option>
@@ -1577,6 +1592,7 @@ function RegisterPage() {
               items={[
                 ["Place of Birth", f.birthPlace],
                 ["Nationality", f.nationality],
+                ["Religion", f.religion],
                 ["Permitted to work in UK", f.rtw],
               ]}
             />

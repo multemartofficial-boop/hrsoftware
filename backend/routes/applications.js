@@ -220,7 +220,7 @@ router.post('/', upload.fields(appUploadFields), async (req, res) => {
     const {
       appliedFor, title, surname, forename, dob, birthSurname, nameChangeDate,
       mobile, email, addr1, addr2, addr3, town, county, postcode, country, addressFrom,
-      birthPlace, nationality, ni, rtw,
+      birthPlace, nationality, religion, ni, rtw,
       kinForename, kinSurname, kinPhone, kinAddr1, kinAddr2, kinAddr3, kinTown, kinCounty, kinPostcode, kinCountry,
       hasVisa, visaType, visaIssueDate, visaExpiry,
       bankName, accountHolder, sortAccount,
@@ -272,7 +272,7 @@ router.post('/', upload.fields(appUploadFields), async (req, res) => {
       appliedFor,
       title, surname, forename, dob, birthSurname, nameChangeDate,
       mobile, email, addr1, addr2, addr3, town, county, postcode, country, addressFrom,
-      birthPlace, nationality, ni, rtw,
+      birthPlace, nationality, religion, ni, rtw,
       kinForename, kinSurname, kinPhone, kinAddr1, kinAddr2, kinAddr3, kinTown, kinCounty, kinPostcode, kinCountry,
       hasVisa, visaType, visaIssueDate, visaExpiry,
       bankName, accountHolder, sortAccount,

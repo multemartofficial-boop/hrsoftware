@@ -665,6 +665,8 @@ export type Settings = {
   firstReminderDays: number;
   finalReminderDays: number;
   companyName: string;
+  /** Authorised signatory shown under "Signed by Company" on documents */
+  companySignatory?: string | null;
   payrollEmail: string;
   billingMultiplier: number;
   holidayPayMultiplier: number;
