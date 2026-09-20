@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useApi } from "@/lib/api-store";
 import { apiClient } from "@/lib/api-client";
-import { LogOut, Clock, LogIn, Calendar, MapPin, Navigation, FileSignature, Eraser, TriangleAlert, Paperclip } from "lucide-react";
+import { LogOut, Clock, LogIn, Calendar, MapPin, Navigation, FileSignature, Eraser, TriangleAlert, Paperclip, LayoutDashboard, Wallet, History, User, FileText, Download } from "lucide-react";
+import { downloadSignedPdf } from "@/lib/signed-pdf";
 
 export const Route = createFileRoute("/worker/dashboard")({
   head: () => ({
@@ -23,9 +24,15 @@ function WorkerDashboard() {
   const [checkInMsg, setCheckInMsg] = useState<{ text: string; mismatch: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
-  // Phase G Part 2: pending signature requests
-  const [pendingDocs, setPendingDocs] = useState<any[]>([]);
+  // Portal navigation
+  const [tab, setTab] = useState<'dashboard' | 'payments' | 'documents' | 'history' | 'profile'>('dashboard');
+  // Phase G Part 2: signature requests (all — pending get a sign action, signed get a PDF download)
+  const [myDocs, setMyDocs] = useState<any[]>([]);
   const [signing, setSigning] = useState<any | null>(null);
+  const [downloading, setDownloading] = useState<string | null>(null);
+  // Payments + profile tabs
+  const [payments, setPayments] = useState<any[]>([]);
+  const [profile, setProfile] = useState<any | null>(null);
   // Phase 2: incident reporting
   const [todayRecord, setTodayRecord] = useState<any | null>(null);
   const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
@@ -35,8 +42,20 @@ function WorkerDashboard() {
   const loadMyDocs = async () => {
     try {
       const rows = await apiClient.get<any[]>('/api/documents/requests/mine');
-      setPendingDocs((rows || []).filter((r) => r.status === 'pending'));
+      setMyDocs(rows || []);
     } catch (e) { console.error('Load my documents failed:', e); }
+  };
+
+  const loadPayments = async () => {
+    try {
+      setPayments(await apiClient.get<any[]>('/api/payroll/my'));
+    } catch (e) { console.error('Load payments failed:', e); }
+  };
+
+  const loadProfile = async () => {
+    try {
+      setProfile(await apiClient.get<any>('/api/workers/me'));
+    } catch (e) { console.error('Load profile failed:', e); }
   };
 
   const loadMyIncidents = async () => {
@@ -65,6 +84,8 @@ function WorkerDashboard() {
     // Load worker-specific data only (check-in location is auto-detected by GPS)
     loadMyDocs();
     loadMyIncidents();
+    loadPayments();
+    loadProfile();
     apiClient.get<{ id: string; name: string }[]>('/api/locations')
       .then(setLocations)
       .catch(() => setLocations([]));
@@ -166,6 +187,17 @@ function WorkerDashboard() {
     .reduce((t, a) => t + a.hours, 0);
   const totalHours = myAttendance.reduce((t, a) => t + a.hours, 0);
   const monthName = now.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+  const pendingDocs = myDocs.filter((d) => d.status === 'pending');
+  const pastDocs = myDocs.filter((d) => d.status !== 'pending');
+
+  const money = (n: number) => `£${n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const TABS = [
+    { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { key: 'payments', label: 'Payments', icon: Wallet },
+    { key: 'documents', label: 'Documents', icon: FileText },
+    { key: 'history', label: 'History', icon: History },
+    { key: 'profile', label: 'Profile', icon: User },
+  ] as const;
 
   return (
     <div className="min-h-screen bg-background">
@@ -193,7 +225,33 @@ function WorkerDashboard() {
         </div>
       </div>
 
+      {/* Portal nav */}
+      <div className="border-b bg-card">
+        <div className="max-w-7xl mx-auto px-4 flex gap-1 overflow-x-auto">
+          {TABS.map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium ${
+                tab === key
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Icon className="size-4" />
+              {label}
+              {key === 'documents' && pendingDocs.length > 0 && (
+                <span className="rounded-full bg-danger px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  {pendingDocs.length}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="max-w-7xl mx-auto px-4 py-8">
+        {tab === 'dashboard' && (<>
         {/* Check In/Out Section */}
         <div className="bg-card rounded-xl p-6 mb-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
@@ -385,7 +443,181 @@ function WorkerDashboard() {
           )}
         </div>
 
-        {/* Attendance History */}
+        </>)}
+
+        {tab === 'payments' && (
+        <div className="bg-card rounded-xl p-6">
+          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <Wallet className="size-5" />
+            My Payments
+          </h2>
+          {payments.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">No payments yet</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-3 px-4 font-medium">Period</th>
+                    <th className="text-left py-3 px-4 font-medium">Hours</th>
+                    <th className="text-right py-3 px-4 font-medium">Gross</th>
+                    <th className="text-right py-3 px-4 font-medium">Deductions</th>
+                    <th className="text-right py-3 px-4 font-medium">Net Pay</th>
+                    <th className="text-left py-3 px-4 font-medium">Status</th>
+                    <th className="text-left py-3 px-4 font-medium">Paid</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payments.map((p) => (
+                    <tr key={p.id} className="border-b hover:bg-secondary/40">
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        {new Date(p.periodStart).toLocaleDateString("en-GB")} – {new Date(p.periodEnd).toLocaleDateString("en-GB")}
+                        {p.payType === 'salary' && <span className="ml-2 rounded bg-secondary px-1.5 py-0.5 text-xs text-muted-foreground">salary</span>}
+                      </td>
+                      <td className="py-3 px-4">{p.payType === 'salary' ? '—' : `${p.hours.toFixed(1)}h`}</td>
+                      <td className="py-3 px-4 text-right">{money(p.gross)}</td>
+                      <td className="py-3 px-4 text-right text-muted-foreground">
+                        -{money(p.taxNi + p.advanceDeduction)}
+                      </td>
+                      <td className="py-3 px-4 text-right font-medium">{money(p.netPay)}</td>
+                      <td className="py-3 px-4">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          p.status === 'Paid' ? 'bg-success-soft text-success' : 'bg-warning-soft text-warning'
+                        }`}>
+                          {p.status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-muted-foreground whitespace-nowrap">
+                        {p.paidAt ? new Date(p.paidAt).toLocaleDateString("en-GB") : '—'}
+                        {p.paymentReference && <div className="text-xs">{p.paymentReference}</div>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        )}
+
+        {tab === 'documents' && (
+        <div className="space-y-6">
+          <div className="bg-card rounded-xl p-6">
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <FileSignature className="size-5" />
+              Documents to Sign
+            </h2>
+            {pendingDocs.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nothing waiting for your signature.</p>
+            ) : (
+              <div className="divide-y divide-border">
+                {pendingDocs.map((d) => (
+                  <div key={d.id} className="flex items-center justify-between py-3">
+                    <div>
+                      <p className="font-medium">{d.document_name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Sent {new Date(d.sent_at).toLocaleDateString("en-GB")}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setSigning(d)}
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+                    >
+                      <FileSignature className="size-4" /> Review &amp; Sign
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-card rounded-xl p-6">
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <FileText className="size-5" />
+              My Documents
+            </h2>
+            {pastDocs.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No signed or past documents yet.</p>
+            ) : (
+              <div className="divide-y divide-border">
+                {pastDocs.map((d) => (
+                  <div key={d.id} className="flex items-center justify-between py-3">
+                    <div>
+                      <p className="font-medium">{d.document_name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {d.status === 'signed' && d.signed_at
+                          ? `Completed ${new Date(d.signed_at).toLocaleDateString("en-GB")}`
+                          : `Sent ${new Date(d.sent_at).toLocaleDateString("en-GB")}`}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        d.status === 'signed' ? 'bg-success-soft text-success'
+                        : d.status === 'worker_signed' ? 'bg-primary-soft text-primary'
+                        : d.status === 'declined' ? 'bg-danger-soft text-danger'
+                        : 'bg-secondary text-muted-foreground'
+                      }`}>
+                        {d.status === 'worker_signed' ? 'Awaiting company' : d.status.charAt(0).toUpperCase() + d.status.slice(1)}
+                      </span>
+                      {d.status === 'signed' && (
+                        <button
+                          onClick={async () => {
+                            setDownloading(d.id);
+                            try { await downloadSignedPdf(d); }
+                            catch (e: any) { alert(e.message || 'Failed to download'); }
+                            finally { setDownloading(null); }
+                          }}
+                          disabled={downloading === d.id}
+                          className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border text-sm font-medium hover:bg-secondary disabled:opacity-50"
+                        >
+                          <Download className="size-4" />
+                          {downloading === d.id ? 'Preparing…' : 'PDF'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        )}
+
+        {tab === 'profile' && (
+        <div className="bg-card rounded-xl p-6">
+          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <User className="size-5" />
+            My Profile
+          </h2>
+          {!profile ? (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : (
+            <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
+              {[
+                ['Worker Code', profile.id],
+                ['Name', profile.name],
+                ['Email', profile.email],
+                ['Phone', profile.phone],
+                ['Work Location', profile.location],
+                ['Role', profile.role],
+                ['Worker Type', profile.workerType === 'Subcontract' ? `Subcontract — ${profile.subcontractCompany || ''}` : profile.workerType],
+                ['Pay Type', profile.payType === 'salary' ? `Monthly salary${profile.monthlySalary ? ` — ${money(profile.monthlySalary)}` : ''}` : `Hourly — ${money(profile.rate)}/h`],
+                ['Joined', profile.joined ? new Date(profile.joined).toLocaleDateString("en-GB") : '—'],
+                ['Contract Expiry', profile.expiry ? new Date(profile.expiry).toLocaleDateString("en-GB") : '—'],
+                ['Visa Expiry', profile.visaExpiry ? new Date(profile.visaExpiry).toLocaleDateString("en-GB") : '—'],
+                ['Status', profile.onLeave ? 'On leave' : (profile.status || 'active')],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <dt className="text-xs text-muted-foreground">{label}</dt>
+                  <dd className="mt-0.5 text-sm font-medium">{value || '—'}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </div>
+        )}
+
+        {tab === 'history' && (
         <div className="bg-card rounded-xl p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Calendar className="size-5" />
@@ -434,6 +666,7 @@ function WorkerDashboard() {
             </div>
           )}
         </div>
+        )}
       </div>
 
       {signing && (

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const pool = require('../config/database');
-const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { requireAuth, requireAdmin, requireWorker } = require('../middleware/auth');
 const { logActionFromReq } = require('../utils/action-log');
 
 // Generate unique worker code
@@ -86,6 +86,38 @@ router.get('/', requireAuth, requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Get workers error:', error);
     res.status(500).json({ error: true, message: 'Failed to load workers' });
+  }
+});
+
+// Worker: own profile (must be registered before /:id so 'me' isn't treated as an id)
+router.get('/me', requireAuth, requireWorker, async (req, res) => {
+  try {
+    const [workers] = await pool.query('SELECT * FROM workers WHERE id = ?', [req.user.workerId]);
+    if (workers.length === 0) {
+      return res.status(404).json({ error: 'Worker not found' });
+    }
+    const w = workers[0];
+    res.json({
+      id: w.id,
+      name: w.name,
+      email: w.email,
+      phone: w.phone,
+      location: w.location,
+      role: w.role,
+      rate: Number(w.rate),
+      payType: w.pay_type === 'salary' ? 'salary' : 'hourly',
+      monthlySalary: w.monthly_salary != null ? Number(w.monthly_salary) : null,
+      joined: w.joined,
+      expiry: w.expiry,
+      visaExpiry: w.visa_expiry,
+      workerType: w.worker_type || 'Direct',
+      subcontractCompany: w.subcontract_company,
+      status: w.status,
+      onLeave: w.on_leave === 1,
+    });
+  } catch (error) {
+    console.error('Get my profile error:', error);
+    res.status(500).json({ error: 'Failed to load profile' });
   }
 });
 

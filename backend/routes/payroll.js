@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
-const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { requireAuth, requireAdmin, requireWorker } = require('../middleware/auth');
 const { logActionFromReq } = require('../utils/action-log');
 
 // Generate payroll ID
@@ -241,6 +241,42 @@ const calculatePayroll = async (workerId, from, to, advance, settings, { allowZe
 };
 
 // Admin: Get all payroll records
+// Worker: own payroll records (read-only — no rates internals beyond what they see on a payslip)
+router.get('/my', requireAuth, requireWorker, async (req, res) => {
+  try {
+    const [payrolls] = await pool.query(
+      'SELECT * FROM payroll WHERE worker_id = ? ORDER BY generated_at DESC',
+      [req.user.workerId]
+    );
+    res.json(payrolls.map(p => ({
+      id: p.id,
+      periodStart: p.period_start,
+      periodEnd: p.period_end,
+      payType: p.pay_type === 'salary' ? 'salary' : 'hourly',
+      monthlySalary: p.monthly_salary != null ? Number(p.monthly_salary) : null,
+      payDetails: p.pay_details
+        ? (typeof p.pay_details === 'string' ? JSON.parse(p.pay_details) : p.pay_details)
+        : null,
+      hours: Number(p.hours),
+      overtime: Number(p.overtime),
+      holidayAccruedHours: Number(p.holiday_accrued_hours || 0),
+      holidayAccrualPay: Number(p.holiday_accrual_pay || 0),
+      rate: Number(p.rate),
+      gross: Number(p.gross),
+      advanceDeduction: Number(p.advance_deduction),
+      taxNi: Number(p.tax_ni),
+      netPay: Number(p.net_pay),
+      status: p.status === 'Completed' ? 'Paid' : p.status,
+      paidAt: p.paid_at || null,
+      paymentReference: p.payment_reference || null,
+      generatedAt: p.generated_at,
+    })));
+  } catch (error) {
+    console.error('Get my payroll error:', error);
+    res.status(500).json({ error: 'Failed to load payments' });
+  }
+});
+
 router.get('/', requireAuth, requireAdmin, async (req, res) => {
   try {
     const { status, workerId } = req.query;

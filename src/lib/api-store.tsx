@@ -652,7 +652,7 @@ function useApiState() {
 
   const setPayrollStatus = async (id: string, status: Payroll["status"], paymentReference?: string | null) => {
     try {
-      await apiClient.patch(`/payroll/${id}/status`, { status, paymentReference: paymentReference || undefined });
+      await apiClient.patch(`/api/payroll/${id}/status`, { status, paymentReference: paymentReference || undefined });
       await loadPayrolls();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update payroll status');
