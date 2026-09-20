@@ -310,8 +310,11 @@ function Payslip({ p, onClose }: { p: Payroll; onClose: () => void }) {
           {([
             ["Pay type", p.payType === "salary" ? "Monthly Salary" : "Hourly"],
             p.payType === "salary"
+              ? ["Normal pay (prorated salary)", money2(p.normalPay ?? p.gross)]
+              : ["Normal pay", money2(p.normalPay ?? (p.gross - (p.holidayPay ?? 0) - (p.holidayAccrualPay ?? 0)))],
+            p.payType === "salary"
               ? ["Monthly salary", money2(p.monthlySalary ?? 0)]
-              : null,
+              : ["Hourly rate", money2(p.rate)],
             p.payType === "salary"
               ? ["Hours worked (records only)", `${p.hours.toFixed(2)} h`]
               : ["Hours worked", `${p.hours.toFixed(2)} h`],
@@ -319,15 +322,14 @@ function Payslip({ p, onClose }: { p: Payroll; onClose: () => void }) {
               ? (p.payDetails?.salaryBreakdown ?? []).map((b) => [
                   `Prorated ${b.month}`,
                   `${b.days}/${b.daysInMonth} days = ${money2(b.amount)}`,
-                ] as [string, string][])
+                ] as [string, string])
               : []),
             p.payType !== "salary" && (p.holidayHours ?? 0) > 0
-              ? [`Bank holiday hours @ ×${settings.holidayPayMultiplier}`, `${(p.holidayHours ?? 0).toFixed(2)} h = ${money2(p.holidayPay ?? 0)}`]
+              ? [`Bank holiday pay @ ×${settings.holidayPayMultiplier}`, `${(p.holidayHours ?? 0).toFixed(2)} h = ${money2(p.holidayPay ?? 0)}`]
               : null,
-            p.payType !== "salary" && (p.holidayAccruedHours ?? 0) > 0
-              ? ["Holiday accrual (statutory)", `${(p.holidayAccruedHours ?? 0).toFixed(2)} h = ${money2(p.holidayAccrualPay ?? 0)}`]
+            p.payType !== "salary" && (p.holidayAccrualPay ?? 0) > 0
+              ? ["Holiday pay (statutory)", `${(p.holidayAccruedHours ?? 0).toFixed(2)} h accrued = ${money2(p.holidayAccrualPay ?? 0)}`]
               : null,
-            p.payType !== "salary" ? ["Hourly rate", money2(p.rate)] : null,
             ["Gross pay", money2(p.gross)],
             ["Tax & NI", `-${money2(p.tax)}`],
             ["Advance deducted", `-${money2(p.advance)}`],
@@ -481,7 +483,7 @@ function PayrollsPage() {
           </div>
 
           <DataTable
-            labels={["Payroll ID", "Worker", "Period", "Hours", "Rate", "Gross Pay", "Advance", "Net Pay", "Status", "Action"]}
+            labels={["Payroll ID", "Worker", "Period", "Hours", "Rate", "Normal Pay", "Holiday Pay", "Advance", "Net Pay", "Status", "Action"]}
             head={
               <>
                 <Th>Payroll ID</Th>
@@ -489,7 +491,8 @@ function PayrollsPage() {
                 <Th>Period</Th>
                 <Th>Hours</Th>
                 <Th>Rate / Salary</Th>
-                <Th>Gross Pay</Th>
+                <Th>Normal Pay</Th>
+                <Th>Holiday Pay</Th>
                 <Th>Advance</Th>
                 <Th>Net Pay</Th>
                 <Th>Status</Th>
@@ -497,7 +500,7 @@ function PayrollsPage() {
               </>
             }
           >
-            {(!rows || rows.length === 0) && <EmptyRow colSpan={10} text="No payroll runs yet." />}
+            {(!rows || rows.length === 0) && <EmptyRow colSpan={11} text="No payroll runs yet." />}
             {(rows || []).map((p) => (
               <tr key={p.id} className="hover:bg-secondary/40">
                 <Td className="font-medium">{p.id}</Td>
@@ -513,7 +516,20 @@ function PayrollsPage() {
                     ? `${money2(p.monthlySalary ?? 0)}/mo`
                     : `${money2(p.rate)}/h`}
                 </Td>
-                <Td>{money2(p.gross)}</Td>
+                <Td>{money2(p.normalPay ?? (p.gross - (p.holidayPay ?? 0) - (p.holidayAccrualPay ?? 0)))}</Td>
+                <Td className={(p.holidayPay ?? 0) + (p.holidayAccrualPay ?? 0) > 0 ? "" : "text-muted-foreground"}>
+                  <span
+                    title={
+                      (p.holidayPay ?? 0) > 0 || (p.holidayAccrualPay ?? 0) > 0
+                        ? `${(p.holidayAccrualPay ?? 0) > 0 ? `Statutory accrual ${money2(p.holidayAccrualPay ?? 0)}` : ""}${(p.holidayPay ?? 0) > 0 && (p.holidayAccrualPay ?? 0) > 0 ? " + " : ""}${(p.holidayPay ?? 0) > 0 ? `Bank holiday ${money2(p.holidayPay ?? 0)}` : ""}`
+                        : undefined
+                    }
+                  >
+                    {(p.holidayPay ?? 0) + (p.holidayAccrualPay ?? 0) > 0
+                      ? money2((p.holidayPay ?? 0) + (p.holidayAccrualPay ?? 0))
+                      : "—"}
+                  </span>
+                </Td>
                 <Td className={p.advance ? "text-danger" : "text-muted-foreground"}>
                   {p.advance ? `-${money2(p.advance)}` : "—"}
                 </Td>

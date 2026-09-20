@@ -554,6 +554,8 @@ export type Payroll = {
   hours: number;
   rate: number;
   gross: number;
+  /** Worked pay only — gross minus bank-holiday pay and statutory holiday accrual */
+  normalPay?: number;
   advance: number;
   tax: number;
   net: number;

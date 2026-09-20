@@ -82,7 +82,7 @@ function ComplianceSection({ workerId, onSaved }: { workerId: string; onSaved: (
           <ShieldCheck className="size-4" />
         </span>
         <div className="mr-auto">
-          <h2 className="text-base font-semibold">Compliance Checklist (BS7858)</h2>
+          <h2 className="text-base font-semibold">Compliance Checklist (BS7858: 2019 Standard)</h2>
           <p className="text-xs text-muted-foreground">
             {loadingC ? "Loading…" : `${done}/8 checks complete`} — tick off each screening step as it is completed outside the system.
           </p>

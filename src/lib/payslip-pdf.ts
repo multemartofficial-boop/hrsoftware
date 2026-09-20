@@ -11,8 +11,9 @@ export type PayslipLike = {
   created?: string; generatedAt?: string;
   payType?: string; monthlySalary?: number | null; payDetails?: any;
   hours?: number; overtime?: number;
+  holidayHours?: number; holidayPay?: number;
   holidayAccruedHours?: number; holidayAccrualPay?: number;
-  rate?: number; gross?: number;
+  rate?: number; gross?: number; normalPay?: number;
   advance?: number; advanceDeduction?: number;
   tax?: number; taxNi?: number;
   net?: number; netPay?: number;
@@ -64,8 +65,10 @@ export const downloadPayslipPdf = (p: PayslipLike, companyName?: string) => {
   const advance = p.advance ?? p.advanceDeduction ?? 0;
   const gross = p.gross ?? 0;
   const hours = p.hours ?? 0;
+  const bankHolPay = p.holidayPay ?? 0;
   const accrualH = p.holidayAccruedHours ?? 0;
   const accrualPay = p.holidayAccrualPay ?? 0;
+  const normalPay = p.normalPay ?? Math.round((gross - bankHolPay - accrualPay) * 100) / 100;
 
   line("Worker", `${p.worker || ""}${p.workerId ? ` (${p.workerId})` : ""}`, true);
   line("Payroll ID", p.id);
@@ -88,17 +91,20 @@ export const downloadPayslipPdf = (p: PayslipLike, companyName?: string) => {
   y += 7;
 
   if (p.payType === "salary") {
+    line("Normal pay (prorated salary)", money(normalPay));
     line("Monthly salary", p.monthlySalary != null ? `${money(p.monthlySalary)}/mo` : "—");
     line("Hours worked (records only)", `${hours.toFixed(2)} h`);
     for (const b of p.payDetails?.salaryBreakdown ?? []) {
       line(`Prorated ${b.month}`, `${b.days}/${b.daysInMonth} days = ${money(b.amount)}`);
     }
   } else {
+    line("Normal pay", money(normalPay));
     line("Hours worked", `${hours.toFixed(2)} h`);
     if ((p.overtime ?? 0) > 0) line("of which overtime", `${Number(p.overtime).toFixed(2)} h`);
     line("Hourly rate", money(p.rate ?? 0));
   }
-  if (accrualH > 0) line("Holiday accrual (statutory)", `${accrualH.toFixed(2)} h = ${money(accrualPay)}`);
+  if (bankHolPay > 0) line("Bank holiday pay", money(bankHolPay));
+  if (accrualPay > 0) line("Holiday pay (statutory)", `${accrualH.toFixed(2)} h accrued = ${money(accrualPay)}`);
 
   line("Gross pay", money(gross), true);
   y += 3;

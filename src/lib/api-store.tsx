@@ -322,6 +322,7 @@ function useApiState() {
         payDetails: p.payDetails ?? null,
         rate: Number(p.rate),
         gross: Number(p.gross),
+        normalPay: Number(p.normalPay ?? (Number(p.gross) - Number(p.holidayPay ?? 0) - Number(p.holidayAccrualPay ?? 0))),
         advance: Number(p.advanceDeduction),
         tax: Number(p.taxNi),
         net: Number(p.netPay),

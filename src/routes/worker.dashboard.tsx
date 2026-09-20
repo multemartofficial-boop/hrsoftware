@@ -464,7 +464,8 @@ function WorkerDashboard() {
                   <tr className="border-b">
                     <th className="text-left py-3 px-4 font-medium">Period</th>
                     <th className="text-left py-3 px-4 font-medium">Hours</th>
-                    <th className="text-right py-3 px-4 font-medium">Gross</th>
+                    <th className="text-right py-3 px-4 font-medium">Normal Pay</th>
+                    <th className="text-right py-3 px-4 font-medium">Holiday Pay</th>
                     <th className="text-right py-3 px-4 font-medium">Deductions</th>
                     <th className="text-right py-3 px-4 font-medium">Net Pay</th>
                     <th className="text-left py-3 px-4 font-medium">Status</th>
@@ -480,7 +481,12 @@ function WorkerDashboard() {
                         {p.payType === 'salary' && <span className="ml-2 rounded bg-secondary px-1.5 py-0.5 text-xs text-muted-foreground">salary</span>}
                       </td>
                       <td className="py-3 px-4">{p.payType === 'salary' ? '—' : `${p.hours.toFixed(1)}h`}</td>
-                      <td className="py-3 px-4 text-right">{money(p.gross)}</td>
+                      <td className="py-3 px-4 text-right">{money(p.normalPay ?? (p.gross - (p.holidayPay ?? 0) - (p.holidayAccrualPay ?? 0)))}</td>
+                      <td className="py-3 px-4 text-right">
+                        {(p.holidayPay ?? 0) + (p.holidayAccrualPay ?? 0) > 0
+                          ? money((p.holidayPay ?? 0) + (p.holidayAccrualPay ?? 0))
+                          : '—'}
+                      </td>
                       <td className="py-3 px-4 text-right text-muted-foreground">
                         -{money(p.taxNi + p.advanceDeduction)}
                       </td>
