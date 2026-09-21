@@ -316,7 +316,9 @@ function EditWorkerForm({ worker, onDone }: { worker: Worker; onDone: () => void
 
   const amountValid = f.payType === "salary"
     ? Number(f.monthlySalary) > 0
-    : Number(f.rate) > 0;
+    : f.workerType === "Sub-contract"
+      ? Number(f.rate) >= 0
+      : Number(f.rate) > 0;
 
   const save = async () => {
     if (!amountValid || saving) return;
@@ -435,7 +437,16 @@ function EditWorkerForm({ worker, onDone }: { worker: Worker; onDone: () => void
       )}
       {!amountValid && (
         <p className="text-xs text-danger">
-          {f.payType === "salary" ? "Enter a monthly salary greater than 0." : "Enter an hourly rate greater than 0."}
+          {f.payType === "salary"
+            ? "Enter a monthly salary greater than 0."
+            : f.workerType === "Sub-contract"
+              ? "Enter an hourly rate of 0 or more."
+              : "Enter an hourly rate greater than 0."}
+        </p>
+      )}
+      {f.workerType === "Sub-contract" && f.payType === "hourly" && (
+        <p className="text-xs text-muted-foreground">
+          Sub-contract staff may be £0.00/h — hours are recorded but pay and holiday are handled by the sub-contract company.
         </p>
       )}
 
@@ -603,6 +614,9 @@ function WorkerDetails() {
                         ["Holiday entitlement", `${worker.holiday.entitlementDays} days (${worker.holiday.leaveYearStart?.slice(0,4)} leave year)`],
                         ["Accrued so far", `${worker.holiday.accruedDays} days`],
                       ] as [string, string][])
+                    : []),
+                  ...(worker.holiday?.type === "subcontract"
+                    ? ([["Holiday pay", "Handled by sub-contract company"]] as [string, string][])
                     : []),
                   ...(worker.employmentType !== "full_time" && worker.holiday?.type === "accrual_hours"
                     ? ([["Holiday accrued", `${worker.holiday.accruedHours} h (${worker.holiday.ratePercent}% of hours)`]] as [string, string][])

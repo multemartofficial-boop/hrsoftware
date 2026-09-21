@@ -79,16 +79,21 @@ const fullTimeHoliday = (joined, now = new Date()) => {
 
 // Shift-level accrual that respects the worker's contract type: irregular /
 // zero-hours workers accrue 12.07% of hours; full-time permanent staff get
-// statutory days instead, so their shifts accrue 0 rolled-up hours.
+// statutory days instead and sub-contract staff get no holiday pay at all
+// (the sub-contract company is responsible), so both accrue 0.
 const accrueForWorker = async (workerId, hoursWorked) => {
-  const [rows] = await pool.query('SELECT employment_type FROM workers WHERE id = ?', [workerId]);
+  const [rows] = await pool.query('SELECT employment_type, worker_type FROM workers WHERE id = ?', [workerId]);
   if (normalizeEmploymentType(rows[0]?.employment_type) === EMPLOYMENT_FULL_TIME) return 0;
+  if (rows[0]?.worker_type === 'Sub-contract') return 0;
   return accrueHolidayHours(hoursWorked, await getHolidayAccrualRate());
 };
 
 // Holiday position for a worker row (workers table shape) — full-time gets
 // statutory days; irregular/zero-hours gets 12.07% of hours worked this year.
 const workerHoliday = async (worker) => {
+  // Sub-contract staff: holiday pay is the sub-contract company's
+  // responsibility — nothing is accrued or shown on our side.
+  if (worker.worker_type === 'Sub-contract') return { type: 'subcontract' };
   const type = normalizeEmploymentType(worker.employment_type);
   if (type === EMPLOYMENT_FULL_TIME) {
     return { type: 'statutory_days', ...fullTimeHoliday(worker.joined) };

@@ -80,8 +80,11 @@ function RateConfirmModal({
   const [employmentType, setEmploymentType] = useState<"full_time" | "irregular">("irregular");
   const [rate, setRate] = useState(expected > 0 ? expected.toFixed(2) : "");
   const [saving, setSaving] = useState(false);
+  const isSubcontract = app.workerType === "Sub-contract";
   const parsed = Number(rate);
-  const valid = Number.isFinite(parsed) && parsed > 0;
+  // Sub-contract staff may be £0.00/h — hours are recorded but the
+  // sub-contract company pays them.
+  const valid = Number.isFinite(parsed) && (isSubcontract ? parsed >= 0 : parsed > 0);
   const changed = payType === "hourly" && valid && Math.abs(parsed - expected) > 0.004;
 
   const submit = async (e: React.FormEvent) => {
@@ -122,6 +125,11 @@ function RateConfirmModal({
             <>Monthly-salaried workers are paid a fixed amount per month, prorated by calendar days for partial periods — attendance is still tracked for records but is not multiplied by a rate.</>
           )}{" "}
           {payType === "hourly" && "The confirmed rate becomes the worker's hourly rate used for all payroll calculations."}
+          {isSubcontract && (
+            <span className="mt-1 block text-xs">
+              Sub-contract applicant{app.subcontractCompany ? ` (${app.subcontractCompany})` : ""} — £0.00/h is allowed: hours are tracked for records and the sub-contract company handles their pay and holiday.
+            </span>
+          )}
         </p>
         <Field label="Pay type" hint="Choose how this worker is paid">
           <div className="grid grid-cols-2 gap-2">

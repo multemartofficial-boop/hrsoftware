@@ -710,7 +710,9 @@ function WorkerDashboard() {
                     ]
                   : profile.holiday?.type === 'accrual_hours'
                     ? [['Holiday accrued', `${profile.holiday.accruedHours}h (${profile.holiday.ratePercent}% of hours)`]]
-                    : []),
+                    : profile.holiday?.type === 'subcontract'
+                      ? [['Holiday pay', 'Handled by sub-contract company']]
+                      : []),
                 ['Joined', profile.joined ? new Date(profile.joined).toLocaleDateString("en-GB") : '—'],
                 ['Contract Expiry', profile.expiry ? new Date(profile.expiry).toLocaleDateString("en-GB") : '—'],
                 ['Visa Expiry', profile.visaExpiry ? new Date(profile.visaExpiry).toLocaleDateString("en-GB") : '—'],
@@ -1077,7 +1079,7 @@ function SignModal({ request, onClose, onDone }: { request: any; onClose: () => 
           {detail?.admin_signed_at && (
             <div className="rounded-lg border border-border bg-secondary/40 p-3">
               <p className="text-xs font-semibold text-muted-foreground">
-                Signed by Company — {detail.admin_signed_by || 'Company'}
+                Signed by the Director of SSSL — {detail.admin_signed_by || 'Company'}
                 {` · ${new Date(detail.admin_signed_at).toLocaleString('en-GB', { hour12: false })}`}
               </p>
               {detail.admin_signature_type !== 'type' && detail.admin_signature_data ? (

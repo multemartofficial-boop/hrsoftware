@@ -552,9 +552,9 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req, res) => {
         await connection.rollback();
         return res.status(400).json({ error: 'A valid monthly salary greater than 0 is required' });
       }
-    } else if (!Number.isFinite(confirmedRate) || confirmedRate <= 0) {
+    } else if (!Number.isFinite(confirmedRate) || confirmedRate < 0 || (confirmedRate === 0 && application.worker_type !== 'Sub-contract')) {
       await connection.rollback();
-      return res.status(400).json({ error: 'A valid hourly rate greater than 0 is required' });
+      return res.status(400).json({ error: 'A valid hourly rate is required (0 is allowed for sub-contract staff only)' });
     }
 
     // Contract type (Part 12): 'irregular' (zero-hours → 12.07% accrual) or

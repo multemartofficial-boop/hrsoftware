@@ -310,7 +310,7 @@ router.post('/requests/:id/sign', requireAuth, async (req, res) => {
     let signedContent = r.rendered_content || `[Document: ${r.document_name}]`;
     if (companySigned) {
       signedContent +=
-        `\n\n---\nSigned by Company: ${r.admin_signed_by || 'Company'} on ${new Date(r.admin_signed_at).toISOString()}` +
+        `\n\n---\nSigned by the Director of SSSL: ${r.admin_signed_by || 'Company'} on ${new Date(r.admin_signed_at).toISOString()}` +
         (r.admin_signature_type === 'type'
           ? `\nSignature (typed): ${r.admin_signature_data}`
           : `\nSignature: [captured ${r.admin_signature_type} image — stored in admin_signature_data]`);
@@ -407,7 +407,7 @@ router.post('/requests/:id/countersign', requireAuth, requireAdmin, async (req, 
     const adminName = await getCompanySignatory(req.user.name || `Admin #${req.user.userId}`);
 
     const counterBlock =
-      `\n\nCountersigned for the company by ${adminName} on ${new Date().toISOString()}` +
+      `\n\nSigned by the Director of SSSL: ${adminName} on ${new Date().toISOString()}` +
       (signatureType === 'type'
         ? `\nSignature (typed): ${signatureData}`
         : `\nSignature: [captured ${signatureType} image — stored in admin_signature_data]`) +

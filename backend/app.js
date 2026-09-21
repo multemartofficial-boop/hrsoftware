@@ -128,14 +128,15 @@ async function ensureSchema() {
         // Point existing company signatures at the authorised signatory
         await pool.query('UPDATE documents SET admin_signed_by = ? WHERE admin_signed_by IS NOT NULL AND admin_signed_by != ?', [signatory, signatory]);
         await pool.query('UPDATE signature_requests SET admin_signed_by = ? WHERE admin_signed_by IS NOT NULL AND admin_signed_by != ?', [signatory, signatory]);
-        // Rewrite the "Signed by Company: <name> on ..." line inside signed_content
+        // Normalise every company-signature line to "Signed by the Director of
+        // SSSL: <signatory> on ..." inside stored signed_content.
         const [sigRows] = await pool.query(
-          "SELECT id, signed_content FROM signature_requests WHERE signed_content LIKE '%Signed by Company:%'"
+          "SELECT id, signed_content FROM signature_requests WHERE signed_content IS NOT NULL"
         );
         for (const r of sigRows) {
           const fixed = String(r.signed_content)
-            .replace(/Signed by Company: [^\n]*? on /g, `Signed by Company: ${signatory} on `)
-            .replace(/Countersigned for the company by [^\n]*? on /g, `Countersigned for the company by ${signatory} on `);
+            .replace(/Signed by (?:the )?(?:Director of SSSL|Company): [^\n]*? on /g, `Signed by the Director of SSSL: ${signatory} on `)
+            .replace(/Countersigned for the company by [^\n]*? on /g, `Signed by the Director of SSSL: ${signatory} on `);
           if (fixed !== r.signed_content) {
             await pool.query('UPDATE signature_requests SET signed_content = ? WHERE id = ?', [fixed, r.id]);
           }

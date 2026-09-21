@@ -47,7 +47,7 @@ export type Worker = {
    * 'irregular' = zero-hours/casual (12.07% rolled-up accrual) */
   employmentType?: "full_time" | "irregular";
   holiday?: {
-    type: "statutory_days" | "accrual_hours";
+    type: "statutory_days" | "accrual_hours" | "subcontract";
     annualDays?: number; entitlementDays?: number; accruedDays?: number; monthsRemaining?: number;
     leaveYearStart?: string; leaveYearEnd?: string; startedThisYear?: boolean;
     ratePercent?: number; accruedHours?: number;

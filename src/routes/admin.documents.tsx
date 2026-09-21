@@ -466,7 +466,7 @@ function ViewModal({ req, onClose }: { req: SigRequest; onClose: () => void }) {
                 ) : null}
                 {detail.admin_signature_type !== "type" && detail.admin_signature_data ? (
                   <div>
-                    <p className="text-xs text-muted-foreground">Signed by Company — {detail.admin_signed_by}{detail.admin_signed_at ? ` · ${fmtTs(detail.admin_signed_at)}` : ""}</p>
+                    <p className="text-xs text-muted-foreground">Signed by the Director of SSSL — {detail.admin_signed_by}{detail.admin_signed_at ? ` · ${fmtTs(detail.admin_signed_at)}` : ""}</p>
                     <img src={detail.admin_signature_data} alt="Company signature" className="max-h-20 rounded border border-border bg-white" />
                   </div>
                 ) : null}
@@ -583,7 +583,7 @@ function DocumentsPage() {
                   <div>
                     <span className="font-medium">{d.name}</span>
                     {templateSigned && (
-                      <p className="text-xs text-muted-foreground">Signed by {d.admin_signed_by} · {fmtDate(d.admin_signed_at)}</p>
+                      <p className="text-xs text-muted-foreground">Signed by the Director of SSSL — {d.admin_signed_by} · {fmtDate(d.admin_signed_at)}</p>
                     )}
                   </div>
                 </div>

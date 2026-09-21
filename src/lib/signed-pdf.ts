@@ -65,7 +65,7 @@ export const downloadSignedPdf = async (req: SignedRequestRef) => {
 
   // Company signed at template creation — its block goes first chronologically.
   if (d.admin_signed_at) {
-    sigBlock("Signed by Company", d.admin_signed_by || "Company", d.admin_signed_at, d.admin_signer_ip, d.admin_signature_type, d.admin_signature_data);
+    sigBlock("Signed by the Director of SSSL", d.admin_signed_by || "Company", d.admin_signed_at, d.admin_signer_ip, d.admin_signature_type, d.admin_signature_data);
   }
   sigBlock("Signed by Worker", d.worker_name || d.worker_id, d.signed_at, d.signer_ip, d.signature_type, d.signature_data);
 
