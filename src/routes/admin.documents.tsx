@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { FileText, Send, Eye, Ban, FileSignature, Pencil, Trash2, PenLine, Download } from "lucide-react";
+import { FileText, Send, Eye, Ban, FileSignature, Pencil, Trash2, PenLine, Download, Upload } from "lucide-react";
 import { AdminShell } from "@/components/hr/admin-shell";
 import {
   Card, Field, GhostButton, Modal, PrimaryButton, inputCls,
@@ -22,7 +22,7 @@ export const Route = createFileRoute("/admin/documents")({
 });
 
 type Doc = {
-  id: string; name: string; type: "uploaded_pdf" | "template";
+  id: string; name: string; type: "uploaded_pdf" | "template" | "uploaded";
   file_path?: string | null; content?: string | null; created_at: string;
   admin_signature_type?: string | null; admin_signature_data?: string | null;
   admin_signed_by?: string | null; admin_signed_at?: string | null;
@@ -104,6 +104,7 @@ function DrawPad({ onChange }: { onChange: (dataUrl: string | null) => void }) {
 }
 
 function TemplateModal({ editing, onClose, onSaved }: { editing?: Doc | null; onClose: () => void; onSaved: (doc: Doc, needsSignature: boolean) => void }) {
+  const renameOnly = !!editing && editing.type !== "template";
   const [name, setName] = useState(editing?.name ?? "");
   const [content, setContent] = useState(editing?.content ?? "");
   const [busy, setBusy] = useState(false);
@@ -118,7 +119,7 @@ function TemplateModal({ editing, onClose, onSaved }: { editing?: Doc | null; on
         await apiClient.put(`/api/documents/${editing.id}`, { name, content });
         // Editing the content of a signed template invalidates the signature —
         // the admin must re-sign before it can be sent again.
-        const invalidated = !!editing.admin_signed_at && content !== (editing.content ?? "");
+        const invalidated = !renameOnly && !!editing.admin_signed_at && content !== (editing.content ?? "");
         onSaved({ ...editing, name, content, ...(invalidated ? { admin_signed_at: null } : {}) }, invalidated);
       } else {
         const res = await apiClient.post<{ id: string }>("/api/documents/template", { name, content });
@@ -134,14 +135,17 @@ function TemplateModal({ editing, onClose, onSaved }: { editing?: Doc | null; on
 
   return (
     <Modal
-      title={editing ? "Edit template" : "New template"}
-      description="Reusable text — placeholders are auto-filled from the worker's record when sent. After saving you'll be asked to add the company signature, which is required before the template can be sent."
+      title={editing ? (renameOnly ? "Rename document" : "Edit template") : "New template"}
+      description={renameOnly
+        ? "Only the display name can be changed — the uploaded file stays the same."
+        : "Reusable text — placeholders are auto-filled from the worker's record when sent. After saving you'll be asked to add the company signature, which is required before the template can be sent."}
       onClose={onClose}
     >
       <form onSubmit={submit} className="space-y-4">
-        <Field label="Template name">
+        <Field label={renameOnly ? "Document name" : "Template name"}>
           <input required value={name} onChange={(e) => setName(e.target.value)} className={inputCls} placeholder="Offer Letter" />
         </Field>
+        {!renameOnly && (
         <Field
           label="Content"
           hint="Placeholders: {{worker_name}} {{worker_code}} {{start_date}} {{hourly_rate}} {{location_name}}"
@@ -155,6 +159,7 @@ function TemplateModal({ editing, onClose, onSaved }: { editing?: Doc | null; on
             placeholder={"Dear {{worker_name}} ({{worker_code}}),\n\nYou are offered the role at {{location_name}} starting {{start_date}} at {{hourly_rate}} per hour..."}
           />
         </Field>
+        )}
         {err && <p className="text-sm text-danger">{err}</p>}
         <div className="flex justify-end gap-2">
           <GhostButton type="button" onClick={onClose}>Cancel</GhostButton>
@@ -347,6 +352,63 @@ function SignTemplateModal({ doc, onClose, onDone }: { doc: Doc; onClose: () => 
   );
 }
 
+/* ---------- Upload a document file (job description, RAMS…) ---------- */
+function UploadModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!file) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      if (name.trim()) fd.append("name", name.trim());
+      await apiClient.uploadFile("/api/documents/upload", fd);
+      onSaved();
+      onClose();
+    } catch (e: any) {
+      setErr(e.message || "Failed to upload document");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="Upload document"
+      description="Job descriptions, RAMS and other .docx/.pdf files you want workers to sign. Upload once, then send to any worker — they sign it and you countersign to complete."
+      onClose={onClose}
+    >
+      <form onSubmit={submit} className="space-y-4">
+        <Field label="Document name" hint="Leave blank to use the file name">
+          <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} placeholder="Kitchen Porter Job Description" />
+        </Field>
+        <Field label="File *" hint=".docx, .doc, .pdf, .txt or .rtf — up to 10 MB">
+          <input
+            type="file"
+            required
+            accept=".docx,.doc,.pdf,.txt,.rtf"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            className={inputCls}
+          />
+        </Field>
+        {err && <p className="text-sm text-danger">{err}</p>}
+        <div className="flex justify-end gap-2">
+          <GhostButton type="button" onClick={onClose}>Cancel</GhostButton>
+          <PrimaryButton type="submit" disabled={busy || !file}>
+            {busy ? "Uploading..." : "Upload"}
+          </PrimaryButton>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 function SendModal({ doc, onClose, onSaved }: { doc: Doc; onClose: () => void; onSaved: () => void }) {
   const { workers } = useApi();
   const [workerId, setWorkerId] = useState("");
@@ -481,7 +543,7 @@ function ViewModal({ req, onClose }: { req: SigRequest; onClose: () => void }) {
               rel="noreferrer"
               className="text-sm text-primary underline"
             >
-              Open PDF document
+              Open document file
             </a>
           ) : (
             <p className="text-sm text-muted-foreground">No content available.</p>
@@ -498,7 +560,7 @@ function ViewModal({ req, onClose }: { req: SigRequest; onClose: () => void }) {
 function DocumentsPage() {
   const [docs, setDocs] = useState<Doc[]>([]);
   const [requests, setRequests] = useState<SigRequest[]>([]);
-  const [modal, setModal] = useState<"template" | null>(null);
+  const [modal, setModal] = useState<"template" | "upload" | null>(null);
   const [editing, setEditing] = useState<Doc | null>(null);
   const [sending, setSending] = useState<Doc | null>(null);
   const [signing, setSigning] = useState<Doc | null>(null);
@@ -556,9 +618,14 @@ function DocumentsPage() {
     <AdminShell
       title="Documents"
       action={
-        <button onClick={() => setModal("template")} className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground">
-          <FileSignature className="size-4" /> New Template
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setModal("upload")} className="flex h-9 items-center gap-2 rounded-lg border border-border px-4 text-sm font-medium hover:bg-secondary">
+            <Upload className="size-4" /> Upload Document
+          </button>
+          <button onClick={() => setModal("template")} className="flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground">
+            <FileSignature className="size-4" /> New Template
+          </button>
+        </div>
       }
     >
       {err && <p className="mb-3 text-sm text-danger">{err}</p>}
@@ -566,15 +633,16 @@ function DocumentsPage() {
       <Card>
         <SectionTitle title="Signature templates" />
         <p className="-mt-3 mb-4 text-xs text-muted-foreground">
-          Every signature request is generated from a reusable template — sign the template once for the company, then send it to workers; each worker's signature completes their copy.
+          Signature documents come in two forms: reusable text templates (sign once for the company, placeholders fill per worker) and uploaded files like job descriptions or RAMS (.docx/.pdf). Send either to a worker — they sign, then the company countersigns to complete.
         </p>
         <DataTable
           labels={["Name", "Type", "Created", ""]}
           head={<><Th>Name</Th><Th>Type</Th><Th>Created</Th><Th className="text-right">Actions</Th></>}
         >
-          {docs.length === 0 && <EmptyRow colSpan={4} text="No templates yet — create your first reusable template." />}
+          {docs.length === 0 && <EmptyRow colSpan={4} text="No documents yet — create a template or upload a file." />}
           {docs.map((d) => {
             const templateSigned = d.type === "template" && !!d.admin_signed_at;
+            const canSend = d.type === "uploaded" || templateSigned;
             return (
             <tr key={d.id}>
               <Td>
@@ -590,7 +658,7 @@ function DocumentsPage() {
               </Td>
               <Td>
                 <div className="flex items-center gap-1.5">
-                  <StatusBadge status={d.type === "template" ? "Template" : "Legacy PDF"} />
+                  <StatusBadge status={d.type === "template" ? "Template" : d.type === "uploaded" ? "Uploaded" : "Legacy PDF"} />
                   {d.type === "template" && (
                     <StatusBadge status={templateSigned ? "Signed" : "Needs signature"} />
                   )}
@@ -608,7 +676,7 @@ function DocumentsPage() {
                       <PenLine className="size-3.5" /> Sign template
                     </button>
                   )}
-                  {d.type === "template" && templateSigned && (
+                  {canSend && (
                     <button
                       onClick={() => setSending(d)}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
@@ -616,7 +684,7 @@ function DocumentsPage() {
                       <Send className="size-3.5" /> Send for Signature
                     </button>
                   )}
-                  {d.type === "template" && (
+                  {(d.type === "template" || d.type === "uploaded") && (
                     <button
                       onClick={() => setEditing(d)}
                       title="Edit"
@@ -703,6 +771,9 @@ function DocumentsPage() {
             if (needsSignature) setSigning(doc);
           }}
         />
+      )}
+      {modal === "upload" && (
+        <UploadModal onClose={() => setModal(null)} onSaved={load} />
       )}
       {editing && (
         <TemplateModal

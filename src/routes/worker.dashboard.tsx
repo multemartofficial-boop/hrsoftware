@@ -1073,7 +1073,16 @@ function SignModal({ request, onClose, onDone }: { request: any; onClose: () => 
             <pre className="whitespace-pre-wrap rounded-lg border border-border bg-secondary/50 p-4 text-sm">{detail.rendered_content}</pre>
           )}
           {!detail?.rendered_content && fileUrl && (
-            <embed src={fileUrl} type="application/pdf" className="h-80 w-full rounded-lg border border-border" />
+            /\.pdf($|\?)/i.test(fileUrl) ? (
+              <embed src={fileUrl} type="application/pdf" className="h-80 w-full rounded-lg border border-border" />
+            ) : (
+              <div className="rounded-lg border border-border bg-secondary/50 p-4 text-sm">
+                <p className="mb-2 text-muted-foreground">This document is a file download — open it to review the full contents before signing.</p>
+                <a href={fileUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-medium text-primary underline">
+                  <Download className="size-4" /> Download {request.document_name}
+                </a>
+              </div>
+            )
           )}
 
           {detail?.admin_signed_at && (

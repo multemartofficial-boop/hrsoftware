@@ -14,9 +14,9 @@ import { apiClient } from "@/lib/api-client";
 export const Route = createFileRoute("/register")({
   head: () => ({
     meta: [
-      { title: "Worker Registration — Sinha Security Services" },
+      { title: "Worker Application Form — Sinha Security Services" },
       { name: "description", content: "Complete the 5-step application form to apply for work with Sinha Security Services. Applications go straight to the HR approvals queue." },
-      { property: "og:title", content: "Worker Registration — Sinha Security Services" },
+      { property: "og:title", content: "Worker Application Form — Sinha Security Services" },
       { property: "og:description", content: "Complete the 5-step application form to apply for work with Sinha Security Services. Applications go straight to the HR approvals queue." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -887,7 +887,7 @@ function RegisterPage() {
   return (
     <Shell step={step} maxStep={maxStep} onStep={goTo}>
       <div className="mb-5 lg:hidden">
-        <h1 className="text-2xl font-bold tracking-tight">Worker Registration</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Worker Application Form</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Step {step + 1} of 5 — {steps[step]!.name}
         </p>
@@ -1808,7 +1808,7 @@ function Shell({ children, step, maxStep, onStep }: { children: React.ReactNode;
           {/* side progress panel */}
           <aside className="hidden lg:block">
             <div className="sticky top-8 rounded-2xl border border-border bg-card p-5">
-              <h1 className="text-lg font-bold tracking-tight">Worker Registration</h1>
+              <h1 className="text-lg font-bold tracking-tight">Worker Application Form</h1>
               <p className="mt-1 text-xs text-muted-foreground">Complete all 5 steps to submit your application.</p>
               <ol className="mt-6 space-y-1">
                 {steps.map((s, i) => {

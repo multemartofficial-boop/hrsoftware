@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const fs = require('fs');
 const crypto = require('crypto');
+const path = require('path');
+const multer = require('multer');
 const pool = require('../config/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { sendEmail } = require('../utils/email');
@@ -28,6 +30,52 @@ const renderTemplate = (content, worker, locationsByName) => {
 };
 
 /* ================= ADMIN: documents ================= */
+
+// File uploads (job descriptions, RAMS, etc.) sent to workers for signature.
+// Stored under uploads/documents/ and served via /uploads static.
+const docStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = process.env.VERCEL ? '/tmp/uploads/documents' : path.join(__dirname, '..', 'uploads', 'documents');
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `doc-${Date.now()}-${Math.floor(Math.random() * 1000)}${ext}`);
+  },
+});
+const ALLOWED_DOC_EXT = new Set(['.docx', '.doc', '.pdf', '.txt', '.rtf']);
+const docUpload = multer({
+  storage: docStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!ALLOWED_DOC_EXT.has(ext)) {
+      return cb(new Error('Only .docx, .doc, .pdf, .txt or .rtf files are allowed'));
+    }
+    cb(null, true);
+  },
+});
+
+// Admin: upload a document file (job description, RAMS, policy…) that can then
+// be sent to a worker for signature — no template content needed.
+router.post('/upload', requireAuth, requireAdmin, docUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'A file is required' });
+    const name = (req.body.name && String(req.body.name).trim())
+      || req.file.originalname.replace(/\.[^.]+$/, '');
+    const id = generateId('DOC');
+    const filePath = path.posix.join('uploads', 'documents', req.file.filename);
+    await pool.query(
+      "INSERT INTO documents (id, name, type, content, file_path, uploaded_by_admin_id) VALUES (?, ?, 'uploaded', NULL, ?, ?)",
+      [id, name, filePath, req.user.userId || null]
+    );
+    res.status(201).json({ id, name, type: 'uploaded', file_path: filePath });
+  } catch (e) {
+    console.error('Document upload error:', e);
+    res.status(500).json({ error: 'Failed to upload document' });
+  }
+});
 
 // List documents
 router.get('/', requireAuth, requireAdmin, async (req, res) => {
@@ -173,12 +221,14 @@ router.post('/:id/send', requireAuth, requireAdmin, async (req, res) => {
     const [docs] = await pool.query('SELECT * FROM documents WHERE id = ?', [req.params.id]);
     if (docs.length === 0) return res.status(404).json({ error: 'Document not found' });
     const doc = docs[0];
-    if (doc.type !== 'template') {
-      return res.status(400).json({ error: 'Only reusable templates can be sent for signature' });
+    const isUpload = doc.type === 'uploaded';
+    if (doc.type !== 'template' && !isUpload) {
+      return res.status(400).json({ error: 'Only templates or uploaded documents can be sent for signature' });
     }
     // The company must have signed the template itself, and that signature is
-    // only valid while the content is unchanged.
-    if (!doc.admin_signed_at || doc.signed_content_hash !== contentHash(doc.content)) {
+    // only valid while the content is unchanged. Uploaded documents skip this —
+    // the worker signs first, then the company countersigns the request.
+    if (!isUpload && (!doc.admin_signed_at || doc.signed_content_hash !== contentHash(doc.content))) {
       return res.status(400).json({
         error: 'This template must be signed by an admin before it can be sent — add the company signature to the template first.'
       });
@@ -192,7 +242,9 @@ router.post('/:id/send', requireAuth, requireAdmin, async (req, res) => {
     const locationsByName = Object.fromEntries(locs.map(l => [l.name, l]));
 
     const reqId = generateId('SIG');
-    const rendered = stripSignaturePlaceholders(renderTemplate(doc.content || '', worker, locationsByName));
+    const rendered = isUpload
+      ? null
+      : stripSignaturePlaceholders(renderTemplate(doc.content || '', worker, locationsByName));
     // Snapshot the template's company signature onto the request so the final
     // document carries both signatures.
     await pool.query(
