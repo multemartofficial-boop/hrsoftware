@@ -2,30 +2,20 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
 const pool = require('../config/database');
 const { requireAuth, requireAdmin, requireWorker } = require('../middleware/auth');
 const { logActionFromReq } = require('../utils/action-log');
+const { saveStoredFile, sendStoredFile, sendLegacyFile, isStoredFileRef, storedFileId } = require('../utils/files');
 
 const CATEGORIES = ['Theft', 'Injury', 'Property Damage', 'Altercation', 'Safety Hazard', 'Other'];
 const SEVERITIES = ['Low', 'Medium', 'High', 'Critical'];
 const STATUSES = ['Open', 'Under Review', 'Resolved', 'Closed'];
 
-// Attachments: same 3MB-per-file limit as registration documents
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = process.env.VERCEL ? '/tmp/uploads/incidents' : 'uploads/incidents';
-    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
+// Attachments: same 3MB-per-file limit as registration documents.
+// Files are held in memory and written to stored_files so they persist on
+// serverless hosts where the filesystem is ephemeral.
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 3 * 1024 * 1024, files: 5 },
   fileFilter: (req, file, cb) => {
     const allowed = /jpeg|jpg|png|pdf|doc|docx/;
@@ -99,10 +89,10 @@ router.post('/', requireAuth, requireWorker, upload.array('attachments', 5), asy
     );
     const attendanceId = shift[0]?.id || null;
 
-    const attachments = (req.files || []).map(f => ({
-      name: f.originalname,
-      url: `/uploads/incidents/${f.filename}`,
-    }));
+    const attachments = [];
+    for (const f of req.files || []) {
+      attachments.push({ name: f.originalname, url: `file:${await saveStoredFile(f)}/${encodeURIComponent(f.originalname)}` });
+    }
 
     const id = generateIncidentId();
     await pool.query(
@@ -274,27 +264,17 @@ router.get('/:id/attachment/:idx', requireAuth, async (req, res) => {
 
     const attachments = parseJson(incident.attachments, []) || [];
     const att = attachments[Number(req.params.idx)];
-    if (!att || !att.url || !att.url.startsWith('/uploads/')) {
+    if (!att || !att.url) {
       return res.status(404).json({ error: 'Attachment not found' });
     }
 
-    const rest = att.url.replace('/uploads/', '');
-    const filePath = process.env.VERCEL
-      ? path.join('/tmp/uploads', rest)
-      : path.join(__dirname, '..', 'uploads', rest);
-
-    if (!fs.existsSync(filePath)) {
+    // DB-stored file (new uploads) or legacy on-disk upload
+    if (isStoredFileRef(att.url)) {
+      if (await sendStoredFile(res, storedFileId(att.url), { notFoundJson: false })) return;
       return res.status(404).json({ error: 'File not found on server' });
     }
-
-    const ext = path.extname(filePath).toLowerCase();
-    const contentType = ext === '.pdf' ? 'application/pdf'
-      : ext === '.png' ? 'image/png'
-      : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg'
-      : 'application/octet-stream';
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `inline; filename="${path.basename(filePath)}"`);
-    fs.createReadStream(filePath).pipe(res);
+    if (sendLegacyFile(res, att.url)) return;
+    return res.status(404).json({ error: 'File not found on server' });
   } catch (error) {
     console.error('Incident attachment error:', error);
     res.status(500).json({ error: 'Failed to load attachment' });

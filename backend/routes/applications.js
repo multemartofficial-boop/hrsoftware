@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const pool = require('../config/database');
@@ -10,25 +9,13 @@ const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { sendEmail } = require('../utils/email');
 const { appBaseUrl } = require('../utils/app-url');
 const { logActionFromReq } = require('../utils/action-log');
+const { saveStoredFile, sendStoredFile, sendLegacyFile, isStoredFileRef, storedFileId } = require('../utils/files');
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    // /tmp on Vercel (ephemeral); local uploads/ dir otherwise
-    const uploadDir = process.env.VERCEL ? '/tmp/uploads/documents' : 'uploads/documents';
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
+// Configure multer for file uploads — files are held in memory and written to
+// the stored_files table so they persist on serverless hosts (Vercel /tmp is
+// wiped between invocations).
 const upload = multer({
-  storage: storage,
+  storage: multer.memoryStorage(),
   limits: {
     fileSize: 3 * 1024 * 1024, // 3MB per file
     fieldSize: 10 * 1024 * 1024,
@@ -133,10 +120,15 @@ const appUploadFields = [
 
 const DOC_KEYS = ['photo', 'proofAddress', 'passportDoc', 'eVisa', 'siaDocFront', 'siaDocBack', 'cv', 'shareCode', 'rtwShareCode'];
 
-const buildDocUrls = (req, existing = {}) => {
+const buildDocUrls = async (req, existing = {}) => {
   const docUrls = { ...existing };
   for (const k of DOC_KEYS) {
-    docUrls[k] = req.files && req.files[k] ? `/uploads/documents/${req.files[k][0].filename}` : (existing[k] || '');
+    if (req.files && req.files[k]) {
+      const f = req.files[k][0];
+      docUrls[k] = `file:${await saveStoredFile(f)}/${encodeURIComponent(f.originalname)}`;
+    } else {
+      docUrls[k] = existing[k] || '';
+    }
   }
   return docUrls;
 };
@@ -158,7 +150,7 @@ router.post('/draft', upload.fields(appUploadFields), async (req, res) => {
     }
     let prevDocs = {};
     try { prevDocs = JSON.parse(existingDocs || '{}'); } catch { prevDocs = {}; }
-    const docUrls = buildDocUrls(req, prevDocs);
+    const docUrls = await buildDocUrls(req, prevDocs);
 
     // Keep every posted field so the form can be fully restored
     const details = { ...req.body, docUrls };
@@ -258,7 +250,7 @@ router.post('/', upload.fields(appUploadFields), async (req, res) => {
     // A resumed application may have docs already stored on its draft — merge them
     let existingDocs = {};
     try { existingDocs = JSON.parse(req.body.existingDocs || '{}'); } catch { existingDocs = {}; }
-    const docUrls = buildDocUrls(req, existingDocs);
+    const docUrls = await buildDocUrls(req, existingDocs);
 
     // If a draft exists for this email, remove it (child rows are only written for
     // final submissions, so deleting the draft row is enough)
@@ -438,36 +430,13 @@ router.get('/:id/document/:key', requireAuth, requireAdmin, async (req, res) => 
       return res.status(404).json({ error: 'Document not found' });
     }
 
-    let filePath = '';
-    if (docUrl.startsWith('/uploads/documents/')) {
-      const filename = docUrl.replace('/uploads/documents/', '');
-      filePath = process.env.VERCEL
-        ? path.join('/tmp/uploads/documents', filename)
-        : path.join(__dirname, '..', 'uploads', 'documents', filename);
-    } else if (docUrl.startsWith('/uploads/')) {
-      const rest = docUrl.replace('/uploads/', '');
-      filePath = process.env.VERCEL
-        ? path.join('/tmp/uploads', rest)
-        : path.join(__dirname, '..', 'uploads', rest);
-    } else {
-      return res.status(400).json({ error: 'Unsupported document URL' });
-    }
-
-    if (!fs.existsSync(filePath)) {
+    // DB-stored file (new uploads) or legacy on-disk upload
+    if (isStoredFileRef(docUrl)) {
+      if (await sendStoredFile(res, storedFileId(docUrl), { notFoundJson: false })) return;
       return res.status(404).json({ error: 'File not found on server' });
     }
-
-    const ext = path.extname(filePath).toLowerCase();
-    const contentType = ext === '.pdf'
-      ? 'application/pdf'
-      : ext === '.png'
-        ? 'image/png'
-        : ext === '.jpg' || ext === '.jpeg'
-          ? 'image/jpeg'
-          : 'application/octet-stream';
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `inline; filename="${path.basename(filePath)}"`);
-    fs.createReadStream(filePath).pipe(res);
+    if (sendLegacyFile(res, docUrl)) return;
+    return res.status(404).json({ error: 'File not found on server' });
   } catch (error) {
     console.error('Document view error:', error);
     res.status(500).json({ error: 'Server error while loading document' });

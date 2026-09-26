@@ -8,6 +8,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { checkExpiringWorkers } = require('./utils/expiry');
 const { stripSignaturePlaceholders } = require('./utils/document-text');
+const { migrateDiskUploads } = require('./utils/files');
 
 // Validate required environment variables
 const requiredEnvVars = ['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'JWT_SECRET'];
@@ -316,6 +317,28 @@ async function ensureSchema() {
     await addCol('ALTER TABLE clients ADD COLUMN phone VARCHAR(50) NULL', 'clients.phone');
     await addCol("ALTER TABLE clients ADD COLUMN status ENUM('Active','Inactive') NOT NULL DEFAULT 'Active'", 'clients.status');
     await addCol('ALTER TABLE clients ADD COLUMN notes TEXT NULL', 'clients.notes');
+
+    // Database-backed file storage — uploads must survive on serverless hosts
+    // (Vercel's filesystem is ephemeral /tmp). New uploads are written here;
+    // existing on-disk files are copied across by migrateDiskUploads().
+    try {
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS stored_files (
+          id VARCHAR(64) NOT NULL PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          mime VARCHAR(100) NULL,
+          size INT UNSIGNED NULL,
+          data LONGBLOB NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`
+      );
+      console.log('✅ stored_files table ready');
+    } catch (error) {
+      console.log('⚠️ Could not create stored_files table:', error.message);
+    }
+    await addCol('ALTER TABLE documents ADD COLUMN file_id VARCHAR(64) NULL', 'documents.file_id');
+    await addCol('ALTER TABLE signature_requests ADD COLUMN file_id VARCHAR(64) NULL', 'signature_requests.file_id');
+    await migrateDiskUploads();
   } catch (error) {
     console.error('Schema setup error:', error);
   }

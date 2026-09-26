@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useApi } from "@/lib/api-store";
 import { apiClient } from "@/lib/api-client";
-import { LogOut, Clock, LogIn, Calendar, MapPin, Navigation, FileSignature, Eraser, TriangleAlert, Paperclip, LayoutDashboard, Wallet, History, User, FileText, Download } from "lucide-react";
+import { LogOut, Clock, LogIn, Calendar, MapPin, Navigation, FileSignature, Eraser, TriangleAlert, Paperclip, LayoutDashboard, Wallet, History, User, FileText, Download, Eye } from "lucide-react";
 import { downloadSignedPdf } from "@/lib/signed-pdf";
 import { downloadPayslipPdf } from "@/lib/payslip-pdf";
 
@@ -29,7 +29,10 @@ function WorkerDashboard() {
   const [tab, setTab] = useState<'dashboard' | 'payments' | 'documents' | 'history' | 'profile'>('dashboard');
   // Phase G Part 2: signature requests (all — pending get a sign action, signed get a PDF download)
   const [myDocs, setMyDocs] = useState<any[]>([]);
-  const [signing, setSigning] = useState<any | null>(null);
+  const [viewing, setViewing] = useState<any | null>(null);
+  // Requests the worker has ticked as "I agree" — signed together in one batch.
+  const [agreed, setAgreed] = useState<string[]>([]);
+  const [batchSigning, setBatchSigning] = useState(false);
   const [downloading, setDownloading] = useState<string | null>(null);
   // Payments + profile tabs
   const [payments, setPayments] = useState<any[]>([]);
@@ -47,6 +50,9 @@ function WorkerDashboard() {
     try {
       const rows = await apiClient.get<any[]>('/api/documents/requests/mine');
       setMyDocs(rows || []);
+      // Drop ticks for requests that are no longer pending
+      const pendingIds = new Set((rows || []).filter((r: any) => r.status === 'pending').map((r: any) => r.id));
+      setAgreed((prev) => prev.filter((id) => pendingIds.has(id)));
     } catch (e) { console.error('Load my documents failed:', e); }
   };
 
@@ -193,6 +199,9 @@ function WorkerDashboard() {
   const monthName = now.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
   const pendingDocs = myDocs.filter((d) => d.status === 'pending');
   const pastDocs = myDocs.filter((d) => d.status !== 'pending');
+  const agreedDocs = pendingDocs.filter((d) => agreed.includes(d.id));
+  const toggleAgree = (id: string) =>
+    setAgreed((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
   const money = (n: number) => `£${n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const TABS = [
@@ -380,30 +389,14 @@ function WorkerDashboard() {
 
         {/* Documents to Sign */}
         {pendingDocs.length > 0 && (
-          <div className="bg-card rounded-xl p-6 mb-6">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <FileSignature className="size-5" />
-              Documents to Sign
-            </h2>
-            <div className="divide-y divide-border">
-              {pendingDocs.map((d) => (
-                <div key={d.id} className="flex items-center justify-between py-3">
-                  <div>
-                    <p className="font-medium">{d.document_name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Sent {new Date(d.sent_at).toLocaleDateString("en-GB")}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setSigning(d)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
-                  >
-                    <FileSignature className="size-4" /> Review &amp; Sign
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
+          <PendingDocs
+            docs={pendingDocs}
+            agreed={agreed}
+            onToggle={toggleAgree}
+            onView={setViewing}
+            onSignSelected={() => setBatchSigning(true)}
+            onChanged={loadMyDocs}
+          />
         )}
 
         {/* Report an Incident */}
@@ -521,34 +514,15 @@ function WorkerDashboard() {
 
         {tab === 'documents' && (
         <div className="space-y-6">
-          <div className="bg-card rounded-xl p-6">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <FileSignature className="size-5" />
-              Documents to Sign
-            </h2>
-            {pendingDocs.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nothing waiting for your signature.</p>
-            ) : (
-              <div className="divide-y divide-border">
-                {pendingDocs.map((d) => (
-                  <div key={d.id} className="flex items-center justify-between py-3">
-                    <div>
-                      <p className="font-medium">{d.document_name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Sent {new Date(d.sent_at).toLocaleDateString("en-GB")}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => setSigning(d)}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
-                    >
-                      <FileSignature className="size-4" /> Review &amp; Sign
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <PendingDocs
+            docs={pendingDocs}
+            agreed={agreed}
+            onToggle={toggleAgree}
+            onView={setViewing}
+            onSignSelected={() => setBatchSigning(true)}
+            onChanged={loadMyDocs}
+            emptyText="Nothing waiting for your signature."
+          />
 
           <div className="bg-card rounded-xl p-6">
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
@@ -780,11 +754,15 @@ function WorkerDashboard() {
         )}
       </div>
 
-      {signing && (
-        <SignModal
-          request={signing}
-          onClose={() => setSigning(null)}
-          onDone={() => { setSigning(null); loadMyDocs(); }}
+      {viewing && (
+        <ViewDocModal request={viewing} onClose={() => setViewing(null)} />
+      )}
+
+      {batchSigning && agreedDocs.length > 0 && (
+        <BatchSignModal
+          requests={agreedDocs}
+          onClose={() => setBatchSigning(false)}
+          onDone={() => { setBatchSigning(false); setAgreed([]); loadMyDocs(); }}
         />
       )}
 
@@ -1001,59 +979,146 @@ function DrawPad({ onChange }: { onChange: (dataUrl: string | null) => void }) {
   );
 }
 
-/* ---------- Sign / decline modal ---------- */
-function SignModal({ request, onClose, onDone }: { request: any; onClose: () => void; onDone: () => void }) {
-  const [detail, setDetail] = useState<any>(null);
-  const [method, setMethod] = useState<'draw' | 'type' | 'upload'>('draw');
-  const [drawData, setDrawData] = useState<string | null>(null);
-  const [typedName, setTypedName] = useState('');
-  const [uploadData, setUploadData] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+/* ---------- Pending documents — tick to agree, sign selected ---------- */
+function PendingDocs({
+  docs,
+  agreed,
+  onToggle,
+  onView,
+  onSignSelected,
+  onChanged,
+  emptyText,
+}: {
+  docs: any[];
+  agreed: string[];
+  onToggle: (id: string) => void;
+  onView: (doc: any) => void;
+  onSignSelected: () => void;
+  onChanged: () => void;
+  emptyText?: string;
+}) {
+  const [declining, setDeclining] = useState<string | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const d = await apiClient.get(`/api/documents/requests/${request.id}`);
-        setDetail(d);
-        await apiClient.post(`/api/documents/requests/${request.id}/view`, {});
-      } catch (e) {
-        setDetail({ error: true });
-      }
-    })();
-  }, [request.id]);
-
-  const signatureReady =
-    (method === 'draw' && !!drawData) ||
-    (method === 'type' && typedName.trim().length > 0) ||
-    (method === 'upload' && !!uploadData);
-
-  const signatureData =
-    method === 'draw' ? drawData : method === 'type' ? typedName.trim() : uploadData;
-
-  const act = async (action: 'sign' | 'decline') => {
-    setBusy(true);
-    setErr(null);
+  const decline = async (d: any) => {
+    if (!window.confirm(`Decline "${d.document_name}"? The admin team will be notified.`)) return;
+    setDeclining(d.id);
     try {
-      if (action === 'sign') {
-        await apiClient.post(`/api/documents/requests/${request.id}/sign`, {
-          signatureType: method,
-          signatureData,
-        });
-      } else {
-        await apiClient.post(`/api/documents/requests/${request.id}/decline`, {});
-      }
-      onDone();
+      await apiClient.post(`/api/documents/requests/${d.id}/decline`, {});
+      onChanged();
     } catch (e: any) {
-      setErr(e.message || `Failed to ${action}`);
+      alert(e.message || 'Failed to decline');
     } finally {
-      setBusy(false);
+      setDeclining(null);
     }
   };
 
-  const fileUrl = detail?.file_path
-    ? `http://localhost:3001/${String(detail.file_path).replace(/\\/g, '/')}`
-    : null;
+  const allTicked = docs.length > 0 && docs.every((d) => agreed.includes(d.id));
+
+  return (
+    <div className="bg-card rounded-xl p-6 mb-6">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          <FileSignature className="size-5" />
+          Documents to Sign
+        </h2>
+        {docs.length > 0 && (
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={allTicked}
+              onChange={(e) => {
+                const checkAll = e.target.checked;
+                docs.forEach((d) => {
+                  if (agreed.includes(d.id) !== checkAll) onToggle(d.id);
+                });
+              }}
+              className="size-4 accent-primary"
+            />
+            Select all
+          </label>
+        )}
+      </div>
+      <p className="mb-3 text-xs text-muted-foreground">
+        Open each document to read it, then tick the ones you agree with and sign them together.
+      </p>
+      {docs.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{emptyText || 'Nothing waiting for your signature.'}</p>
+      ) : (
+        <>
+          <div className="divide-y divide-border">
+            {docs.map((d) => (
+              <div key={d.id} className="flex items-center gap-3 py-3">
+                <input
+                  type="checkbox"
+                  checked={agreed.includes(d.id)}
+                  onChange={() => onToggle(d.id)}
+                  title="I agree to this document"
+                  className="size-4 shrink-0 cursor-pointer accent-primary"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium">{d.document_name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Sent {new Date(d.sent_at).toLocaleDateString("en-GB")}
+                    {agreed.includes(d.id) ? ' · agreed' : ' · not agreed yet'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => onView(d)}
+                  className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
+                >
+                  <Eye className="size-3.5" /> View
+                </button>
+                <button
+                  onClick={() => decline(d)}
+                  disabled={declining === d.id}
+                  className="rounded-lg border border-danger/40 px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger-soft disabled:opacity-50"
+                >
+                  {declining === d.id ? 'Declining…' : 'Decline'}
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 flex justify-end">
+            <button
+              onClick={onSignSelected}
+              disabled={agreed.length === 0}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+            >
+              <FileSignature className="size-4" />
+              Sign {agreed.length} selected document{agreed.length === 1 ? '' : 's'}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Read-only document preview ---------- */
+function ViewDocModal({ request, onClose }: { request: any; onClose: () => void }) {
+  const [detail, setDetail] = useState<any>(null);
+  const [file, setFile] = useState<{ url: string; isPdf: boolean } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let url: string | null = null;
+    (async () => {
+      try {
+        const d = await apiClient.get<any>(`/api/documents/requests/${request.id}`);
+        if (cancelled) return;
+        setDetail(d);
+        await apiClient.post(`/api/documents/requests/${request.id}/view`, {});
+        if (d.has_file) {
+          const blob = await apiClient.getBlob(`/api/documents/requests/${request.id}/file`);
+          url = URL.createObjectURL(blob);
+          if (!cancelled) setFile({ url, isPdf: blob.type === 'application/pdf' });
+        }
+      } catch {
+        if (!cancelled) setDetail({ error: true });
+      }
+    })();
+    return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
+  }, [request.id]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 backdrop-blur-sm p-4">
@@ -1061,30 +1126,31 @@ function SignModal({ request, onClose, onDone }: { request: any; onClose: () => 
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div>
             <h3 className="font-semibold">{request.document_name}</h3>
-            <p className="text-xs text-muted-foreground">Review the document, then sign or decline.</p>
+            <p className="text-xs text-muted-foreground">Read through the document before you agree to it.</p>
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground">✕</button>
         </div>
-
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {detail === null && <p className="text-sm text-muted-foreground">Loading document...</p>}
           {detail?.error && <p className="text-sm text-danger">Failed to load document.</p>}
           {detail?.rendered_content && (
             <pre className="whitespace-pre-wrap rounded-lg border border-border bg-secondary/50 p-4 text-sm">{detail.rendered_content}</pre>
           )}
-          {!detail?.rendered_content && fileUrl && (
-            /\.pdf($|\?)/i.test(fileUrl) ? (
-              <embed src={fileUrl} type="application/pdf" className="h-80 w-full rounded-lg border border-border" />
+          {!detail?.rendered_content && file && (
+            file.isPdf ? (
+              <embed src={file.url} type="application/pdf" className="h-[60vh] w-full rounded-lg border border-border" />
             ) : (
               <div className="rounded-lg border border-border bg-secondary/50 p-4 text-sm">
-                <p className="mb-2 text-muted-foreground">This document is a file download — open it to review the full contents before signing.</p>
-                <a href={fileUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-medium text-primary underline">
+                <p className="mb-2 text-muted-foreground">This document is a file download — open it to review the full contents.</p>
+                <a href={file.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-medium text-primary underline">
                   <Download className="size-4" /> Download {request.document_name}
                 </a>
               </div>
             )
           )}
-
+          {detail && !detail.rendered_content && !detail.has_file && !detail.error && (
+            <p className="text-sm text-muted-foreground">No document content available.</p>
+          )}
           {detail?.admin_signed_at && (
             <div className="rounded-lg border border-border bg-secondary/40 p-3">
               <p className="text-xs font-semibold text-muted-foreground">
@@ -1098,73 +1164,230 @@ function SignModal({ request, onClose, onDone }: { request: any; onClose: () => 
               ) : null}
             </div>
           )}
+        </div>
+        <div className="flex justify-end border-t border-border px-5 py-4">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-secondary">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
+/* ---------- Batch signature — one signature covers every ticked document ---------- */
+function BatchSignModal({ requests, onClose, onDone }: { requests: any[]; onClose: () => void; onDone: () => void }) {
+  const [details, setDetails] = useState<Record<string, any>>({});
+  const [fileUrls, setFileUrls] = useState<Record<string, { url: string; isPdf: boolean }>>({});
+  const [method, setMethod] = useState<'draw' | 'type' | 'upload'>('draw');
+  const [drawData, setDrawData] = useState<string | null>(null);
+  const [typedName, setTypedName] = useState('');
+  const [uploadData, setUploadData] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [result, setResult] = useState<{ signed: any[]; failed: any[] } | null>(null);
+  const blobUrls = useRef<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      for (const r of requests) {
+        try {
+          const d = await apiClient.get<any>(`/api/documents/requests/${r.id}`);
+          if (cancelled) return;
+          setDetails((prev) => ({ ...prev, [r.id]: d }));
+          await apiClient.post(`/api/documents/requests/${r.id}/view`, {});
+          if (d.has_file) {
+            const blob = await apiClient.getBlob(`/api/documents/requests/${r.id}/file`);
+            const url = URL.createObjectURL(blob);
+            blobUrls.current.push(url);
+            if (!cancelled) setFileUrls((prev) => ({ ...prev, [r.id]: { url, isPdf: blob.type === 'application/pdf' } }));
+          }
+        } catch {
+          if (!cancelled) setDetails((prev) => ({ ...prev, [r.id]: { error: true } }));
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => () => {
+    blobUrls.current.forEach((u) => URL.revokeObjectURL(u));
+  }, []);
+
+  const signatureReady =
+    (method === 'draw' && !!drawData) ||
+    (method === 'type' && typedName.trim().length > 0) ||
+    (method === 'upload' && !!uploadData);
+  const signatureData =
+    method === 'draw' ? drawData : method === 'type' ? typedName.trim() : uploadData;
+
+  const submit = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await apiClient.post<{ signed: any[]; failed: any[] }>(
+        '/api/documents/requests/sign-batch',
+        { requestIds: requests.map((r) => r.id), signatureType: method, signatureData }
+      );
+      if (!res.failed || res.failed.length === 0) {
+        onDone();
+        return;
+      }
+      setResult(res);
+    } catch (e: any) {
+      setErr(e.message || 'Failed to sign documents');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 backdrop-blur-sm p-4">
+      <div className="bg-card rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div>
-            <p className="text-sm font-medium mb-2">Sign with:</p>
-            <div className="flex gap-2 mb-3">
-              {(['draw', 'type', 'upload'] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setMethod(m)}
-                  className={`px-3 py-1.5 rounded-lg text-sm capitalize ${method === m ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}
-                >
-                  {m === 'draw' ? 'Draw' : m === 'type' ? 'Type' : 'Upload'}
-                </button>
-              ))}
+            <h3 className="font-semibold">Sign {requests.length} document{requests.length === 1 ? '' : 's'}</h3>
+            <p className="text-xs text-muted-foreground">Your signature below is applied to every document listed — review each one first.</p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">✕</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {result ? (
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-success">{result.signed.length} document(s) signed.</p>
+              {result.failed.length > 0 && (
+                <div className="rounded-lg border border-warning/40 bg-warning-soft px-3 py-2 text-sm">
+                  <p className="font-medium">{result.failed.length} could not be signed:</p>
+                  <ul className="mt-1 list-disc pl-5 text-xs">
+                    {result.failed.map((f, i) => <li key={i}>{f.name || f.id} — {f.error}</li>)}
+                  </ul>
+                </div>
+              )}
             </div>
-            {method === 'draw' && <DrawPad onChange={setDrawData} />}
-            {method === 'type' && (
-              <div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                {requests.map((r) => {
+                  const d = details[r.id];
+                  return (
+                    <details key={r.id} className="rounded-lg border border-border">
+                      <summary className="cursor-pointer px-3 py-2.5 text-sm font-medium hover:bg-secondary/50">
+                        {r.document_name}
+                        <span className="ml-2 text-xs font-normal text-muted-foreground">tap to review</span>
+                      </summary>
+                      <div className="border-t border-border px-3 py-3">
+                        {d === undefined && <p className="text-xs text-muted-foreground">Loading…</p>}
+                        {d?.error && <p className="text-xs text-danger">Failed to load this document.</p>}
+                        {d?.rendered_content && (
+                          <pre className="whitespace-pre-wrap rounded-lg bg-secondary/50 p-3 text-xs">{d.rendered_content}</pre>
+                        )}
+                        {!d?.rendered_content && fileUrls[r.id] && (
+                          fileUrls[r.id]!.isPdf ? (
+                            <embed src={fileUrls[r.id]!.url} type="application/pdf" className="h-72 w-full rounded-lg border border-border" />
+                          ) : (
+                            <a href={fileUrls[r.id]!.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium text-primary underline">
+                              <Download className="size-4" /> Download {r.document_name}
+                            </a>
+                          )
+                        )}
+                        {d && !d.rendered_content && !d.has_file && !d.error && (
+                          <p className="text-xs text-muted-foreground">No document content available.</p>
+                        )}
+                      </div>
+                    </details>
+                  );
+                })}
+              </div>
+
+              <label className="flex items-start gap-2.5 rounded-lg border border-border bg-secondary/40 px-3 py-2.5 text-sm">
                 <input
-                  value={typedName}
-                  onChange={(e) => setTypedName(e.target.value)}
-                  placeholder="Type your full name"
-                  className="w-full h-10 rounded-lg border border-border bg-card px-3 text-sm outline-none focus:border-primary"
+                  type="checkbox"
+                  checked={confirmed}
+                  onChange={(e) => setConfirmed(e.target.checked)}
+                  className="mt-0.5 size-4 accent-primary"
                 />
-                {typedName.trim() && (
-                  <p className="mt-2 rounded-lg border border-border bg-white px-3 py-2 text-2xl italic" style={{ fontFamily: 'cursive' }}>
-                    {typedName}
-                  </p>
+                <span>I confirm I have read and agree to all {requests.length} document{requests.length === 1 ? '' : 's'} listed above.</span>
+              </label>
+
+              <div>
+                <p className="text-sm font-medium mb-2">Sign with:</p>
+                <div className="flex gap-2 mb-3">
+                  {(['draw', 'type', 'upload'] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setMethod(m)}
+                      className={`px-3 py-1.5 rounded-lg text-sm capitalize ${method === m ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}
+                    >
+                      {m === 'draw' ? 'Draw' : m === 'type' ? 'Type' : 'Upload'}
+                    </button>
+                  ))}
+                </div>
+                {method === 'draw' && <DrawPad onChange={setDrawData} />}
+                {method === 'type' && (
+                  <div>
+                    <input
+                      value={typedName}
+                      onChange={(e) => setTypedName(e.target.value)}
+                      placeholder="Type your full name"
+                      className="w-full h-10 rounded-lg border border-border bg-card px-3 text-sm outline-none focus:border-primary"
+                    />
+                    {typedName.trim() && (
+                      <p className="mt-2 rounded-lg border border-border bg-white px-3 py-2 text-2xl italic" style={{ fontFamily: 'cursive' }}>
+                        {typedName}
+                      </p>
+                    )}
+                  </div>
+                )}
+                {method === 'upload' && (
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) { setUploadData(null); return; }
+                      const r = new FileReader();
+                      r.onload = () => setUploadData(String(r.result));
+                      r.readAsDataURL(f);
+                    }}
+                    className="w-full h-10 rounded-lg border border-border bg-card px-3 py-2 text-sm"
+                  />
+                )}
+                {method === 'upload' && uploadData && (
+                  <img src={uploadData} alt="Signature preview" className="mt-2 max-h-20 rounded border border-border bg-white" />
                 )}
               </div>
-            )}
-            {method === 'upload' && (
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (!f) { setUploadData(null); return; }
-                  const r = new FileReader();
-                  r.onload = () => setUploadData(String(r.result));
-                  r.readAsDataURL(f);
-                }}
-                className="w-full h-10 rounded-lg border border-border bg-card px-3 py-2 text-sm"
-              />
-            )}
-            {method === 'upload' && uploadData && (
-              <img src={uploadData} alt="Signature preview" className="mt-2 max-h-20 rounded border border-border bg-white" />
-            )}
-          </div>
-          {err && <p className="text-sm text-danger">{err}</p>}
+              {err && <p className="text-sm text-danger">{err}</p>}
+            </>
+          )}
         </div>
 
         <div className="flex items-center justify-between border-t border-border px-5 py-4">
-          <button
-            onClick={() => act('decline')}
-            disabled={busy}
-            className="px-4 py-2 rounded-lg border border-danger/40 text-sm font-medium text-danger hover:bg-danger-soft disabled:opacity-50"
-          >
-            Decline
-          </button>
-          <button
-            onClick={() => act('sign')}
-            disabled={busy || !signatureReady}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
-          >
-            <FileSignature className="size-4" /> {busy ? 'Signing...' : 'Confirm & Sign'}
-          </button>
+          {result ? (
+            <>
+              <span />
+              <button onClick={onDone} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90">Done</button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={onClose}
+                disabled={busy}
+                className="px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-secondary disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submit}
+                disabled={busy || !signatureReady || !confirmed}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+              >
+                <FileSignature className="size-4" /> {busy ? 'Signing...' : `Confirm & Sign ${requests.length}`}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

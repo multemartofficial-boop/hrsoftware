@@ -1,7 +1,14 @@
 // Same-origin in production (Vercel serves /api via serverless functions);
 // the Vite dev server targets the local Express server unless VITE_API_URL is set.
-const API_BASE_URL =
+export const API_BASE_URL =
   import.meta.env['VITE_API_URL'] || (import.meta.env.DEV ? 'http://localhost:3001' : '');
+
+// Authenticated file downloads/streaming — returns an object URL for a blob
+// fetched with the session token (used for signature documents etc.).
+export const fetchFileUrl = async (endpoint: string): Promise<string> => {
+  const blob = await apiClient.getBlob(endpoint);
+  return URL.createObjectURL(blob);
+};
 
 class ApiClient {
   private baseUrl: string;

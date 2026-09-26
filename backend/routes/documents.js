@@ -8,6 +8,7 @@ const pool = require('../config/database');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { sendEmail } = require('../utils/email');
 const { stripSignaturePlaceholders, getCompanySignatory } = require('../utils/document-text');
+const { saveStoredFile, deleteStoredFile, sendStoredFile, sendLegacyFile } = require('../utils/files');
 
 const generateId = (prefix) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
@@ -32,21 +33,10 @@ const renderTemplate = (content, worker, locationsByName) => {
 /* ================= ADMIN: documents ================= */
 
 // File uploads (job descriptions, RAMS, etc.) sent to workers for signature.
-// Stored under uploads/documents/ and served via /uploads static.
-const docStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const dir = process.env.VERCEL ? '/tmp/uploads/documents' : path.join(__dirname, '..', 'uploads', 'documents');
-    fs.mkdirSync(dir, { recursive: true });
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    cb(null, `doc-${Date.now()}-${Math.floor(Math.random() * 1000)}${ext}`);
-  },
-});
+// Bytes go into the stored_files table so they persist on serverless hosts.
 const ALLOWED_DOC_EXT = new Set(['.docx', '.doc', '.pdf', '.txt', '.rtf']);
 const docUpload = multer({
-  storage: docStorage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
@@ -65,12 +55,12 @@ router.post('/upload', requireAuth, requireAdmin, docUpload.single('file'), asyn
     const name = (req.body.name && String(req.body.name).trim())
       || req.file.originalname.replace(/\.[^.]+$/, '');
     const id = generateId('DOC');
-    const filePath = path.posix.join('uploads', 'documents', req.file.filename);
+    const fileId = await saveStoredFile(req.file);
     await pool.query(
-      "INSERT INTO documents (id, name, type, content, file_path, uploaded_by_admin_id) VALUES (?, ?, 'uploaded', NULL, ?, ?)",
-      [id, name, filePath, req.user.userId || null]
+      "INSERT INTO documents (id, name, type, content, file_path, file_id, uploaded_by_admin_id) VALUES (?, ?, 'uploaded', NULL, NULL, ?, ?)",
+      [id, name, fileId, req.user.userId || null]
     );
-    res.status(201).json({ id, name, type: 'uploaded', file_path: filePath });
+    res.status(201).json({ id, name, type: 'uploaded', file_id: fileId });
   } catch (e) {
     console.error('Document upload error:', e);
     res.status(500).json({ error: 'Failed to upload document' });
@@ -186,12 +176,65 @@ router.delete('/:id', requireAuth, requireAdmin, async (req, res) => {
       });
     }
 
-    if (doc.file_path && fs.existsSync(doc.file_path)) fs.unlinkSync(doc.file_path);
+    if (doc.file_id) {
+      try { await deleteStoredFile(doc.file_id); } catch (e) { console.error('Stored file delete failed:', e.message); }
+    } else if (doc.file_path && fs.existsSync(doc.file_path)) {
+      fs.unlinkSync(doc.file_path);
+    }
     await pool.query('DELETE FROM documents WHERE id = ?', [req.params.id]);
     res.json({ message: 'Document deleted' });
   } catch (e) {
     console.error('Delete document error:', e);
     res.status(500).json({ error: 'Failed to delete document' });
+  }
+});
+
+// Stream a document's uploaded file (admin — e.g. preview before sending).
+// DB-stored files are served from stored_files; legacy disk paths still work.
+router.get('/:id/file', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const [docs] = await pool.query('SELECT file_id, file_path FROM documents WHERE id = ?', [req.params.id]);
+    if (docs.length === 0) return res.status(404).json({ error: 'Document not found' });
+    const doc = docs[0];
+    if (doc.file_id && await sendStoredFile(res, doc.file_id, { notFoundJson: false })) return;
+    if (doc.file_path) {
+      const url = doc.file_path.startsWith('/uploads/') ? doc.file_path : `/uploads/${String(doc.file_path).replace(/^uploads[\\/]/, '')}`;
+      if (sendLegacyFile(res, url)) return;
+    }
+    res.status(404).json({ error: 'File not found' });
+  } catch (e) {
+    console.error('Document file error:', e);
+    res.status(500).json({ error: 'Failed to load file' });
+  }
+});
+
+// Stream the file attached to a signature request — the assigned worker or an admin.
+router.get('/requests/:id/file', requireAuth, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT r.worker_id, r.file_id AS request_file_id, r.file_path,
+              d.file_id AS doc_file_id, d.file_path AS doc_file_path
+       FROM signature_requests r JOIN documents d ON d.id = r.document_id
+       WHERE r.id = ?`,
+      [req.params.id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error: 'Request not found' });
+    const r = rows[0];
+    if (req.user.role === 'worker' && r.worker_id !== req.user.workerId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const fileId = r.request_file_id || r.doc_file_id;
+    if (fileId && await sendStoredFile(res, fileId, { notFoundJson: false })) return;
+    const disk = r.file_path || r.doc_file_path;
+    if (disk) {
+      const url = String(disk).startsWith('/uploads/') ? disk : `/uploads/${String(disk).replace(/^uploads[\\/]/, '')}`;
+      if (sendLegacyFile(res, url)) return;
+    }
+    res.status(404).json({ error: 'File not found' });
+  } catch (e) {
+    console.error('Request file error:', e);
+    res.status(500).json({ error: 'Failed to load file' });
   }
 });
 
@@ -212,6 +255,46 @@ router.get('/:id/preview/:workerId', requireAuth, requireAdmin, async (req, res)
   }
 });
 
+// Shared send logic — validates the document, blocks a second pending request
+// for the same worker+document, and creates the signature_requests row.
+// Returns { ok: true, reqId } or { ok: false, error }.
+const sendDocumentToWorker = async (doc, worker, locationsByName, adminId) => {
+  const isUpload = doc.type === 'uploaded';
+  if (doc.type !== 'template' && !isUpload) {
+    return { ok: false, error: `"${doc.name}" is not a sendable document` };
+  }
+  // The company must have signed the template itself, and that signature is
+  // only valid while the content is unchanged. Uploaded documents skip this —
+  // the worker signs first, then the company countersigns the request.
+  if (!isUpload && (!doc.admin_signed_at || doc.signed_content_hash !== contentHash(doc.content))) {
+    return { ok: false, error: `"${doc.name}" must be signed by an admin before it can be sent` };
+  }
+
+  const [[{ n }]] = await pool.query(
+    "SELECT COUNT(*) AS n FROM signature_requests WHERE document_id = ? AND worker_id = ? AND status = 'pending'",
+    [doc.id, worker.id]
+  );
+  if (n > 0) {
+    return { ok: false, skipped: true, error: `"${doc.name}" is already awaiting ${worker.name}'s signature` };
+  }
+
+  const reqId = generateId('SIG');
+  const rendered = isUpload
+    ? null
+    : stripSignaturePlaceholders(renderTemplate(doc.content || '', worker, locationsByName));
+  // Snapshot the template's company signature (and file id for uploads) onto
+  // the request so the final document carries both signatures.
+  await pool.query(
+    `INSERT INTO signature_requests
+     (id, document_id, worker_id, status, rendered_content, file_path, file_id, created_by_admin_id,
+      admin_signature_type, admin_signature_data, admin_signed_by, admin_signed_at, admin_signer_ip)
+     VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [reqId, doc.id, worker.id, rendered, doc.file_path, doc.file_id || null, adminId,
+     doc.admin_signature_type, doc.admin_signature_data, doc.admin_signed_by, doc.admin_signed_at, doc.admin_signer_ip]
+  );
+  return { ok: true, reqId };
+};
+
 // Send a template to a worker for signature (template-based only — Part 7)
 router.post('/:id/send', requireAuth, requireAdmin, async (req, res) => {
   try {
@@ -221,18 +304,6 @@ router.post('/:id/send', requireAuth, requireAdmin, async (req, res) => {
     const [docs] = await pool.query('SELECT * FROM documents WHERE id = ?', [req.params.id]);
     if (docs.length === 0) return res.status(404).json({ error: 'Document not found' });
     const doc = docs[0];
-    const isUpload = doc.type === 'uploaded';
-    if (doc.type !== 'template' && !isUpload) {
-      return res.status(400).json({ error: 'Only templates or uploaded documents can be sent for signature' });
-    }
-    // The company must have signed the template itself, and that signature is
-    // only valid while the content is unchanged. Uploaded documents skip this —
-    // the worker signs first, then the company countersigns the request.
-    if (!isUpload && (!doc.admin_signed_at || doc.signed_content_hash !== contentHash(doc.content))) {
-      return res.status(400).json({
-        error: 'This template must be signed by an admin before it can be sent — add the company signature to the template first.'
-      });
-    }
 
     const [workers] = await pool.query('SELECT * FROM workers WHERE id = ?', [workerId]);
     if (workers.length === 0) return res.status(404).json({ error: 'Worker not found' });
@@ -241,20 +312,10 @@ router.post('/:id/send', requireAuth, requireAdmin, async (req, res) => {
     const [locs] = await pool.query('SELECT id, name FROM locations');
     const locationsByName = Object.fromEntries(locs.map(l => [l.name, l]));
 
-    const reqId = generateId('SIG');
-    const rendered = isUpload
-      ? null
-      : stripSignaturePlaceholders(renderTemplate(doc.content || '', worker, locationsByName));
-    // Snapshot the template's company signature onto the request so the final
-    // document carries both signatures.
-    await pool.query(
-      `INSERT INTO signature_requests
-       (id, document_id, worker_id, status, rendered_content, file_path, created_by_admin_id,
-        admin_signature_type, admin_signature_data, admin_signed_by, admin_signed_at, admin_signer_ip)
-       VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [reqId, doc.id, workerId, rendered, doc.file_path, req.user.userId || null,
-       doc.admin_signature_type, doc.admin_signature_data, doc.admin_signed_by, doc.admin_signed_at, doc.admin_signer_ip]
-    );
+    const result = await sendDocumentToWorker(doc, worker, locationsByName, req.user.userId || null);
+    if (!result.ok) {
+      return res.status(result.skipped ? 409 : 400).json({ error: result.error });
+    }
 
     // Notify the worker by email
     await sendEmail({
@@ -266,10 +327,66 @@ router.post('/:id/send', requireAuth, requireAdmin, async (req, res) => {
       text: `${doc.name} has been sent to you for signing. Log in to your Worker Dashboard to review and sign it.`,
     });
 
-    res.status(201).json({ id: reqId, status: 'pending', message: 'Signature request sent' });
+    res.status(201).json({ id: result.reqId, status: 'pending', message: 'Signature request sent' });
   } catch (e) {
     console.error('Send signature request error:', e);
     res.status(500).json({ error: 'Failed to send signature request' });
+  }
+});
+
+// Send several documents to one worker in a single action — the worker ticks
+// which they agree to and signs once. Skips docs that already have a pending
+// request for that worker; one summary email is sent.
+router.post('/send-batch', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { workerId, documentIds } = req.body;
+    if (!workerId) return res.status(400).json({ error: 'workerId is required' });
+    if (!Array.isArray(documentIds) || documentIds.length === 0) {
+      return res.status(400).json({ error: 'documentIds must be a non-empty array' });
+    }
+
+    const [workers] = await pool.query('SELECT * FROM workers WHERE id = ?', [workerId]);
+    if (workers.length === 0) return res.status(404).json({ error: 'Worker not found' });
+    const worker = workers[0];
+
+    const [locs] = await pool.query('SELECT id, name FROM locations');
+    const locationsByName = Object.fromEntries(locs.map(l => [l.name, l]));
+
+    const sent = [];
+    const failed = [];
+    for (const docId of documentIds) {
+      const [docs] = await pool.query('SELECT * FROM documents WHERE id = ?', [docId]);
+      if (docs.length === 0) { failed.push({ documentId: docId, error: 'Document not found' }); continue; }
+      const result = await sendDocumentToWorker(docs[0], worker, locationsByName, req.user.userId || null);
+      if (result.ok) sent.push({ id: result.reqId, documentId: docId, name: docs[0].name });
+      else failed.push({ documentId: docId, name: docs[0].name, error: result.error });
+    }
+
+    if (sent.length > 0) {
+      const list = sent.map(s => s.name);
+      await sendEmail({
+        to: worker.email,
+        subject: `${sent.length} document${sent.length === 1 ? '' : 's'} to sign`,
+        html: `<h2>Documents awaiting your signature</h2>
+          <p>Hi ${worker.name},</p>
+          <p>The following documents have been sent to you for signing:</p>
+          <ul>${list.map(n => `<li><strong>${n}</strong></li>`).join('')}</ul>
+          <p>Log in to your Worker Dashboard to review, tick the ones you agree with, and sign.</p>`,
+        text: `Documents sent for signing: ${list.join(', ')}. Log in to your Worker Dashboard to review and sign.`,
+      });
+    }
+
+    res.status(sent.length ? 201 : 400).json({
+      sent: sent.length,
+      requests: sent,
+      failed,
+      message: sent.length
+        ? `${sent.length} signature request(s) sent${failed.length ? `, ${failed.length} skipped` : ''}`
+        : 'Nothing was sent',
+    });
+  } catch (e) {
+    console.error('Batch send error:', e);
+    res.status(500).json({ error: 'Failed to send signature requests' });
   }
 });
 
@@ -302,13 +419,48 @@ const loadRequestForWorker = async (reqId, workerId) => {
   return rows[0] || null;
 };
 
+// Apply the worker's signature to a pending request row. Returns the new
+// status ('signed' when the company signature is already attached,
+// 'worker_signed' when the admin still has to countersign).
+const applyWorkerSignature = async (r, signatureType, signatureData, ip) => {
+  const [w] = await pool.query('SELECT name FROM workers WHERE id = ?', [r.worker_id]);
+  const workerName = w[0]?.name || r.worker_id;
+  const companySigned = !!r.admin_signed_at;
+
+  // Company block first (it was signed at template creation), then the worker's.
+  let signedContent = r.rendered_content || `[Document: ${r.document_name}]`;
+  if (companySigned) {
+    signedContent +=
+      `\n\n---\nSigned by the Director of SSSL: ${r.admin_signed_by || 'Company'} on ${new Date(r.admin_signed_at).toISOString()}` +
+      (r.admin_signature_type === 'type'
+        ? `\nSignature (typed): ${r.admin_signature_data}`
+        : `\nSignature: [captured ${r.admin_signature_type} image — stored in admin_signature_data]`);
+  }
+  signedContent +=
+    `\n\nSigned by Worker: ${workerName} on ${new Date().toISOString()}` +
+    (signatureType === 'type'
+      ? `\nSignature (typed): ${signatureData}`
+      : `\nSignature: [captured ${signatureType} image — stored in signature_data]`) +
+    (ip ? `\nSigner IP: ${ip}` : '');
+
+  const newStatus = companySigned ? 'signed' : 'worker_signed';
+  await pool.query(
+    `UPDATE signature_requests
+     SET status=?, signed_at=NOW(), signature_type=?, signature_data=?, signer_ip=?, signed_content=?
+     WHERE id = ?`,
+    [newStatus, signatureType, signatureData, ip, signedContent, r.id]
+  );
+  return { newStatus, workerName, companySigned };
+};
+
 // Worker's own requests (identity from token only)
 router.get('/requests/mine', requireAuth, async (req, res) => {
   try {
     if (req.user.role !== 'worker') return res.status(403).json({ error: 'Workers only' });
     const [rows] = await pool.query(
       `SELECT r.id, r.document_id, d.name AS document_name, d.type AS document_type,
-              r.status, r.sent_at, r.viewed_at, r.signed_at, r.declined_at
+              r.status, r.sent_at, r.viewed_at, r.signed_at, r.declined_at,
+              (r.file_id IS NOT NULL OR d.file_id IS NOT NULL OR r.file_path IS NOT NULL OR d.file_path IS NOT NULL) AS has_file
        FROM signature_requests r
        JOIN documents d ON d.id = r.document_id
        WHERE r.worker_id = ?
@@ -354,33 +506,7 @@ router.post('/requests/:id/sign', requireAuth, async (req, res) => {
     }
 
     const ip = clientIp(req);
-    const [w] = await pool.query('SELECT name FROM workers WHERE id = ?', [r.worker_id]);
-    const workerName = w[0]?.name || r.worker_id;
-    const companySigned = !!r.admin_signed_at;
-
-    // Company block first (it was signed at template creation), then the worker's.
-    let signedContent = r.rendered_content || `[Document: ${r.document_name}]`;
-    if (companySigned) {
-      signedContent +=
-        `\n\n---\nSigned by the Director of SSSL: ${r.admin_signed_by || 'Company'} on ${new Date(r.admin_signed_at).toISOString()}` +
-        (r.admin_signature_type === 'type'
-          ? `\nSignature (typed): ${r.admin_signature_data}`
-          : `\nSignature: [captured ${r.admin_signature_type} image — stored in admin_signature_data]`);
-    }
-    signedContent +=
-      `\n\nSigned by Worker: ${workerName} on ${new Date().toISOString()}` +
-      (signatureType === 'type'
-        ? `\nSignature (typed): ${signatureData}`
-        : `\nSignature: [captured ${signatureType} image — stored in signature_data]`) +
-      (ip ? `\nSigner IP: ${ip}` : '');
-
-    const newStatus = companySigned ? 'signed' : 'worker_signed';
-    await pool.query(
-      `UPDATE signature_requests
-       SET status=?, signed_at=NOW(), signature_type=?, signature_data=?, signer_ip=?, signed_content=?
-       WHERE id = ?`,
-      [newStatus, signatureType, signatureData, ip, signedContent, req.params.id]
-    );
+    const { newStatus, workerName, companySigned } = await applyWorkerSignature(r, signatureType, signatureData, ip);
     await logAudit(req.params.id, 'worker_signed', ip);
 
     await pool.query(
@@ -396,6 +522,52 @@ router.post('/requests/:id/sign', requireAuth, async (req, res) => {
   } catch (e) {
     console.error('Sign error:', e);
     res.status(500).json({ error: 'Failed to sign' });
+  }
+});
+
+// Sign several pending requests at once — the worker ticks the documents they
+// agree with, then signs once. Every listed request must belong to them and
+// still be pending; anything else is reported back per id.
+router.post('/requests/sign-batch', requireAuth, async (req, res) => {
+  try {
+    if (req.user.role !== 'worker') return res.status(403).json({ error: 'Workers only' });
+    const { requestIds, signatureType, signatureData } = req.body;
+    if (!Array.isArray(requestIds) || requestIds.length === 0) {
+      return res.status(400).json({ error: 'requestIds must be a non-empty array' });
+    }
+    if (!['draw', 'type', 'upload'].includes(signatureType) || !signatureData) {
+      return res.status(400).json({ error: 'signatureType (draw|type|upload) and signatureData are required' });
+    }
+
+    const ip = clientIp(req);
+    const signed = [];
+    const failed = [];
+    let workerName = req.user.workerId;
+
+    for (const reqId of requestIds) {
+      const r = await loadRequestForWorker(reqId, req.user.workerId);
+      if (!r) { failed.push({ id: reqId, error: 'Request not found' }); continue; }
+      if (r.status !== 'pending') { failed.push({ id: reqId, name: r.document_name, error: `Already ${r.status}` }); continue; }
+      const result = await applyWorkerSignature(r, signatureType, signatureData, ip);
+      workerName = result.workerName;
+      await logAudit(reqId, 'worker_signed', ip);
+      signed.push({ id: reqId, name: r.document_name, status: result.newStatus });
+    }
+
+    if (signed.length > 0) {
+      const names = signed.map(s => `"${s.name}"`).join(', ');
+      await pool.query(
+        'INSERT INTO notifications (id, worker, worker_id, message, urgency) VALUES (?, ?, ?, ?, ?)',
+        [`SGN-BATCH-${Date.now()}`, workerName, req.user.workerId,
+         `[Signature] ${workerName} signed ${signed.length} document(s): ${names}.`,
+         'info']
+      );
+    }
+
+    res.json({ signed, failed });
+  } catch (e) {
+    console.error('Batch sign error:', e);
+    res.status(500).json({ error: 'Failed to sign documents' });
   }
 });
 
@@ -488,7 +660,8 @@ router.get('/requests', requireAuth, requireAdmin, async (req, res) => {
     const [rows] = await pool.query(
       `SELECT r.id, r.document_id, d.name AS document_name, d.type AS document_type,
               r.worker_id, w.name AS worker_name, r.status, r.file_path,
-              r.sent_at, r.signed_at, r.declined_at, r.admin_signed_at, r.admin_signed_by
+              r.sent_at, r.signed_at, r.declined_at, r.admin_signed_at, r.admin_signed_by,
+              (r.file_id IS NOT NULL OR d.file_id IS NOT NULL OR r.file_path IS NOT NULL OR d.file_path IS NOT NULL) AS has_file
        FROM signature_requests r
        JOIN documents d ON d.id = r.document_id
        JOIN workers w ON w.id = r.worker_id
@@ -505,7 +678,8 @@ router.get('/requests', requireAuth, requireAdmin, async (req, res) => {
 router.get('/requests/:id', requireAuth, async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT r.*, d.name AS document_name, d.type AS document_type, w.name AS worker_name
+      `SELECT r.*, d.name AS document_name, d.type AS document_type, w.name AS worker_name,
+              (r.file_id IS NOT NULL OR d.file_id IS NOT NULL OR r.file_path IS NOT NULL OR d.file_path IS NOT NULL) AS has_file
        FROM signature_requests r
        JOIN documents d ON d.id = r.document_id
        JOIN workers w ON w.id = r.worker_id
@@ -518,6 +692,7 @@ router.get('/requests/:id', requireAuth, async (req, res) => {
     if (req.user.role === 'worker' && r.worker_id !== req.user.workerId) {
       return res.status(403).json({ error: 'Access denied' });
     }
+    r.has_file = !!r.has_file;
     res.json(r);
   } catch (e) {
     console.error('Get request error:', e);

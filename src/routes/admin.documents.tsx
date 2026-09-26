@@ -7,7 +7,7 @@ import {
   DataTable, Th, Td, EmptyRow, Person, SectionTitle, StatusBadge,
 } from "@/components/hr/bits";
 import { useApi } from "@/lib/api-store";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, fetchFileUrl } from "@/lib/api-client";
 import { fmtDate } from "@/lib/hr-utils";
 import { downloadSignedPdf } from "@/lib/signed-pdf";
 
@@ -30,12 +30,12 @@ type Doc = {
 };
 
 type SigRequest = {
-  id: string; document_name: string; document_type: string;
+  id: string; document_id: string; document_name: string; document_type: string;
   worker_id: string; worker_name: string;
   status: "pending" | "worker_signed" | "signed" | "declined" | "cancelled";
   sent_at: string; signed_at: string | null; declined_at: string | null;
   admin_signed_at: string | null; admin_signed_by: string | null;
-  file_path: string | null;
+  file_path: string | null; has_file?: boolean | number;
 };
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -368,7 +368,7 @@ function UploadModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
       const fd = new FormData();
       fd.append("file", file);
       if (name.trim()) fd.append("name", name.trim());
-      await apiClient.uploadFile("/api/documents/upload", fd);
+      await apiClient.uploadFile("/documents/upload", fd);
       onSaved();
       onClose();
     } catch (e: any) {
@@ -409,15 +409,27 @@ function UploadModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
   );
 }
 
-function SendModal({ doc, onClose, onSaved }: { doc: Doc; onClose: () => void; onSaved: () => void }) {
+function SendModal({ doc, docs, requests, onClose, onSaved }: { doc: Doc | null; docs: Doc[]; requests: SigRequest[]; onClose: () => void; onSaved: () => void }) {
   const { workers } = useApi();
   const [workerId, setWorkerId] = useState("");
+  const [selected, setSelected] = useState<string[]>(doc ? [doc.id] : []);
   const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [result, setResult] = useState<{ sent: number; failed: { name: string; error: string }[] } | null>(null);
+
+  // Uploaded files can always be sent; templates need the company signature first.
+  const sendable = docs.filter((d) => d.type === "uploaded" || (d.type === "template" && !!d.admin_signed_at));
+  // Documents already waiting on this worker — sending again would duplicate.
+  const alreadyPending = new Set(
+    requests.filter((r) => r.worker_id === workerId && r.status === "pending").map((r) => r.document_id)
+  );
+
+  const toggle = (id: string) =>
+    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
   const loadPreview = async (wid: string) => {
-    if (doc.type !== "template" || !wid) { setPreview(null); return; }
+    if (!doc || doc.type !== "template" || !wid) { setPreview(null); return; }
     try {
       const d = await apiClient.get<{ rendered: string }>(`/api/documents/${doc.id}/preview/${wid}`);
       setPreview(d.rendered);
@@ -428,10 +440,25 @@ function SendModal({ doc, onClose, onSaved }: { doc: Doc; onClose: () => void; o
     e.preventDefault();
     setBusy(true);
     setErr(null);
+    setResult(null);
     try {
-      await apiClient.post(`/api/documents/${doc.id}/send`, { workerId });
+      const toSend = selected.filter((id) => !alreadyPending.has(id));
+      const res = await apiClient.post<{ sent: number; failed: { name: string; error: string }[] }>(
+        "/api/documents/send-batch",
+        { workerId, documentIds: toSend }
+      );
+      if (res.sent === 0) {
+        setErr(res.failed?.[0]?.error || "Nothing was sent");
+        return;
+      }
+      if (res.failed?.length) {
+        setResult(res);
+      } else {
+        onSaved();
+        onClose();
+        return;
+      }
       onSaved();
-      onClose();
     } catch (e: any) {
       setErr(e.message || "Failed to send");
     } finally {
@@ -440,7 +467,12 @@ function SendModal({ doc, onClose, onSaved }: { doc: Doc; onClose: () => void; o
   };
 
   return (
-    <Modal title={`Send for signature — ${doc.name}`} description="The worker will see this in their dashboard and get an email." onClose={onClose}>
+    <Modal
+      title="Send documents for signature"
+      description="Pick a worker, tick the documents to send, and they can review, agree and sign them in one go."
+      onClose={onClose}
+      wide
+    >
       <form onSubmit={submit} className="space-y-4">
         <Field label="Worker">
           <select
@@ -455,17 +487,55 @@ function SendModal({ doc, onClose, onSaved }: { doc: Doc; onClose: () => void; o
             ))}
           </select>
         </Field>
-        {preview != null && (
+
+        <Field label="Documents to send">
+          <div className="mt-1.5 max-h-56 overflow-y-auto rounded-lg border border-border divide-y divide-border">
+            {sendable.length === 0 && (
+              <p className="p-3 text-sm text-muted-foreground">No sendable documents — upload a file or sign a template first.</p>
+            )}
+            {sendable.map((d) => {
+              const pending = alreadyPending.has(d.id);
+              const checked = selected.includes(d.id);
+              return (
+                <label key={d.id} className={`flex items-center gap-3 px-3 py-2.5 text-sm ${pending ? "opacity-50" : "cursor-pointer hover:bg-secondary/50"}`}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={pending}
+                    onChange={() => toggle(d.id)}
+                    className="size-4 accent-primary"
+                  />
+                  <span className="flex-1 font-medium">{d.name}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {pending ? "already sent" : d.type === "template" ? "template" : "file"}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </Field>
+
+        {preview != null && selected.length === 1 && doc?.type === "template" && (
           <Field label="Rendered preview (placeholders filled)">
             <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border bg-secondary/50 p-3 text-xs">{preview}</pre>
           </Field>
         )}
         {err && <p className="text-sm text-danger">{err}</p>}
+        {result && (
+          <div className="rounded-lg border border-warning/40 bg-warning-soft px-3 py-2 text-sm">
+            <p className="font-medium">{result.sent} sent. {result.failed.length} skipped:</p>
+            <ul className="mt-1 list-disc pl-5 text-xs">
+              {result.failed.map((f, i) => <li key={i}>{f.name} — {f.error}</li>)}
+            </ul>
+          </div>
+        )}
         <div className="flex justify-end gap-2">
-          <GhostButton type="button" onClick={onClose}>Cancel</GhostButton>
-          <PrimaryButton type="submit" disabled={busy || !workerId}>
-            <Send className="size-4" /> {busy ? "Sending..." : "Send for Signature"}
-          </PrimaryButton>
+          <GhostButton type="button" onClick={onClose}>{result ? "Done" : "Cancel"}</GhostButton>
+          {!result && (
+            <PrimaryButton type="submit" disabled={busy || !workerId || selected.filter((id) => !alreadyPending.has(id)).length === 0}>
+              <Send className="size-4" /> {busy ? "Sending..." : `Send ${selected.length} document${selected.length === 1 ? "" : "s"}`}
+            </PrimaryButton>
+          )}
         </div>
       </form>
     </Modal>
@@ -536,15 +606,19 @@ function ViewModal({ req, onClose }: { req: SigRequest; onClose: () => void }) {
             </div>
           ) : detail.rendered_content ? (
             <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border bg-secondary/50 p-3 text-sm">{detail.rendered_content}</pre>
-          ) : detail.file_path ? (
-            <a
-              href={`http://localhost:3001/${String(detail.file_path).replace(/\\/g, "/")}`}
-              target="_blank"
-              rel="noreferrer"
-              className="text-sm text-primary underline"
+          ) : detail.has_file ? (
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const url = await fetchFileUrl(`/api/documents/requests/${req.id}/file`);
+                  window.open(url, "_blank", "noopener");
+                } catch { alert("Failed to load document file"); }
+              }}
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-primary underline"
             >
-              Open document file
-            </a>
+              <Download className="size-4" /> Open document file
+            </button>
           ) : (
             <p className="text-sm text-muted-foreground">No content available.</p>
           )}
@@ -562,7 +636,8 @@ function DocumentsPage() {
   const [requests, setRequests] = useState<SigRequest[]>([]);
   const [modal, setModal] = useState<"template" | "upload" | null>(null);
   const [editing, setEditing] = useState<Doc | null>(null);
-  const [sending, setSending] = useState<Doc | null>(null);
+  const [sendOpen, setSendOpen] = useState(false);
+  const [sendPreselect, setSendPreselect] = useState<Doc | null>(null);
   const [signing, setSigning] = useState<Doc | null>(null);
   const [viewing, setViewing] = useState<SigRequest | null>(null);
   const [countersigning, setCountersigning] = useState<SigRequest | null>(null);
@@ -619,6 +694,12 @@ function DocumentsPage() {
       title="Documents"
       action={
         <div className="flex gap-2">
+          <button
+            onClick={() => { setSendPreselect(null); setSendOpen(true); }}
+            className="flex h-9 items-center gap-2 rounded-lg border border-border px-4 text-sm font-medium hover:bg-secondary"
+          >
+            <Send className="size-4" /> Send to Worker
+          </button>
           <button onClick={() => setModal("upload")} className="flex h-9 items-center gap-2 rounded-lg border border-border px-4 text-sm font-medium hover:bg-secondary">
             <Upload className="size-4" /> Upload Document
           </button>
@@ -678,7 +759,7 @@ function DocumentsPage() {
                   )}
                   {canSend && (
                     <button
-                      onClick={() => setSending(d)}
+                      onClick={() => { setSendPreselect(d); setSendOpen(true); }}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-secondary"
                     >
                       <Send className="size-3.5" /> Send for Signature
@@ -787,7 +868,15 @@ function DocumentsPage() {
       )}
       {signing && <SignTemplateModal doc={signing} onClose={() => setSigning(null)} onDone={load} />}
       {countersigning && <CountersignModal req={countersigning} onClose={() => setCountersigning(null)} onDone={load} />}
-      {sending && <SendModal doc={sending} onClose={() => setSending(null)} onSaved={load} />}
+      {sendOpen && (
+        <SendModal
+          doc={sendPreselect}
+          docs={docs}
+          requests={requests}
+          onClose={() => setSendOpen(false)}
+          onSaved={load}
+        />
+      )}
       {viewing && <ViewModal req={viewing} onClose={() => setViewing(null)} />}
     </AdminShell>
   );
